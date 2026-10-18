@@ -1,0 +1,182 @@
+import { Injectable, inject, signal } from '@angular/core';
+import { StorageService } from './storage.service';
+import { WeatherService } from './weather.service';
+import { SOIL_SENSOR_PROVIDER } from './soil-sensor.provider';
+import {
+  DEFAULT_SETTINGS,
+  addDays,
+  applyIrrigation,
+  buildChart,
+  deficitFromHumidity,
+  evaluate,
+  overseedActive,
+  overseedDaysLeft,
+  planNotifications,
+  rollForward,
+  startOverseed,
+  toISODate,
+} from './irrigation-core';
+import type {
+  ChartDay,
+  DailyWeather,
+  DayRecord,
+  Evaluation,
+  IrrigationEvent,
+  PlannedNotification,
+  Settings,
+  WaterState,
+} from './models';
+
+export interface Snapshot {
+  settings: Settings;
+  state: WaterState;
+  today: string;
+  evaluation: Evaluation | null;
+  chart: ChartDay[];
+  overseedDaysLeft: number;
+  staleWeather: boolean;
+  error: string | null;
+}
+
+const SENSOR_MAX_AGE_MS = 3 * 3_600_000;
+
+/**
+ * IrrigationEngineService: orquesta el motor agronómico (reglas puras en irrigation-core.ts)
+ * con persistencia, clima y sensor. Es la única clase que muta el estado del balance hídrico.
+ */
+@Injectable({ providedIn: 'root' })
+export class IrrigationEngineService {
+  private storage = inject(StorageService);
+  private weather = inject(WeatherService);
+  private sensor = inject(SOIL_SENSOR_PROVIDER);
+
+  readonly snapshot = signal<Snapshot | null>(null);
+
+  private async loadAll() {
+    const settings = { ...DEFAULT_SETTINGS, ...(await this.storage.get<Partial<Settings>>('settings', {})) };
+    const state = await this.storage.get<WaterState>('state', {
+      deficitMm: 0, // suelo en capacidad de campo tras un riego profundo
+      asOf: toISODate(new Date()),
+      source: 'model',
+    });
+    const history = await this.storage.get<DayRecord[]>('history', []);
+    const irrigations = await this.storage.get<IrrigationEvent[]>('irrigations', []);
+    return { settings, state, history, irrigations };
+  }
+
+  /** Recalcula todo: avanza el balance hasta hoy, aplica sensor (si hay), evalúa y refresca el snapshot. */
+  async refresh(forceWeather = false): Promise<Snapshot> {
+    const now = new Date();
+    const today = toISODate(now);
+    const { settings, state: stored, history, irrigations } = await this.loadAll();
+
+    let days: DailyWeather[] = [];
+    let stale = false;
+    let error: string | null = null;
+    try {
+      ({ days, stale } = await this.weather.getForecast(settings, forceWeather));
+    } catch (e) {
+      error = 'Sin conexión y sin datos en caché. Se muestra el último balance guardado.';
+    }
+
+    // 1) Avanzar el balance hasta hoy y guardar el historial de días cerrados.
+    let state = stored;
+    if (days.length && stored.asOf < today) {
+      const rolled = rollForward(stored, days, today);
+      state = rolled.state;
+      const merged = new Map(history.map((h) => [h.date, h]));
+      rolled.days.forEach((d) => merged.set(d.date, d));
+      const cutoff = addDays(today, -30);
+      const trimmed = [...merged.values()].filter((h) => h.date >= cutoff).sort((a, b) => a.date.localeCompare(b.date));
+      await this.storage.set('history', trimmed);
+      history.splice(0, history.length, ...trimmed);
+    }
+
+    // 2) Fase 2: un sensor real sobrescribe el cálculo teórico.
+    try {
+      const reading = await this.sensor.read();
+      if (reading && Date.now() - Date.parse(reading.takenAt) < SENSOR_MAX_AGE_MS) {
+        state = { ...state, deficitMm: deficitFromHumidity(reading.moisturePct), source: 'sensor' };
+      }
+    } catch {
+      /* sensor caído: se mantiene el balance teórico */
+    }
+    await this.storage.set('state', state);
+
+    const evaluation = days.length ? evaluate(state, days, settings, today) : null;
+    const snap: Snapshot = {
+      settings,
+      state,
+      today,
+      evaluation,
+      chart: buildChart(today, history, days, irrigations),
+      overseedDaysLeft: overseedDaysLeft(state, today),
+      staleWeather: stale,
+      error,
+    };
+    this.snapshot.set(snap);
+    return snap;
+  }
+
+  /** Notificaciones que deben quedar programadas según el estado y pronóstico actuales. */
+  async plan(): Promise<PlannedNotification[]> {
+    const { settings, state } = await this.loadAll();
+    const { days } = await this.weather.getForecast(settings);
+    const { notifications, morningFor } = planNotifications({ state, weather: days, settings, now: new Date() });
+    if (morningFor && morningFor !== state.lastMorningScheduledFor) {
+      await this.storage.set('state', { ...state, lastMorningScheduledFor: morningFor });
+    }
+    return notifications;
+  }
+
+  // ───────────── Acciones del usuario ─────────────
+
+  /** "Ya regué" / "Registrar riego ahora": déficit → 0 mm y se anota en el historial. */
+  async registerIrrigation(source: IrrigationEvent['source'] = 'manual'): Promise<void> {
+    await this.refresh();
+    const { state, irrigations } = await this.loadAll();
+    const mm = state.deficitMm;
+    const event: IrrigationEvent = { date: toISODate(new Date()), at: new Date().toISOString(), mm, source };
+    await this.storage.set('irrigations', [...irrigations, event].slice(-200));
+    await this.storage.set('state', { ...applyIrrigation(state), snoozedDate: undefined });
+    await this.refresh();
+  }
+
+  /** "Ajustar humedad manualmente": fija el déficit a un valor (0 = muy húmedo, 12+ = muy seco). */
+  async setDeficit(mm: number): Promise<void> {
+    const { state } = await this.loadAll();
+    await this.storage.set('state', { ...state, deficitMm: Math.max(0, mm), source: 'manual' });
+    await this.refresh();
+  }
+
+  /** "Posponer a mañana": mantiene el déficit y silencia las alertas de hoy. */
+  async snoozeToday(): Promise<void> {
+    const { state } = await this.loadAll();
+    await this.storage.set('state', { ...state, snoozedDate: toISODate(new Date()) });
+    await this.refresh();
+  }
+
+  async setOverseed(active: boolean): Promise<void> {
+    const { state } = await this.loadAll();
+    const today = toISODate(new Date());
+    const next = active ? startOverseed(state, today) : { ...state, overseedUntil: undefined };
+    await this.storage.set('state', next);
+    await this.refresh();
+  }
+
+  async saveSettings(partial: Partial<Settings>): Promise<void> {
+    const { settings } = await this.loadAll();
+    await this.storage.set('settings', { ...settings, ...partial });
+    await this.refresh(true);
+  }
+
+  /** Estado + ajustes que necesita el worker en segundo plano para evaluar sin la app abierta. */
+  async exportForRunner(): Promise<{ settings: Settings; state: WaterState }> {
+    const { settings, state } = await this.loadAll();
+    return { settings, state };
+  }
+
+  isOverseedActive(state: WaterState): boolean {
+    return overseedActive(state, toISODate(new Date()));
+  }
+}

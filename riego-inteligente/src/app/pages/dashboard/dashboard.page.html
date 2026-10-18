@@ -1,0 +1,81 @@
+<ion-header>
+  <ion-toolbar>
+    <ion-title>💧 Riego Inteligente</ion-title>
+    <ion-buttons slot="end">
+      <ion-button routerLink="/settings" aria-label="Ajustes"><ion-icon slot="icon-only" name="settings-outline" /></ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content>
+  <ion-refresher slot="fixed" (ionRefresh)="refresh($event)"><ion-refresher-content /></ion-refresher>
+
+  @if (snap(); as s) {
+    @if (s.staleWeather || s.error) {
+      <p class="banner">{{ s.error ?? 'Sin conexión: usando el último pronóstico guardado.' }}</p>
+    }
+
+    <!-- Indicador principal -->
+    <section class="gauge">
+      <svg viewBox="0 0 200 200" role="img" [attr.aria-label]="'Déficit ' + deficit() + ' milímetros, humedad útil ' + humidity() + ' por ciento'">
+        <circle class="track" cx="100" cy="100" [attr.r]="ringR" />
+        <circle class="value" cx="100" cy="100" [attr.r]="ringR" [attr.stroke]="ringColor()"
+                [attr.stroke-dasharray]="ringLen" [attr.stroke-dashoffset]="ringOffset()" transform="rotate(-90 100 100)" />
+        <text x="100" y="98" class="big">{{ deficit() }} mm</text>
+        <text x="100" y="122" class="small">déficit hídrico</text>
+        <text x="100" y="144" class="small">{{ humidity() }}% humedad útil</text>
+      </svg>
+      @if (s.state.source !== 'model') {
+        <span class="chip">{{ s.state.source === 'sensor' ? 'Dato de sensor' : 'Ajuste manual' }}</span>
+      }
+    </section>
+
+    <!-- Estado de hoy -->
+    <ion-card class="status" [class]="'status ' + status().cls">
+      <ion-card-content>
+        <strong>{{ status().title }}</strong>
+        <span>{{ status().detail }}</span>
+        @if (s.evaluation; as ev) {
+          <small>ETc ayer {{ ev.etcYesterdayMm.toFixed(1) }} mm · Kc {{ ev.kc }} · Máx {{ ev.tempMaxC.toFixed(0) }}°C</small>
+        }
+      </ion-card-content>
+    </ion-card>
+
+    <!-- Acciones rápidas -->
+    <div class="actions">
+      <ion-button expand="block" (click)="registerIrrigation()"><ion-icon slot="start" name="water-outline" />Registrar Riego Ahora</ion-button>
+      <ion-button expand="block" fill="outline" (click)="adjustManually()"><ion-icon slot="start" name="create-outline" />Ajustar humedad manualmente</ion-button>
+    </div>
+
+    <!-- Modo resiembra -->
+    <ion-card>
+      <ion-item lines="none">
+        <ion-label>
+          <h2>🌱 Modo Resiembra (10 días)</h2>
+          <p>{{ overseedOn() ? 'Quedan ' + s.overseedDaysLeft + ' días · aviso extra a las 13:00 si hace ≥ 20 °C' : 'Desactivado' }}</p>
+        </ion-label>
+        <ion-toggle slot="end" [checked]="overseedOn()" (ionChange)="toggleOverseed($event)" aria-label="Modo Resiembra" />
+      </ion-item>
+    </ion-card>
+
+    <!-- Gráfico 7 días -->
+    <ion-card>
+      <ion-card-header><ion-card-title>Últimos 7 días</ion-card-title></ion-card-header>
+      <ion-card-content>
+        <svg viewBox="0 0 320 160" class="chart" role="img" aria-label="Barras de agua perdida (ETc) frente a agua repuesta (riego y lluvia)">
+          @for (b of bars(); track b.label) {
+            <rect [attr.x]="b.etc.x" [attr.y]="b.etc.y" [attr.width]="b.w" [attr.height]="b.etc.h" rx="2" class="etc" [class.est]="b.estimated" />
+            <rect [attr.x]="b.water.x" [attr.y]="b.water.y" [attr.width]="b.w" [attr.height]="b.water.h" rx="2" class="water" />
+            <text [attr.x]="b.lx" y="150" class="tick">{{ b.label }}</text>
+          }
+        </svg>
+        <div class="legend">
+          <span><i class="etc"></i>Agua perdida (ETc)</span>
+          <span><i class="water"></i>Agua repuesta (riego + lluvia)</span>
+        </div>
+      </ion-card-content>
+    </ion-card>
+  } @else {
+    <p class="banner">Calculando balance hídrico…</p>
+  }
+</ion-content>

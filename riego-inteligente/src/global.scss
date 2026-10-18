@@ -1,0 +1,20 @@
+@import '@ionic/angular/css/core.css';
+@import '@ionic/angular/css/normalize.css';
+@import '@ionic/angular/css/structure.css';
+@import '@ionic/angular/css/typography.css';
+@import '@ionic/angular/css/padding.css';
+@import '@ionic/angular/css/flex-utils.css';
+@import '@ionic/angular/css/display.css';
+/* Modo oscuro/claro automático según el sistema */
+@import '@ionic/angular/css/palettes/dark.system.css';
+
+:root {
+  --ri-ok: #2e9e5b;
+  --ri-water: #2f80ed;
+  --ri-warn: #e09a1a;
+  --ri-paused: #8a94a6;
+  --ri-etc: #e0803a;
+  --ri-in: #2f80ed;
+  --ion-color-primary: #2e9e5b;
+  --ion-color-primary-contrast: #ffffff;
+}
