@@ -30,7 +30,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx cap sync android
-      - run: chmod +x android/gradlew && ./gradlew assembleDebug
+      - run: chmod +x gradlew && ./gradlew assembleDebug
         working-directory: riego-inteligente/android
       - uses: actions/upload-artifact@v4
         with:
