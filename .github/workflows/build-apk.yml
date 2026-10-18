@@ -1,0 +1,48 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/smart-irrigation-android-6cp57w]
+    paths: ['riego-inteligente/**', '.github/workflows/build-apk.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: riego-inteligente
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: riego-inteligente/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx cap sync android
+      - run: chmod +x android/gradlew && ./gradlew assembleDebug
+        working-directory: riego-inteligente/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: riego-inteligente-debug-apk
+          path: riego-inteligente/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Publicar Release con el APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk riego-inteligente.apk
+          gh release delete apk-latest --yes --cleanup-tag || true
+          gh release create apk-latest riego-inteligente.apk \
+            --title "Riego Inteligente (APK de prueba)" \
+            --notes "APK debug compilado desde ${{ github.sha }}" \
+            --target ${{ github.sha }} --prerelease
