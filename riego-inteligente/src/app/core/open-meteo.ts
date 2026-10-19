@@ -12,6 +12,7 @@ export function forecastUrl(lat: number, lon: number): string {
 }
 
 interface OpenMeteoResponse {
+  elevation?: number;
   daily: {
     time: string[];
     et0_fao_evapotranspiration: (number | null)[];
@@ -37,8 +38,55 @@ export function parseForecast(json: OpenMeteoResponse): DailyWeather[] {
 }
 
 /** Cliente sin dependencias: sirve en la app (fetch del WebView) y en el worker (fetch del runner). */
-export async function fetchForecast(lat: number, lon: number): Promise<DailyWeather[]> {
+export async function fetchForecastWithMeta(
+  lat: number,
+  lon: number,
+): Promise<{ days: DailyWeather[]; elevationM: number | null }> {
   const res = await fetch(forecastUrl(lat, lon));
   if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
-  return parseForecast((await res.json()) as OpenMeteoResponse);
+  const json = (await res.json()) as OpenMeteoResponse;
+  return { days: parseForecast(json), elevationM: typeof json.elevation === 'number' ? json.elevation : null };
+}
+
+export async function fetchForecast(lat: number, lon: number): Promise<DailyWeather[]> {
+  return (await fetchForecastWithMeta(lat, lon)).days;
+}
+
+// ───────────── Geocodificación (gratis, sin API key) ─────────────
+
+export interface Place {
+  label: string;
+  latitude: number;
+  longitude: number;
+}
+
+/** Busca ciudades/comunas por nombre (Open-Meteo Geocoding). */
+export async function searchPlaces(query: string): Promise<Place[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=es&format=json`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Geocoding HTTP ${res.status}`);
+  const json = (await res.json()) as {
+    results?: { name: string; admin1?: string; country?: string; latitude: number; longitude: number }[];
+  };
+  return (json.results ?? []).map((r) => ({
+    label: [r.name, r.admin1 ?? r.country].filter(Boolean).join(', '),
+    latitude: Math.round(r.latitude * 100) / 100,
+    longitude: Math.round(r.longitude * 100) / 100,
+  }));
+}
+
+/** Nombre del lugar para unas coordenadas (BigDataCloud, endpoint gratuito de cliente). */
+export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+  try {
+    const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=es`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const j = (await res.json()) as { locality?: string; city?: string; principalSubdivision?: string };
+    const parts = [j.locality || j.city, j.principalSubdivision].filter(Boolean);
+    return parts.length ? [...new Set(parts)].join(', ') : null;
+  } catch {
+    return null;
+  }
 }

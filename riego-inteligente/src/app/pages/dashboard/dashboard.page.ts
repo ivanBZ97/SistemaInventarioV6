@@ -1,5 +1,5 @@
 import { Component, OnInit, computed, inject } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import {
   AlertController,
   IonButton,
@@ -21,10 +21,11 @@ import {
   ToastController,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { settingsOutline, waterOutline, createOutline } from 'ionicons/icons';
+import { settingsOutline, waterOutline, createOutline, locationOutline } from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
+import { LocationService } from '../../core/location.service';
 import { round1 } from '../../core/irrigation-core';
 
 const RING_R = 82;
@@ -44,15 +45,17 @@ export class DashboardPage implements OnInit {
   private engine = inject(IrrigationEngineService);
   private notifications = inject(NotificationService);
   private background = inject(BackgroundService);
+  private location = inject(LocationService);
   private alerts = inject(AlertController);
   private toasts = inject(ToastController);
+  private router = inject(Router);
 
   readonly snap = this.engine.snapshot;
   readonly ringLen = RING_LEN;
   readonly ringR = RING_R;
 
   constructor() {
-    addIcons({ settingsOutline, waterOutline, createOutline });
+    addIcons({ settingsOutline, waterOutline, createOutline, locationOutline });
   }
 
   readonly deficit = computed(() => round1(this.snap()?.evaluation?.deficitMm ?? this.snap()?.state.deficitMm ?? 0));
@@ -94,7 +97,59 @@ export class DashboardPage implements OnInit {
   });
 
   async ngOnInit(): Promise<void> {
-    if (!this.snap()) await this.engine.refresh();
+    const snap = this.snap() ?? (await this.engine.refresh());
+    if (!snap.settings.locationSet) await this.askLocation();
+  }
+
+  readonly placeLabel = computed(() => {
+    const s = this.snap();
+    if (!s) return '';
+    const name = s.settings.placeName ?? `${s.settings.latitude}, ${s.settings.longitude}`;
+    return s.elevationM != null ? `${name} · ${Math.round(s.elevationM)} m` : name;
+  });
+
+  /** Primer arranque: sin esto el clima sería el de Santiago (coordenadas por defecto). */
+  private async askLocation(): Promise<void> {
+    const alert = await this.alerts.create({
+      header: '📍 ¿Dónde está tu jardín?',
+      message:
+        'El riego se calcula con el clima de tu ubicación. Por ahora se usa Santiago de Chile. ' +
+        'Usamos solo una ubicación aproximada (~1 km).',
+      backdropDismiss: false,
+      buttons: [
+        {
+          text: 'Usar mi ubicación',
+          handler: () => {
+            this.useGps();
+            return true;
+          },
+        },
+        { text: 'Buscar ciudad', handler: () => { this.router.navigateByUrl('/settings'); return true; } },
+        {
+          text: 'Mantener Santiago',
+          role: 'cancel',
+          handler: () => { this.engine.saveSettings({ locationSet: true }); },
+        },
+      ],
+    });
+    await alert.present();
+  }
+
+  private async useGps(): Promise<void> {
+    const fix = await this.location.detect();
+    if (!fix) {
+      (await this.toasts.create({ message: 'No se pudo obtener la ubicación. Búscala por ciudad en Ajustes.', duration: 3000 })).present();
+      return;
+    }
+    await this.engine.saveSettings({
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      placeName: fix.placeName ?? undefined,
+      useGps: true,
+      locationSet: true,
+    });
+    await this.notifications.reschedule();
+    await this.background.sync();
   }
 
   async refresh(ev?: CustomEvent): Promise<void> {

@@ -106,6 +106,12 @@ Atajo: `npm run apk:debug`. Para depurar en un dispositivo: `npx cap run android
 En el primer arranque la app pide el permiso de notificaciones; en **Ajustes → Alarmas exactas** abre la pantalla
 del sistema para permitir "Alarmas y recordatorios" (Android 12+).
 
+## Ubicación
+
+Primer arranque: la app pregunta dónde está el jardín (GPS aproximado ~1 km o búsqueda por ciudad con la API
+de geocodificación de Open-Meteo). Muestra el nombre y la altitud en el Dashboard; con "Actualizar ubicación
+automáticamente" la recalcula al volver a la app si te moviste más de 10 km (sin pedir permisos nuevos).
+
 ## Fase 2: sensor de suelo
 
 `SoilSensorProvider` (`core/soil-sensor.provider.ts`) define `isAvailable()` y `read(): SoilReading | null`

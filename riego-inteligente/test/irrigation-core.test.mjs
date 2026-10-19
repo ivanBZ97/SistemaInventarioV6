@@ -105,3 +105,9 @@ test('modo resiembra: 10 días y alerta 13:00 solo si tmax ≥ 20 °C', () => {
   const cold = [wx('2026-01-12'), wx('2026-01-13', { tempMaxC: 15 }), wx('2026-01-14')];
   assert.ok(!c.planNotifications({ state: st, weather: cold, settings: S, now }).notifications.some((x) => x.id === c.NOTIF_ID_OVERSEED));
 });
+
+test('distanceKm: Santiago ↔ Valparaíso ≈ 100 km; mismo punto = 0', () => {
+  assert.equal(c.distanceKm(-33.59, -70.7, -33.59, -70.7), 0);
+  const d = c.distanceKm(-33.45, -70.66, -33.05, -71.62);
+  assert.ok(d > 95 && d < 115, String(d));
+});

@@ -59,6 +59,7 @@ export class NotificationService {
 
     // Al volver a primer plano se refresca el balance y se reprograman las alertas.
     await App.addListener('resume', async () => {
+      await this.engine.updateLocationIfMoved();
       await this.engine.refresh();
       await this.reschedule();
     });

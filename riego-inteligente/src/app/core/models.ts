@@ -8,8 +8,12 @@ export interface Settings {
   sprinklerRateMmMin: number;
   latitude: number;
   longitude: number;
-  /** true si las coordenadas vienen del GPS; false = valores por defecto/manuales. */
+  /** true = la app actualiza sola la ubicación si te mueves (> 10 km). */
   useGps: boolean;
+  /** Nombre legible del lugar (p. ej. "Pudahuel, Región Metropolitana"). */
+  placeName?: string;
+  /** false hasta que el usuario elige ubicación (GPS o búsqueda): dispara el aviso de primer arranque. */
+  locationSet: boolean;
 }
 
 export interface WaterState {

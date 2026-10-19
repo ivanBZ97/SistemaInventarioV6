@@ -18,7 +18,20 @@ export const DEFAULT_SETTINGS: Settings = {
   latitude: -33.59,
   longitude: -70.7,
   useGps: false,
+  locationSet: false,
 };
+
+/** Distancia en km entre dos coordenadas (haversine). */
+export function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad;
+  const dLon = (lon2 - lon1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(a));
+}
+
+/** Si te mueves más de esto, el clima de la ubicación anterior ya no vale. */
+export const MOVED_THRESHOLD_KM = 10;
 
 export const THRESHOLD_MIN_MM = 6;
 export const THRESHOLD_MAX_MM = 12;

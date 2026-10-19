@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { StorageService } from './storage.service';
 import { WeatherService } from './weather.service';
+import { LocationService } from './location.service';
 import { SOIL_SENSOR_PROVIDER } from './soil-sensor.provider';
 import {
   DEFAULT_SETTINGS,
@@ -35,6 +36,7 @@ export interface Snapshot {
   chart: ChartDay[];
   overseedDaysLeft: number;
   staleWeather: boolean;
+  elevationM: number | null;
   error: string | null;
 }
 
@@ -48,6 +50,7 @@ const SENSOR_MAX_AGE_MS = 3 * 3_600_000;
 export class IrrigationEngineService {
   private storage = inject(StorageService);
   private weather = inject(WeatherService);
+  private location = inject(LocationService);
   private sensor = inject(SOIL_SENSOR_PROVIDER);
 
   readonly snapshot = signal<Snapshot | null>(null);
@@ -72,9 +75,10 @@ export class IrrigationEngineService {
 
     let days: DailyWeather[] = [];
     let stale = false;
+    let elevationM: number | null = null;
     let error: string | null = null;
     try {
-      ({ days, stale } = await this.weather.getForecast(settings, forceWeather));
+      ({ days, stale, elevationM } = await this.weather.getForecast(settings, forceWeather));
     } catch (e) {
       error = 'Sin conexión y sin datos en caché. Se muestra el último balance guardado.';
     }
@@ -112,6 +116,7 @@ export class IrrigationEngineService {
       chart: buildChart(today, history, days, irrigations),
       overseedDaysLeft: overseedDaysLeft(state, today),
       staleWeather: stale,
+      elevationM,
       error,
     };
     this.snapshot.set(snap);
@@ -168,6 +173,15 @@ export class IrrigationEngineService {
     const { settings } = await this.loadAll();
     await this.storage.set('settings', { ...settings, ...partial });
     await this.refresh(true);
+  }
+
+  /** Si el usuario se movió > 10 km (y activó la ubicación automática), actualiza sin pedir permisos. */
+  async updateLocationIfMoved(): Promise<boolean> {
+    const { settings } = await this.loadAll();
+    const moved = await this.location.detectIfMoved(settings);
+    if (!moved) return false;
+    await this.saveSettings(moved);
+    return true;
   }
 
   /** Estado + ajustes que necesita el worker en segundo plano para evaluar sin la app abierta. */

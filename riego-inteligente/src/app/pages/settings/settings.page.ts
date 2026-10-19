@@ -12,6 +12,7 @@ import {
   IonListHeader,
   IonNote,
   IonRange,
+  IonToggle,
   IonTitle,
   IonToolbar,
   ToastController,
@@ -19,7 +20,8 @@ import {
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
-import { WeatherService } from '../../core/weather.service';
+import { LocationService } from '../../core/location.service';
+import { Place, searchPlaces } from '../../core/open-meteo';
 import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, clamp } from '../../core/irrigation-core';
 
 @Component({
@@ -27,7 +29,7 @@ import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, clamp } from '../
   standalone: true,
   imports: [
     IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonList, IonListHeader,
-    IonItem, IonLabel, IonRange, IonInput, IonButton, IonNote,
+    IonItem, IonLabel, IonRange, IonInput, IonButton, IonNote, IonToggle,
   ],
   template: `
     <ion-header>
@@ -51,6 +53,26 @@ import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, clamp } from '../
         </ion-item>
 
         <ion-list-header>Ubicación</ion-list-header>
+        <ion-item lines="none">
+          <ion-label class="ion-text-wrap">
+            📍 {{ placeName() || 'Ubicación sin nombre' }}
+            <p>{{ lat() }}, {{ lon() }}@if (elevation() !== null) { · {{ elevation() }} m }</p>
+          </ion-label>
+        </ion-item>
+        <ion-item>
+          <ion-input type="search" label="Buscar ciudad o comuna" labelPlacement="stacked" placeholder="p. ej. Rancagua"
+                     [value]="query()" (ionInput)="query.set($any($event).detail.value ?? '')" (keyup.enter)="search()" />
+          <ion-button slot="end" fill="outline" (click)="search()">Buscar</ion-button>
+        </ion-item>
+        @for (r of results(); track r.label + r.latitude) {
+          <ion-item button detail="false" (click)="pick(r)"><ion-label>{{ r.label }}</ion-label></ion-item>
+        }
+        <ion-item>
+          <ion-toggle [checked]="auto()" (ionChange)="auto.set($any($event).detail.checked)">
+            Actualizar ubicación automáticamente
+            <p>Si te mueves más de 10 km</p>
+          </ion-toggle>
+        </ion-item>
         <ion-item>
           <ion-input type="number" inputmode="decimal" label="Latitud" labelPlacement="stacked"
                      [value]="lat()" (ionInput)="lat.set(+$any($event).detail.value)" />
@@ -82,7 +104,7 @@ export class SettingsPage implements OnInit {
   private engine = inject(IrrigationEngineService);
   private notifications = inject(NotificationService);
   private background = inject(BackgroundService);
-  private weather = inject(WeatherService);
+  private location = inject(LocationService);
   private toasts = inject(ToastController);
 
   readonly min = THRESHOLD_MIN_MM;
@@ -91,6 +113,11 @@ export class SettingsPage implements OnInit {
   rate = signal(DEFAULT_SETTINGS.sprinklerRateMmMin);
   lat = signal(DEFAULT_SETTINGS.latitude);
   lon = signal(DEFAULT_SETTINGS.longitude);
+  placeName = signal<string | undefined>(undefined);
+  elevation = signal<number | null>(null);
+  auto = signal(false);
+  query = signal('');
+  results = signal<Place[]>([]);
 
   async ngOnInit(): Promise<void> {
     const s = this.engine.snapshot() ?? (await this.engine.refresh());
@@ -98,6 +125,9 @@ export class SettingsPage implements OnInit {
     this.rate.set(s.settings.sprinklerRateMmMin);
     this.lat.set(s.settings.latitude);
     this.lon.set(s.settings.longitude);
+    this.placeName.set(s.settings.placeName);
+    this.elevation.set(s.elevationM !== null ? Math.round(s.elevationM) : null);
+    this.auto.set(s.settings.useGps);
   }
 
   private async toast(message: string): Promise<void> {
@@ -105,11 +135,32 @@ export class SettingsPage implements OnInit {
   }
 
   async useGps(): Promise<void> {
-    const pos = await this.weather.locate();
-    if (!pos) return this.toast('No se pudo obtener la ubicación; se mantienen las coordenadas.');
-    this.lat.set(pos.latitude);
-    this.lon.set(pos.longitude);
-    this.toast(`Ubicación: ${pos.latitude}, ${pos.longitude}`);
+    const fix = await this.location.detect();
+    if (!fix) return this.toast('No se pudo obtener la ubicación; busca tu ciudad o ingresa las coordenadas.');
+    this.lat.set(fix.latitude);
+    this.lon.set(fix.longitude);
+    this.placeName.set(fix.placeName ?? undefined);
+    this.auto.set(true);
+    this.toast(`Ubicación: ${fix.placeName ?? fix.latitude + ', ' + fix.longitude}`);
+  }
+
+  async search(): Promise<void> {
+    try {
+      const found = await searchPlaces(this.query());
+      this.results.set(found);
+      if (!found.length) this.toast('Sin resultados');
+    } catch {
+      this.toast('No se pudo buscar (¿sin conexión?)');
+    }
+  }
+
+  pick(place: Place): void {
+    this.lat.set(place.latitude);
+    this.lon.set(place.longitude);
+    this.placeName.set(place.label);
+    this.auto.set(false);
+    this.results.set([]);
+    this.elevation.set(null);
   }
 
   async permissions(): Promise<void> {
@@ -129,6 +180,9 @@ export class SettingsPage implements OnInit {
       sprinklerRateMmMin: rate,
       latitude: clamp(this.lat(), -90, 90),
       longitude: clamp(this.lon(), -180, 180),
+      placeName: this.placeName(),
+      useGps: this.auto(),
+      locationSet: true,
     });
     await this.notifications.reschedule();
     await this.background.sync();

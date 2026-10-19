@@ -17,6 +17,7 @@ export class AppComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.notifications.init();
+    await this.engine.updateLocationIfMoved();
     await this.engine.refresh();
     await this.notifications.reschedule();
     await this.background.sync();
