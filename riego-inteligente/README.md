@@ -101,6 +101,7 @@ Atajo: `npm run apk:debug`. Para depurar en un dispositivo: `npx cap run android
 <uses-permission android:name="android.permission.WAKE_LOCK" />
 <uses-permission android:name="android.permission.VIBRATE" />
 <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 ```
 
 En el primer arranque la app pide el permiso de notificaciones; en **Ajustes → Alarmas exactas** abre la pantalla
@@ -108,7 +109,7 @@ del sistema para permitir "Alarmas y recordatorios" (Android 12+).
 
 ## Ubicación
 
-Primer arranque: la app pregunta dónde está el jardín (GPS aproximado ~1 km o búsqueda por ciudad con la API
+Primer arranque: la app pregunta dónde está el jardín (GPS aproximado ~1 km, GPS preciso ~10 m estando en el jardín, o búsqueda por ciudad con la API
 de geocodificación de Open-Meteo). Muestra el nombre y la altitud en el Dashboard; con "Actualizar ubicación
 automáticamente" la recalcula al volver a la app si te moviste más de 10 km (sin pedir permisos nuevos).
 

@@ -82,7 +82,8 @@ import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, clamp } from '../
                      [value]="lon()" (ionInput)="lon.set(+$any($event).detail.value)" />
         </ion-item>
         <ion-item lines="none">
-          <ion-button fill="outline" (click)="useGps()">Usar mi ubicación (GPS)</ion-button>
+          <ion-button fill="outline" (click)="useGps()">GPS aproximado</ion-button>
+          <ion-button fill="outline" (click)="usePreciseGps()">GPS preciso (en el jardín)</ion-button>
         </ion-item>
 
         <ion-list-header>Notificaciones</ion-list-header>
@@ -142,6 +143,18 @@ export class SettingsPage implements OnInit {
     this.placeName.set(fix.placeName ?? undefined);
     this.auto.set(true);
     this.toast(`Ubicación: ${fix.placeName ?? fix.latitude + ', ' + fix.longitude}`);
+  }
+
+  /** GPS de alta precisión (~10 m): úsalo parado en el jardín. Fija el punto (sin auto-actualizar). */
+  async usePreciseGps(): Promise<void> {
+    this.toast('Obteniendo ubicación precisa… (puede tardar hasta 30 s, mejor al aire libre)');
+    const fix = await this.location.detect(true);
+    if (!fix) return this.toast('No se pudo obtener la ubicación precisa. Revisa el permiso de ubicación precisa.');
+    this.lat.set(fix.latitude);
+    this.lon.set(fix.longitude);
+    this.placeName.set(fix.placeName ?? undefined);
+    this.auto.set(false);
+    this.toast(`Punto fijado (±${fix.accuracyM} m). Pulsa Guardar.`);
   }
 
   async search(): Promise<void> {
