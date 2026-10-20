@@ -2,39 +2,64 @@ import type { DailyWeather } from './models';
 
 export const OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast';
 
+/** Modelos que se promedian (mejor que depender de uno solo). */
+export const MODELS = ['ecmwf_ifs025', 'gfs_seamless', 'icon_seamless'] as const;
+
 export function forecastUrl(lat: number, lon: number): string {
   return (
     `${OPEN_METEO_URL}?latitude=${lat}&longitude=${lon}` +
     '&daily=et0_fao_evapotranspiration,precipitation_sum,precipitation_probability_max,' +
     'temperature_2m_max,wind_speed_10m_max' +
-    '&hourly=soil_moisture_0_to_7cm&timezone=auto&past_days=2'
+    '&hourly=soil_moisture_0_to_7cm&timezone=auto&past_days=2' +
+    `&models=${MODELS.join(',')}`
   );
 }
 
 interface OpenMeteoResponse {
   elevation?: number;
-  daily: {
-    time: string[];
-    et0_fao_evapotranspiration: (number | null)[];
-    precipitation_sum: (number | null)[];
-    precipitation_probability_max: (number | null)[];
-    temperature_2m_max: (number | null)[];
-    wind_speed_10m_max: (number | null)[];
-  };
+  /** Con `models=` cada variable llega como `<variable>_<modelo>`; sin él, con su nombre simple. */
+  daily: { time: string[]; [key: string]: unknown };
 }
 
-/** Convierte la respuesta cruda de Open-Meteo en filas diarias (nulls → 0). */
+type Series = (number | null)[];
+
+/** Series de una variable: una por modelo disponible, o la serie simple si no hay sufijos. */
+function seriesOf(daily: OpenMeteoResponse['daily'], name: string): Series[] {
+  const perModel = MODELS.map((m) => daily[`${name}_${m}`]).filter(Array.isArray) as Series[];
+  if (perModel.length) return perModel;
+  return Array.isArray(daily[name]) ? [daily[name] as Series] : [];
+}
+
+function mean(values: (number | null | undefined)[]): number | null {
+  const v = values.filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+}
+
+/**
+ * Convierte la respuesta en filas diarias promediando los modelos disponibles (los nulls no cuentan).
+ * La probabilidad de lluvia no existe en todos los modelos: si ninguno la entrega, se estima como el
+ * porcentaje de modelos que pronostican ≥ 1 mm.
+ */
 export function parseForecast(json: OpenMeteoResponse): DailyWeather[] {
   const d = json.daily;
   if (!d?.time) throw new Error('Respuesta de Open-Meteo sin datos diarios');
-  return d.time.map((date, i) => ({
-    date,
-    et0Mm: d.et0_fao_evapotranspiration[i] ?? 0,
-    precipitationMm: d.precipitation_sum[i] ?? 0,
-    precipitationProbMax: d.precipitation_probability_max[i] ?? 0,
-    tempMaxC: d.temperature_2m_max[i] ?? 0,
-    windMaxKmh: d.wind_speed_10m_max[i] ?? 0,
-  }));
+  const et0 = seriesOf(d, 'et0_fao_evapotranspiration');
+  const rain = seriesOf(d, 'precipitation_sum');
+  const prob = seriesOf(d, 'precipitation_probability_max');
+  const tmax = seriesOf(d, 'temperature_2m_max');
+  const wind = seriesOf(d, 'wind_speed_10m_max');
+  return d.time.map((date, i) => {
+    const rains = rain.map((s) => s[i]).filter((x): x is number => typeof x === 'number');
+    const proxy = rains.length ? (100 * rains.filter((x) => x >= 1).length) / rains.length : 0;
+    return {
+      date,
+      et0Mm: mean(et0.map((s) => s[i])) ?? 0,
+      precipitationMm: mean(rains) ?? 0,
+      precipitationProbMax: mean(prob.map((s) => s[i])) ?? proxy,
+      tempMaxC: mean(tmax.map((s) => s[i])) ?? 0,
+      windMaxKmh: mean(wind.map((s) => s[i])) ?? 0,
+    };
+  });
 }
 
 /** Cliente sin dependencias: sirve en la app (fetch del WebView) y en el worker (fetch del runner). */

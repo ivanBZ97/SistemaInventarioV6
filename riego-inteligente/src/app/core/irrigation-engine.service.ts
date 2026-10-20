@@ -37,6 +37,8 @@ export interface Snapshot {
   overseedDaysLeft: number;
   staleWeather: boolean;
   elevationM: number | null;
+  /** Estación INIA que aportó la lluvia observada, o null si se usa el modelo. */
+  rainSource: string | null;
   error: string | null;
 }
 
@@ -76,9 +78,10 @@ export class IrrigationEngineService {
     let days: DailyWeather[] = [];
     let stale = false;
     let elevationM: number | null = null;
+    let rainSource: string | null = null;
     let error: string | null = null;
     try {
-      ({ days, stale, elevationM } = await this.weather.getForecast(settings, forceWeather));
+      ({ days, stale, elevationM, rainSource } = await this.weather.getForecast(settings, forceWeather));
     } catch (e) {
       error = 'Sin conexión y sin datos en caché. Se muestra el último balance guardado.';
     }
@@ -117,6 +120,7 @@ export class IrrigationEngineService {
       overseedDaysLeft: overseedDaysLeft(state, today),
       staleWeather: stale,
       elevationM,
+      rainSource,
       error,
     };
     this.snapshot.set(snap);

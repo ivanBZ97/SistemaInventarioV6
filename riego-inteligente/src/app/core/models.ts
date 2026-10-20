@@ -12,8 +12,20 @@ export interface Settings {
   useGps: boolean;
   /** Nombre legible del lugar (p. ej. "Pudahuel, Región Metropolitana"). */
   placeName?: string;
+  /** Estación agroclimática INIA (lluvia observada). Opcional. */
+  agromet?: AgrometConfig;
   /** false hasta que el usuario elige ubicación (GPS o búsqueda): dispara el aviso de primer arranque. */
   locationSet: boolean;
+}
+
+export interface AgrometConfig {
+  /** Clave personal de la API de INIA Agromet. */
+  apiKey: string;
+  stationId: string;
+  stationName: string;
+  distanceKm: number;
+  /** Identificador de la variable de precipitación de esa estación (se busca por nombre). */
+  rainVariableId: string;
 }
 
 export interface WaterState {

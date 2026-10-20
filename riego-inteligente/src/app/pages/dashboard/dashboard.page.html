@@ -11,6 +11,7 @@
   <ion-refresher slot="fixed" (ionRefresh)="refresh($event)"><ion-refresher-content /></ion-refresher>
 
   @if (snap(); as s) {
+    @if (s.rainSource) { <p class="place">🌧️ Lluvia observada: {{ s.rainSource }}</p> }
     @if (s.staleWeather || s.error) {
       <p class="banner">{{ s.error ?? 'Sin conexión: usando el último pronóstico guardado.' }}</p>
     }

@@ -1,8 +1,9 @@
 // Worker en segundo plano (@capacitor/background-runner). Corre en un motor JS aislado, sin DOM:
 // solo dispone de fetch, CapacitorKV y CapacitorNotifications. Se empaqueta con esbuild en un único
 // archivo (runners/background.js) e incluye el mismo motor agronómico que usa la app.
-import { planNotifications } from '../src/app/core/irrigation-core';
+import { planNotifications, toISODate } from '../src/app/core/irrigation-core';
 import { fetchForecast } from '../src/app/core/open-meteo';
+import { applyObservedRain } from '../src/app/core/agromet';
 import type { Settings, WaterState } from '../src/app/core/models';
 
 declare const CapacitorKV: {
@@ -46,7 +47,8 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
   try {
     const snap = load();
     if (!snap) return resolve(); // la app aún no ha sincronizado
-    const weather = await fetchForecast(snap.settings.latitude, snap.settings.longitude);
+    const forecast = await fetchForecast(snap.settings.latitude, snap.settings.longitude);
+    const { days: weather } = await applyObservedRain(forecast, snap.settings.agromet, toISODate(new Date()));
     const { notifications, morningFor } = planNotifications({ ...snap, weather, now: new Date() });
     if (notifications.length) {
       CapacitorNotifications.schedule(

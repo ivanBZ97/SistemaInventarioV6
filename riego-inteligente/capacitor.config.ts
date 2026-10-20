@@ -7,6 +7,8 @@ const config: CapacitorConfig = {
   appName: 'Riego Inteligente',
   webDir: 'www',
   plugins: {
+    // fetch nativo: evita bloqueos CORS al llamar a la API de INIA Agromet desde el WebView
+    CapacitorHttp: { enabled: true },
     // Worker nativo (WorkManager) que ejecuta runner/background.ts (compilado a runners/background.js)
     BackgroundRunner: {
       label: 'cl.riego.inteligente.check',

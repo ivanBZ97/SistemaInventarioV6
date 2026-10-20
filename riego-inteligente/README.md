@@ -113,6 +113,20 @@ Primer arranque: la app pregunta dónde está el jardín (GPS aproximado ~1 km, 
 de geocodificación de Open-Meteo). Muestra el nombre y la altitud en el Dashboard; con "Actualizar ubicación
 automáticamente" la recalcula al volver a la app si te moviste más de 10 km (sin pedir permisos nuevos).
 
+## Fuentes de clima
+
+- **Open-Meteo multi-modelo:** pide ECMWF IFS, GFS e ICON en la misma consulta y promedia ET0, lluvia,
+  temperatura y viento (los modelos sin dato no cuentan). Si ningún modelo entrega probabilidad de lluvia, se
+  estima como el % de modelos que pronostican ≥ 1 mm.
+- **Lluvia observada (opcional, INIA Agromet):** con una clave personal de la API (`https://agromet.inia.cl/api/v2/`),
+  Ajustes → "Buscar estación cercana" elige la estación más próxima que mida precipitación (la variable se
+  busca por nombre, porque los IDs numéricos no son consistentes). Esa lluvia medida reemplaza a la del modelo
+  en los días ya pasados, que es la que alimenta el balance. Si la estación falla, se usa el modelo.
+  "Probar" muestra la lluvia por día que reporta la estación para contrastarla con la realidad.
+
+Pendiente de validar con una clave real: formato exacto de `tiempo` (se asume hora local si no trae zona) y
+la cadencia de las muestras. Se activa `CapacitorHttp` para evitar bloqueos CORS desde el WebView.
+
 ## Fase 2: sensor de suelo
 
 `SoilSensorProvider` (`core/soil-sensor.provider.ts`) define `isAvailable()` y `read(): SoilReading | null`

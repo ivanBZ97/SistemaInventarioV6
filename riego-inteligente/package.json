@@ -7,7 +7,7 @@
     "start": "ng serve",
     "build": "npm run build:runner && ng build",
     "build:runner": "esbuild runner/background.ts --bundle --format=iife --target=es2019 --outfile=runner/dist/background.js",
-    "test": "node --test \"test/*.test.mjs\"",
+    "test": "esbuild test/*.test.mjs --bundle --platform=node --format=esm --outdir=.test-dist --out-extension:.js=.mjs --log-level=warning && node --test \".test-dist/*.test.mjs\"",
     "cap:sync": "npm run build && cap sync android",
     "apk:debug": "npm run cap:sync && cd android && ./gradlew assembleDebug"
   },

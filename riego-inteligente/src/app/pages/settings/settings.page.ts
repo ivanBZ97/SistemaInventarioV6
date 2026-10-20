@@ -22,7 +22,9 @@ import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
 import { Place, searchPlaces } from '../../core/open-meteo';
-import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, clamp } from '../../core/irrigation-core';
+import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../core/agromet';
+import type { AgrometConfig } from '../../core/models';
+import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate } from '../../core/irrigation-core';
 
 @Component({
   selector: 'app-settings',
@@ -86,6 +88,30 @@ import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, clamp } from '../
           <ion-button fill="outline" (click)="usePreciseGps()">GPS preciso (en el jardín)</ion-button>
         </ion-item>
 
+        <ion-list-header>Lluvia observada (estación INIA Agromet)</ion-list-header>
+        <ion-item lines="none">
+          <ion-label class="ion-text-wrap">
+            Usa la lluvia medida por la estación agroclimática más cercana en vez de la del modelo (opcional).
+            Requiere una clave personal de la API de INIA: agromet.inia.cl/api/v2
+          </ion-label>
+        </ion-item>
+        <ion-item>
+          <ion-input type="password" label="Clave de API de Agromet" labelPlacement="stacked"
+                     [value]="agrometKey()" (ionInput)="agrometKey.set($any($event).detail.value ?? '')" />
+        </ion-item>
+        @if (agromet(); as a) {
+          <ion-item lines="none">
+            <ion-label class="ion-text-wrap">📡 {{ a.stationName }} · {{ a.distanceKm.toFixed(1) }} km</ion-label>
+          </ion-item>
+        }
+        <ion-item lines="none">
+          <ion-button fill="outline" (click)="findStation()">Buscar estación cercana</ion-button>
+          @if (agromet()) {
+            <ion-button fill="outline" (click)="testStation()">Probar</ion-button>
+            <ion-button fill="outline" color="medium" (click)="agromet.set(undefined)">Quitar</ion-button>
+          }
+        </ion-item>
+
         <ion-list-header>Notificaciones</ion-list-header>
         <ion-item lines="none">
           <ion-label class="ion-text-wrap">
@@ -117,6 +143,8 @@ export class SettingsPage implements OnInit {
   placeName = signal<string | undefined>(undefined);
   elevation = signal<number | null>(null);
   auto = signal(false);
+  agromet = signal<AgrometConfig | undefined>(undefined);
+  agrometKey = signal('');
   query = signal('');
   results = signal<Place[]>([]);
 
@@ -129,6 +157,8 @@ export class SettingsPage implements OnInit {
     this.placeName.set(s.settings.placeName);
     this.elevation.set(s.elevationM !== null ? Math.round(s.elevationM) : null);
     this.auto.set(s.settings.useGps);
+    this.agromet.set(s.settings.agromet);
+    this.agrometKey.set(s.settings.agromet?.apiKey ?? '');
   }
 
   private async toast(message: string): Promise<void> {
@@ -155,6 +185,41 @@ export class SettingsPage implements OnInit {
     this.placeName.set(fix.placeName ?? undefined);
     this.auto.set(false);
     this.toast(`Punto fijado (±${fix.accuracyM} m). Pulsa Guardar.`);
+  }
+
+  /** Busca la estación INIA más cercana que mida precipitación. */
+  async findStation(): Promise<void> {
+    const apiKey = this.agrometKey().trim();
+    if (!apiKey) return this.toast('Ingresa tu clave de API de Agromet');
+    this.toast('Buscando estaciones…');
+    try {
+      const near = nearestStations(await listStations(apiKey), this.lat(), this.lon(), 6);
+      if (!near.length) return this.toast('La API no devolvió estaciones');
+      for (const st of near) {
+        const rainVariableId = await findRainVariable(apiKey, st.id);
+        if (!rainVariableId) continue; // estación sin pluviómetro
+        this.agromet.set({ apiKey, stationId: st.id, stationName: `${st.name}${st.comuna ? ', ' + st.comuna : ''}`, distanceKm: st.distanceKm, rainVariableId });
+        return this.toast(`Estación: ${st.name} a ${st.distanceKm.toFixed(1)} km. Pulsa Guardar.`);
+      }
+      this.toast('Las estaciones cercanas no miden lluvia');
+    } catch (e) {
+      this.toast(e instanceof Error ? e.message : 'No se pudo consultar Agromet');
+    }
+  }
+
+  /** Muestra la lluvia que reporta la estación (para contrastar con tu pluviómetro o la realidad). */
+  async testStation(): Promise<void> {
+    const cfg = this.agromet();
+    if (!cfg) return;
+    try {
+      const today = toISODate(new Date());
+      const obs = await fetchObservedRain({ ...cfg, apiKey: this.agrometKey().trim() || cfg.apiKey }, addDays(today, -2), today);
+      if (!obs.size) return this.toast('Sin muestras recientes en la estación');
+      const txt = [...obs.entries()].sort().map(([d, mm]) => `${d.slice(5)}: ${round1(mm)} mm`).join(' · ');
+      this.toast(`Lluvia observada → ${txt}`);
+    } catch (e) {
+      this.toast(e instanceof Error ? e.message : 'No se pudo consultar Agromet');
+    }
   }
 
   async search(): Promise<void> {
@@ -194,6 +259,7 @@ export class SettingsPage implements OnInit {
       latitude: clamp(this.lat(), -90, 90),
       longitude: clamp(this.lon(), -180, 180),
       placeName: this.placeName(),
+      agromet: this.agromet() ? { ...this.agromet()!, apiKey: this.agrometKey().trim() || this.agromet()!.apiKey } : undefined,
       useGps: this.auto(),
       locationSet: true,
     });
