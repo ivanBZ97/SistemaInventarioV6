@@ -37,6 +37,10 @@
       <ion-card-content>
         <strong>{{ status().title }}</strong>
         <span>{{ status().detail }}</span>
+        @if (outlook(); as o) {
+          @if (o.rain) { <span>{{ o.rain }}</span> }
+          <span>{{ o.tomorrow }}</span>
+        }
         @if (s.evaluation; as ev) {
           <small>ETc ayer {{ ev.etcYesterdayMm.toFixed(1) }} mm · Kc {{ ev.kc }} · Máx {{ ev.tempMaxC.toFixed(0) }}°C</small>
         }

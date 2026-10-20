@@ -169,6 +169,8 @@ export function evaluate(
   const rainBlock =
     today.precipitationProbMax >= RAIN_PROB_BLOCK_PCT || today.precipitationMm >= RAIN_SUM_BLOCK_MM;
   const needs = deficit >= settings.thresholdMm;
+  const etcToday = etc(today.et0Mm, date);
+  const rainToday = effectiveRain(today.precipitationMm);
   return {
     date,
     status: !needs ? 'ok' : rainBlock ? 'paused_rain' : 'irrigate',
@@ -179,6 +181,9 @@ export function evaluate(
     tempMaxC: today.tempMaxC,
     rainProbPct: today.precipitationProbMax,
     rainForecastMm: today.precipitationMm,
+    effectiveRainTodayMm: rainToday,
+    etcTodayMm: etcToday,
+    projectedDeficitMm: Math.max(0, deficit + etcToday - rainToday),
     windMaxKmh: today.windMaxKmh,
     windWarning: today.windMaxKmh > WIND_WARN_KMH,
     rainBlock,

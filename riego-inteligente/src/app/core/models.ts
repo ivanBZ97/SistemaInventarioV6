@@ -64,6 +64,11 @@ export interface Evaluation {
   tempMaxC: number;
   rainProbPct: number;
   rainForecastMm: number;
+  /** Lluvia efectiva prevista hoy (80 % si > 2 mm); se descuenta del balance mañana. */
+  effectiveRainTodayMm: number;
+  etcTodayMm: number;
+  /** Déficit esperado mañana: hoy + ETc de hoy − lluvia efectiva de hoy. */
+  projectedDeficitMm: number;
   windMaxKmh: number;
   windWarning: boolean;
   rainBlock: boolean;

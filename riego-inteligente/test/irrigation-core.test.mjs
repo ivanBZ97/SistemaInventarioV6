@@ -52,6 +52,16 @@ test('bloqueo por lluvia (prob ≥ 50 % o ≥ 4 mm) y aviso de viento', () => {
   assert.equal(c.evaluate(state({ deficitMm: 0 }), base.slice(0, 2), S, '2026-01-11').status, 'ok');
 });
 
+test('proyección de mañana descuenta la lluvia prevista de hoy', () => {
+  const w = [wx('2026-01-12'), wx('2026-01-13', { precipitationMm: 10 })];
+  const ev = c.evaluate(state({ asOf: '2026-01-13', deficitMm: 6 }), w, S, '2026-01-13');
+  assert.equal(ev.deficitMm, 6);                       // hoy aún no cuenta la lluvia de hoy
+  assert.equal(ev.effectiveRainTodayMm, 8);
+  assert.ok(Math.abs(ev.projectedDeficitMm - (6 + 3.4 - 8)) < 1e-9);
+  const small = c.evaluate(state({ asOf: '2026-01-13', deficitMm: 6 }), [wx('2026-01-13', { precipitationMm: 1.5 })], S, '2026-01-13');
+  assert.equal(small.effectiveRainTodayMm, 0);         // < 2 mm no cuenta
+});
+
 test('humedad útil: 0 mm → 100 %, 12 mm → 20 %', () => {
   assert.equal(c.humidityPct(0), 100);
   assert.equal(c.humidityPct(12), 20);

@@ -74,6 +74,19 @@ export class DashboardPage implements OnInit {
     return { cls: 'ok', title: 'No regar hoy (Suelo húmedo)', detail: `Déficit ${round1(ev.deficitMm)} mm · umbral ${this.snap()?.settings.thresholdMm} mm` };
   });
 
+  /** Lluvia de hoy y déficit proyectado para mañana (la lluvia de hoy se descuenta mañana). */
+  readonly outlook = computed(() => {
+    const ev = this.snap()?.evaluation;
+    if (!ev) return null;
+    const rain =
+      ev.rainForecastMm > 0 || ev.rainProbPct >= 30
+        ? `🌧️ Hoy: ${round1(ev.rainForecastMm)} mm previstos (${Math.round(ev.rainProbPct)}% prob.)` +
+          (ev.effectiveRainTodayMm > 0 ? ` · ${round1(ev.effectiveRainTodayMm)} mm útiles` : ' · lluvia insuficiente (< 2 mm)')
+        : null;
+    const tomorrow = `Mañana: ~${round1(ev.projectedDeficitMm)} mm de déficit (ETc −${round1(ev.etcTodayMm)}, lluvia +${round1(ev.effectiveRainTodayMm)})`;
+    return { rain, tomorrow };
+  });
+
   readonly overseedOn = computed(() => (this.snap()?.overseedDaysLeft ?? 0) > 0);
 
   // Gráfico de 7 días (SVG)
