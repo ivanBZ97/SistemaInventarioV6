@@ -121,3 +121,25 @@ test('distanceKm: Santiago ↔ Valparaíso ≈ 100 km; mismo punto = 0', () => {
   const d = c.distanceKm(-33.45, -70.66, -33.05, -71.62);
   assert.ok(d > 95 && d < 115, String(d));
 });
+
+import * as lm from '../src/app/core/lawn-mood.ts';
+
+test('pasto mascota: ánimo según humedad y decisión', () => {
+  assert.equal(lm.lawnMood(100, 'ok'), 'happy');
+  assert.equal(lm.lawnMood(70, 'ok'), 'content');
+  assert.equal(lm.lawnMood(50, 'ok'), 'thirsty');
+  assert.equal(lm.lawnMood(46, 'irrigate'), 'thirsty');
+  assert.equal(lm.lawnMood(46, 'paused_rain'), 'thirsty');
+  assert.equal(lm.lawnMood(20, 'irrigate'), 'wilted');
+});
+
+test('pasto mascota: escena del clima y frases', () => {
+  const ev = { rainProbPct: 0, rainForecastMm: 0, windWarning: false, tempMaxC: 25 };
+  assert.equal(lm.lawnScene(ev), 'sun');
+  assert.equal(lm.lawnScene({ ...ev, rainProbPct: 60 }), 'rain');
+  assert.equal(lm.lawnScene({ ...ev, rainForecastMm: 1 }), 'rain');
+  assert.equal(lm.lawnScene({ ...ev, windWarning: true }), 'wind');
+  assert.equal(lm.lawnScene({ ...ev, tempMaxC: 10 }), 'cloud');
+  assert.ok(lm.lawnMessages('thirsty', 'sun', { minutes: 15, rainForecastMm: 0, windMaxKmh: 0 })[0].includes('15 min'));
+  assert.ok(lm.lawnMessages('happy', 'rain', { minutes: 0, rainForecastMm: 12, windMaxKmh: 0 }).some((m) => m.includes('lluvia')));
+});

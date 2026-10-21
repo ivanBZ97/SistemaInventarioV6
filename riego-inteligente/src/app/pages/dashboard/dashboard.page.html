@@ -1,9 +1,21 @@
-<ion-header>
+<ion-header class="ion-no-border">
   <ion-toolbar>
-    <ion-title>💧 Riego Inteligente</ion-title>
-    <ion-buttons slot="end">
-      <ion-button routerLink="/settings" aria-label="Ajustes"><ion-icon slot="icon-only" name="settings-outline" /></ion-button>
-    </ion-buttons>
+    <div class="appbar">
+      <svg class="logo" viewBox="0 0 40 40" aria-hidden="true">
+        <rect width="40" height="40" rx="12" class="logo-bg" />
+        <path class="logo-drop" d="M20 8c-5 7-8 11-8 15a8 8 0 0 0 16 0c0-4-3-8-8-15Z" />
+        <path class="logo-leaf" d="M20 31c0-6 2-9 6-11-1 5-3 9-6 11Z" />
+      </svg>
+      <div class="appbar-text">
+        <span class="md-title-large">Riego</span>
+        @if (placeLabel()) {
+          <button class="loc" routerLink="/settings"><ion-icon name="location-outline" />{{ placeLabel() }}</button>
+        }
+      </div>
+      <ion-button fill="clear" class="icon-btn" routerLink="/settings" aria-label="Ajustes">
+        <ion-icon slot="icon-only" name="settings-outline" />
+      </ion-button>
+    </div>
   </ion-toolbar>
 </ion-header>
 
@@ -11,78 +23,154 @@
   <ion-refresher slot="fixed" (ionRefresh)="refresh($event)"><ion-refresher-content /></ion-refresher>
 
   @if (snap(); as s) {
-    @if (s.rainSource) { <p class="place">🌧️ Lluvia observada: {{ s.rainSource }}</p> }
     @if (s.staleWeather || s.error) {
-      <p class="banner">{{ s.error ?? 'Sin conexión: usando el último pronóstico guardado.' }}</p>
+      <div class="md-banner md-body-medium">{{ s.error ?? 'Sin conexión. Se muestra el último pronóstico guardado.' }}</div>
     }
 
-    <p class="place"><ion-icon name="location-outline" /> {{ placeLabel() }}</p>
-
-    <!-- Indicador principal -->
-    <section class="gauge">
-      <svg viewBox="0 0 200 200" role="img" [attr.aria-label]="'Déficit ' + deficit() + ' milímetros, humedad útil ' + humidity() + ' por ciento'">
-        <circle class="track" cx="100" cy="100" [attr.r]="ringR" />
-        <circle class="value" cx="100" cy="100" [attr.r]="ringR" [attr.stroke]="ringColor()"
-                [attr.stroke-dasharray]="ringLen" [attr.stroke-dashoffset]="ringOffset()" transform="rotate(-90 100 100)" />
-        <text x="100" y="98" class="big">{{ deficit() }} mm</text>
-        <text x="100" y="122" class="small">déficit hídrico</text>
-        <text x="100" y="144" class="small">{{ humidity() }}% humedad útil</text>
-      </svg>
-      @if (s.state.source !== 'model') {
-        <span class="chip">{{ s.state.source === 'sensor' ? 'Dato de sensor' : 'Ajuste manual' }}</span>
+    <!-- Tarjeta principal -->
+    <section class="hero">
+      <app-lawn-hero [mood]="mood()" [scene]="scene()" [messages]="messages()" />
+      <div class="hero-body">
+        <div class="hero-figure">
+          <span class="md-display-large">{{ humidity() }}<span class="unit">%</span></span>
+          <span class="md-label-large md-variant">Humedad útil del suelo</span>
+        </div>
+        <div class="hero-side">
+          <span class="md-title-large">{{ fmt(deficit()) }} mm</span>
+          <span class="md-body-small md-variant">déficit hídrico</span>
+        </div>
+      </div>
+      <div class="progress" [class]="'progress ' + level()" role="progressbar" [attr.aria-valuenow]="humidity()" aria-valuemin="0" aria-valuemax="100">
+        <div class="active" [style.width.%]="humidity()"></div>
+        <div class="stop" [style.left.%]="thresholdPct()"></div>
+      </div>
+      <div class="scale md-body-small md-variant">
+        <span>Crítico</span>
+        <span class="scale-thr" [style.left.%]="thresholdPct()">Riego · {{ fmt(s.settings.thresholdMm) }} mm</span>
+        <span>Pleno</span>
+      </div>
+      @if (s.state.source !== 'model' || s.rainSource) {
+        <div class="hero-tags">
+          @if (s.state.source === 'sensor') { <span class="tag">Dato de sensor</span> }
+          @if (s.state.source === 'manual') { <span class="tag">Ajustado manualmente</span> }
+          @if (s.rainSource) { <span class="tag">Lluvia medida en {{ s.rainSource }}</span> }
+        </div>
       }
     </section>
 
-    <!-- Estado de hoy -->
-    <ion-card class="status" [class]="'status ' + status().cls">
-      <ion-card-content>
-        <strong>{{ status().title }}</strong>
-        <span>{{ status().detail }}</span>
-        @if (outlook(); as o) {
-          @if (o.rain) { <span>{{ o.rain }}</span> }
-          <span>{{ o.tomorrow }}</span>
-        }
-        @if (s.evaluation; as ev) {
-          <small>ETc ayer {{ ev.etcYesterdayMm.toFixed(1) }} mm · Kc {{ ev.kc }} · Máx {{ ev.tempMaxC.toFixed(0) }}°C</small>
-        }
-      </ion-card-content>
-    </ion-card>
+    <!-- Recomendación -->
+    <section class="rec" [class]="'rec ' + status().cls">
+      <div class="rec-icon"><ion-icon [name]="status().icon" /></div>
+      <div class="rec-text">
+        <span class="md-label-medium overline">Recomendación de hoy</span>
+        <span class="md-title-large">{{ status().title }}</span>
+        <span class="md-body-medium">{{ status().detail }}</span>
+      </div>
+      <ion-button class="md-tonal rec-action" size="small" (click)="openAdjust()">
+        <ion-icon slot="start" name="options-outline" />Ajustar humedad
+      </ion-button>
+    </section>
 
-    <!-- Acciones rápidas -->
-    <div class="actions">
-      <ion-button expand="block" (click)="registerIrrigation()"><ion-icon slot="start" name="water-outline" />Registrar Riego Ahora</ion-button>
-      <ion-button expand="block" fill="outline" (click)="adjustManually()"><ion-icon slot="start" name="create-outline" />Ajustar humedad manualmente</ion-button>
+    <!-- Hoy -->
+    @if (tiles().length) {
+      <h2 class="section md-title-medium">Hoy en tu jardín</h2>
+      <div class="tiles">
+        @for (t of tiles(); track t.label) {
+          <div class="tile" [class.warn]="t.warn">
+            <ion-icon [name]="t.icon" />
+            <span class="md-label-medium md-variant">{{ t.label }}</span>
+            <span class="md-headline-small">{{ t.value }}</span>
+            <span class="md-body-small md-variant">{{ t.note }}</span>
+          </div>
+        }
+      </div>
+      @if (tomorrow(); as tm) {
+        <div class="tile wide">
+          <ion-icon name="trending-up-outline" />
+          <div class="wide-text">
+            <span class="md-label-medium md-variant">Déficit estimado para mañana</span>
+            <span class="md-headline-small">{{ tm.value }}</span>
+            <span class="md-body-small md-variant">{{ tm.note }}</span>
+          </div>
+        </div>
+      }
+    }
+
+    <!-- Resiembra -->
+    <h2 class="section md-title-medium">Cuidados</h2>
+    <div class="list-card">
+      <div class="list-item">
+        <div class="li-icon"><ion-icon name="flower-outline" /></div>
+        <div class="li-text">
+          <span class="md-body-large">Modo Resiembra</span>
+          <span class="md-body-medium md-variant">
+            {{ overseedOn() ? 'Quedan ' + s.overseedDaysLeft + ' días · aviso a las 13:00 si hace ≥ 20 °C' : '10 días de humedad extra para semillas nuevas' }}
+          </span>
+        </div>
+        <ion-toggle [checked]="overseedOn()" (ionChange)="toggleOverseed($event)" aria-label="Modo Resiembra" />
+      </div>
     </div>
 
-    <!-- Modo resiembra -->
-    <ion-card>
-      <ion-item lines="none">
-        <ion-label>
-          <h2>🌱 Modo Resiembra (10 días)</h2>
-          <p>{{ overseedOn() ? 'Quedan ' + s.overseedDaysLeft + ' días · aviso extra a las 13:00 si hace ≥ 20 °C' : 'Desactivado' }}</p>
-        </ion-label>
-        <ion-toggle slot="end" [checked]="overseedOn()" (ionChange)="toggleOverseed($event)" aria-label="Modo Resiembra" />
-      </ion-item>
-    </ion-card>
-
-    <!-- Gráfico 7 días -->
-    <ion-card>
-      <ion-card-header><ion-card-title>Últimos 7 días</ion-card-title></ion-card-header>
-      <ion-card-content>
-        <svg viewBox="0 0 320 160" class="chart" role="img" aria-label="Barras de agua perdida (ETc) frente a agua repuesta (riego y lluvia)">
-          @for (b of bars(); track b.label) {
-            <rect [attr.x]="b.etc.x" [attr.y]="b.etc.y" [attr.width]="b.w" [attr.height]="b.etc.h" rx="2" class="etc" [class.est]="b.estimated" />
-            <rect [attr.x]="b.water.x" [attr.y]="b.water.y" [attr.width]="b.w" [attr.height]="b.water.h" rx="2" class="water" />
-            <text [attr.x]="b.lx" y="150" class="tick">{{ b.label }}</text>
-          }
-        </svg>
-        <div class="legend">
-          <span><i class="etc"></i>Agua perdida (ETc)</span>
-          <span><i class="water"></i>Agua repuesta (riego + lluvia)</span>
+    <!-- Balance 7 días -->
+    <h2 class="section md-title-medium">Balance de 7 días</h2>
+    <div class="chart-card">
+      @if (selectedDay(); as d) {
+        <div class="chart-head">
+          <span class="md-title-small">{{ d.title }}</span>
+          <div class="chart-kpis">
+            <div><i class="dot loss"></i><span class="md-title-large">{{ d.loss }}</span><span class="md-body-small md-variant"> mm perdidos</span></div>
+            <div><i class="dot gain"></i><span class="md-title-large">{{ d.gain }}</span><span class="md-body-small md-variant"> mm repuestos</span></div>
+          </div>
+          <span class="md-body-small md-variant">{{ d.detail }}</span>
         </div>
-      </ion-card-content>
-    </ion-card>
+      }
+      <svg viewBox="0 0 320 152" class="chart" role="img" aria-label="Agua perdida por evapotranspiración frente a agua repuesta por riego y lluvia">
+        <line x1="8" [attr.y1]="chartH + 0.5" x2="312" [attr.y2]="chartH + 0.5" class="axis" />
+        @for (b of bars(); track $index; let i = $index) {
+          <g class="day" [class.sel]="(selected() ?? bars().length - 1) === i" (click)="selected.set(i)">
+            <rect class="hit" [attr.x]="b.slotX + 2" y="2" [attr.width]="b.slot - 4" [attr.height]="chartH + 20" rx="10" />
+            <rect [attr.x]="b.etc.x" [attr.y]="b.etc.y" [attr.width]="b.w" [attr.height]="b.etc.h" rx="5" class="loss" [class.est]="b.day.estimated" />
+            <rect [attr.x]="b.water.x" [attr.y]="b.water.y" [attr.width]="b.w" [attr.height]="b.water.h" rx="5" class="gain" />
+            <text [attr.x]="b.lx" [attr.y]="chartH + 16" class="tick">{{ b.label }}</text>
+          </g>
+        }
+      </svg>
+      <div class="legend md-body-small md-variant">
+        <span><i class="dot loss"></i>Evapotranspiración (ETc)</span>
+        <span><i class="dot gain"></i>Riego + lluvia</span>
+      </div>
+    </div>
+
+    <div class="fab-spacer"></div>
   } @else {
-    <p class="banner">Calculando balance hídrico…</p>
+    <div class="md-banner md-body-medium">Calculando balance hídrico…</div>
   }
+
+  <ion-fab slot="fixed" vertical="bottom" horizontal="end">
+    <button class="efab md-label-large" (click)="registerIrrigation()">
+      <ion-icon name="water-outline" />Registrar riego
+    </button>
+  </ion-fab>
 </ion-content>
+
+<!-- Hoja inferior: ajuste manual con vista previa -->
+<ion-modal class="md-sheet" [isOpen]="adjustOpen()" (didDismiss)="adjustOpen.set(false)" [initialBreakpoint]="0.8" [breakpoints]="[0, 0.8]" [handle]="true">
+  <ng-template>
+    <ion-content class="sheet">
+      <h2 class="md-headline-small">Ajustar humedad</h2>
+      <p class="md-body-medium md-variant">¿Cómo ves la tierra hoy? Mueve el control y confirma.</p>
+      <app-lawn-hero [mood]="previewMood()" [scene]="'sun'" [messages]="previewMessages()" [compact]="true" />
+      <div class="sheet-value">
+        <span class="md-display-small">{{ fmt(adjustValue()) }} mm</span>
+        <span class="md-body-small md-variant">de déficit</span>
+      </div>
+      <ion-range class="m3-slider" [min]="0" [max]="14" [step]="0.5" [value]="adjustValue()" aria-label="Déficit en milímetros"
+                 (ionInput)="adjustValue.set(+$any($event).detail.value)" />
+      <div class="sheet-scale md-body-small md-variant"><span>Muy húmeda</span><span>Muy seca</span></div>
+      <div class="sheet-actions">
+        <ion-button fill="clear" (click)="adjustOpen.set(false)">Cancelar</ion-button>
+        <ion-button (click)="applyAdjust()">Aplicar</ion-button>
+      </div>
+    </ion-content>
+  </ng-template>
+</ion-modal>

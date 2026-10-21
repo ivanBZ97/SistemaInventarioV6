@@ -5,16 +5,210 @@
 @import '@ionic/angular/css/padding.css';
 @import '@ionic/angular/css/flex-utils.css';
 @import '@ionic/angular/css/display.css';
-/* Modo oscuro/claro automático según el sistema */
-@import '@ionic/angular/css/palettes/dark.system.css';
 
+/*
+ * Sistema de diseño: Material Design 3, esquema tonal generado desde un verde semilla (#2E7D4F).
+ * Todos los componentes usan estos tokens (--md-*); Ionic se mapea encima.
+ */
 :root {
-  --ri-ok: #2e9e5b;
-  --ri-water: #2f80ed;
-  --ri-warn: #e09a1a;
-  --ri-paused: #8a94a6;
-  --ri-etc: #e0803a;
-  --ri-in: #2f80ed;
-  --ion-color-primary: #2e9e5b;
-  --ion-color-primary-contrast: #ffffff;
+  --md-primary: #1b6c3a;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #a6f2b6;
+  --md-on-primary-container: #00210c;
+  --md-secondary: #506352;
+  --md-secondary-container: #d3e8d3;
+  --md-on-secondary-container: #0e1f12;
+  --md-tertiary: #2f6475;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #b8eafe;
+  --md-on-tertiary-container: #001f28;
+  --md-error: #ba1a1a;
+  --md-error-container: #ffdad6;
+  --md-on-error-container: #410002;
+  --md-warning: #8a5100;
+  --md-warning-container: #ffdcbe;
+  --md-on-warning-container: #2c1600;
+  --md-surface: #f6fbf3;
+  --md-surface-dim: #d7dbd4;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f0f5ed;
+  --md-surface-container: #eaefe7;
+  --md-surface-container-high: #e4eae2;
+  --md-surface-container-highest: #dfe4dc;
+  --md-on-surface: #171d18;
+  --md-on-surface-variant: #414942;
+  --md-outline: #717972;
+  --md-outline-variant: #c1c9c0;
+  --md-inverse-surface: #2c322c;
+  --md-inverse-on-surface: #edf2ea;
+  --md-scrim: rgba(0, 0, 0, 0.32);
+
+  /* Serie de datos (gráfico): pérdida vs. reposición */
+  --md-data-loss: #c26b1a;
+  --md-data-gain: var(--md-tertiary);
+
+  --md-font: 'Google Sans', 'Google Sans Text', Roboto, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --md-shape-xs: 4px;
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
+  --md-elev-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --md-elev-3: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.15);
+}
+
+@mixin dark-tokens {
+  --md-primary: #8bd69c;
+  --md-on-primary: #00391a;
+  --md-primary-container: #005228;
+  --md-on-primary-container: #a6f2b6;
+  --md-secondary: #b7ccb8;
+  --md-secondary-container: #394b3b;
+  --md-on-secondary-container: #d3e8d3;
+  --md-tertiary: #9ccee1;
+  --md-on-tertiary: #003545;
+  --md-tertiary-container: #144c5c;
+  --md-on-tertiary-container: #b8eafe;
+  --md-error: #ffb4ab;
+  --md-error-container: #93000a;
+  --md-on-error-container: #ffdad6;
+  --md-warning: #ffb870;
+  --md-warning-container: #693c00;
+  --md-on-warning-container: #ffdcbe;
+  --md-surface: #0f1510;
+  --md-surface-dim: #0f1510;
+  --md-surface-container-lowest: #0a0f0b;
+  --md-surface-container-low: #171d18;
+  --md-surface-container: #1b211c;
+  --md-surface-container-high: #252b26;
+  --md-surface-container-highest: #303631;
+  --md-on-surface: #dfe4dc;
+  --md-on-surface-variant: #c1c9c0;
+  --md-outline: #8b938b;
+  --md-outline-variant: #414942;
+  --md-inverse-surface: #dfe4dc;
+  --md-inverse-on-surface: #2c322c;
+  --md-data-loss: #f0a35e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root { @include dark-tokens; }
+}
+
+/* Ionic ← Material 3 */
+:root {
+  --ion-font-family: var(--md-font);
+  --ion-background-color: var(--md-surface);
+  --ion-background-color-rgb: 246, 251, 243;
+  --ion-text-color: var(--md-on-surface);
+  --ion-text-color-rgb: 23, 29, 24;
+  --ion-toolbar-background: var(--md-surface);
+  --ion-toolbar-color: var(--md-on-surface);
+  --ion-toolbar-border-color: transparent;
+  --ion-item-background: transparent;
+  --ion-border-color: var(--md-outline-variant);
+  --ion-card-background: var(--md-surface-container-low);
+  --ion-placeholder-color: var(--md-on-surface-variant);
+
+  --ion-color-primary: var(--md-primary);
+  --ion-color-primary-rgb: 27, 108, 58;
+  --ion-color-primary-contrast: var(--md-on-primary);
+  --ion-color-primary-contrast-rgb: 255, 255, 255;
+  --ion-color-primary-shade: #185f33;
+  --ion-color-primary-tint: #327b4e;
+  --ion-color-medium: var(--md-on-surface-variant);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ion-background-color-rgb: 15, 21, 16;
+    --ion-text-color-rgb: 223, 228, 220;
+    --ion-color-primary-rgb: 139, 214, 156;
+    --ion-color-primary-shade: #7abc89;
+    --ion-color-primary-tint: #97daa6;
+  }
+}
+
+body {
+  background: var(--md-surface);
+  color: var(--md-on-surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Escala tipográfica M3 */
+.md-display-large { font-size: 57px; line-height: 64px; font-weight: 400; letter-spacing: -0.25px; }
+.md-display-small { font-size: 36px; line-height: 44px; font-weight: 400; }
+.md-headline-small { font-size: 24px; line-height: 32px; font-weight: 400; }
+.md-title-large { font-size: 22px; line-height: 28px; font-weight: 400; }
+.md-title-medium { font-size: 16px; line-height: 24px; font-weight: 500; letter-spacing: 0.15px; }
+.md-title-small { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px; }
+.md-body-large { font-size: 16px; line-height: 24px; letter-spacing: 0.5px; }
+.md-body-medium { font-size: 14px; line-height: 20px; letter-spacing: 0.25px; }
+.md-body-small { font-size: 12px; line-height: 16px; letter-spacing: 0.4px; }
+.md-label-large { font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: 0.1px; }
+.md-label-medium { font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.5px; }
+.md-variant { color: var(--md-on-surface-variant); }
+
+/* Botones M3: alto 40, totalmente redondeados */
+ion-button {
+  --border-radius: 20px;
+  --box-shadow: none;
+  min-height: 40px;
+  text-transform: none;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+ion-button.md-tonal {
+  --background: var(--md-secondary-container);
+  --color: var(--md-on-secondary-container);
+  --background-activated: var(--md-secondary-container);
+}
+ion-button[fill='outline'] { --border-color: var(--md-outline); --border-width: 1px; }
+
+/* Slider M3 */
+ion-range.m3-slider {
+  --bar-background: var(--md-secondary-container);
+  --bar-background-active: var(--md-primary);
+  --bar-height: 6px;
+  --bar-border-radius: 3px;
+  --knob-background: var(--md-primary);
+  --knob-size: 20px;
+  --knob-box-shadow: none;
+}
+
+/* Tarjetas M3 */
+ion-card {
+  --background: var(--md-surface-container-low);
+  --color: var(--md-on-surface);
+  border-radius: var(--md-shape-lg);
+  box-shadow: none;
+  margin: 12px 16px;
+}
+
+/* Interruptor M3 */
+ion-toggle {
+  --track-background: var(--md-surface-container-highest);
+  --track-background-checked: var(--md-primary);
+  --handle-background: var(--md-outline);
+  --handle-background-checked: var(--md-on-primary);
+  --handle-box-shadow: none;
+}
+
+/* Hoja inferior (modal) M3 */
+ion-modal.md-sheet {
+  --background: var(--md-surface-container-low);
+  --border-radius: var(--md-shape-xl);
+  --backdrop-opacity: 0.32;
+}
+
+/* Snackbar M3 */
+ion-toast.md-snackbar {
+  --background: var(--md-inverse-surface);
+  --color: var(--md-inverse-on-surface);
+  --border-radius: var(--md-shape-xs);
+  --button-color: var(--md-primary-container);
+}
+
+ion-alert {
+  --background: var(--md-surface-container-high);
+  .alert-wrapper { border-radius: var(--md-shape-xl) !important; }
 }

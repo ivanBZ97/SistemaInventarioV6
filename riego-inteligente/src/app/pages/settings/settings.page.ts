@@ -5,18 +5,19 @@ import {
   IonButtons,
   IonContent,
   IonHeader,
+  IonIcon,
   IonInput,
-  IonItem,
-  IonLabel,
-  IonList,
-  IonListHeader,
-  IonNote,
   IonRange,
   IonToggle,
   IonTitle,
   IonToolbar,
   ToastController,
 } from '@ionic/angular/standalone';
+import { addIcons } from 'ionicons';
+import {
+  alarmOutline, chevronForwardOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
+  notificationsOutline, pulseOutline, radioOutline, searchOutline, waterOutline,
+} from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
@@ -30,102 +31,164 @@ import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, r
   selector: 'app-settings',
   standalone: true,
   imports: [
-    IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonList, IonListHeader,
-    IonItem, IonLabel, IonRange, IonInput, IonButton, IonNote, IonToggle,
+    IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonRange, IonInput, IonButton, IonToggle, IonIcon,
   ],
   template: `
-    <ion-header>
+    <ion-header class="ion-no-border">
       <ion-toolbar>
-        <ion-buttons slot="start"><ion-back-button defaultHref="/dashboard" /></ion-buttons>
-        <ion-title>Ajustes</ion-title>
+        <ion-buttons slot="start"><ion-back-button defaultHref="/dashboard" text="" /></ion-buttons>
+        <ion-title class="md-title-large">Ajustes</ion-title>
       </ion-toolbar>
     </ion-header>
     <ion-content>
-      <ion-list>
-        <ion-list-header>Riego</ion-list-header>
-        <ion-item>
-          <ion-range label="Umbral de disparo" labelPlacement="stacked" [min]="min" [max]="max" [step]="0.5" [pin]="true"
-                     [value]="threshold()" (ionChange)="threshold.set(+$any($event).detail.value)">
-            <ion-note slot="end">{{ threshold() }} mm</ion-note>
-          </ion-range>
-        </ion-item>
-        <ion-item>
-          <ion-input type="number" inputmode="decimal" label="Tasa del aspersor (mm/min)" labelPlacement="stacked"
-                     [value]="rate()" (ionInput)="rate.set(+$any($event).detail.value)" />
-        </ion-item>
+      <!-- Riego -->
+      <h2 class="section md-title-small">Riego</h2>
+      <div class="card">
+        <div class="row">
+          <div class="li-icon"><ion-icon name="water-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">Umbral de riego</span>
+            <span class="md-body-medium md-variant">Se avisa cuando el déficit llega a {{ threshold() }} mm</span>
+          </div>
+          <span class="md-title-medium value">{{ threshold() }} mm</span>
+        </div>
+        <ion-range class="m3-slider" [min]="min" [max]="max" [step]="0.5" [ticks]="true" [snaps]="true"
+                   [value]="threshold()" (ionInput)="threshold.set(+$any($event).detail.value)" aria-label="Umbral de riego" />
+        <div class="divider"></div>
+        <div class="field">
+          <ion-input fill="outline" type="number" inputmode="decimal" label="Tasa del aspersor" labelPlacement="floating"
+                     helperText="mm por minuto. Mídela con el test de latas." [value]="rate()" (ionInput)="rate.set(+$any($event).detail.value)">
+            <span slot="end" class="md-body-medium md-variant">mm/min</span>
+          </ion-input>
+        </div>
+      </div>
 
-        <ion-list-header>Ubicación</ion-list-header>
-        <ion-item lines="none">
-          <ion-label class="ion-text-wrap">
-            📍 {{ placeName() || 'Ubicación sin nombre' }}
-            <p>{{ lat() }}, {{ lon() }}@if (elevation() !== null) { · {{ elevation() }} m }</p>
-          </ion-label>
-        </ion-item>
-        <ion-item>
-          <ion-input type="search" label="Buscar ciudad o comuna" labelPlacement="stacked" placeholder="p. ej. Rancagua"
-                     [value]="query()" (ionInput)="query.set($any($event).detail.value ?? '')" (keyup.enter)="search()" />
-          <ion-button slot="end" fill="outline" (click)="search()">Buscar</ion-button>
-        </ion-item>
+      <!-- Ubicación -->
+      <h2 class="section md-title-small">Ubicación del jardín</h2>
+      <div class="card">
+        <div class="row">
+          <div class="li-icon"><ion-icon name="location-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">{{ placeName() || 'Ubicación sin nombre' }}</span>
+            <span class="md-body-medium md-variant">{{ lat() }}, {{ lon() }}@if (elevation() !== null) { · {{ elevation() }} m }</span>
+          </div>
+        </div>
+        <div class="chips">
+          <button class="chip" (click)="useGps()"><ion-icon name="locate-outline" />GPS aproximado</button>
+          <button class="chip" (click)="usePreciseGps()"><ion-icon name="navigate-outline" />GPS preciso (en el jardín)</button>
+        </div>
+        <div class="field">
+          <ion-input fill="outline" type="search" label="Buscar ciudad o comuna" labelPlacement="floating"
+                     [value]="query()" (ionInput)="query.set($any($event).detail.value ?? '')" (keyup.enter)="search()">
+            <ion-button slot="end" fill="clear" (click)="search()" aria-label="Buscar"><ion-icon slot="icon-only" name="search-outline" /></ion-button>
+          </ion-input>
+        </div>
         @for (r of results(); track r.label + r.latitude) {
-          <ion-item button detail="false" (click)="pick(r)"><ion-label>{{ r.label }}</ion-label></ion-item>
+          <button class="row result" (click)="pick(r)">
+            <ion-icon name="location-outline" class="md-variant" /><span class="md-body-large">{{ r.label }}</span>
+          </button>
         }
-        <ion-item>
-          <ion-toggle [checked]="auto()" (ionChange)="auto.set($any($event).detail.checked)">
-            Actualizar ubicación automáticamente
-            <p>Si te mueves más de 10 km</p>
-          </ion-toggle>
-        </ion-item>
-        <ion-item>
-          <ion-input type="number" inputmode="decimal" label="Latitud" labelPlacement="stacked"
+        <div class="divider"></div>
+        <div class="row">
+          <div class="li-text">
+            <span class="md-body-large">Actualizar automáticamente</span>
+            <span class="md-body-medium md-variant">Si te mueves más de 10 km</span>
+          </div>
+          <ion-toggle [checked]="auto()" (ionChange)="auto.set($any($event).detail.checked)" aria-label="Actualizar ubicación automáticamente" />
+        </div>
+        <div class="field two">
+          <ion-input fill="outline" type="number" inputmode="decimal" label="Latitud" labelPlacement="floating"
                      [value]="lat()" (ionInput)="lat.set(+$any($event).detail.value)" />
-        </ion-item>
-        <ion-item>
-          <ion-input type="number" inputmode="decimal" label="Longitud" labelPlacement="stacked"
+          <ion-input fill="outline" type="number" inputmode="decimal" label="Longitud" labelPlacement="floating"
                      [value]="lon()" (ionInput)="lon.set(+$any($event).detail.value)" />
-        </ion-item>
-        <ion-item lines="none">
-          <ion-button fill="outline" (click)="useGps()">GPS aproximado</ion-button>
-          <ion-button fill="outline" (click)="usePreciseGps()">GPS preciso (en el jardín)</ion-button>
-        </ion-item>
+        </div>
+      </div>
 
-        <ion-list-header>Lluvia observada (estación INIA Agromet)</ion-list-header>
-        <ion-item lines="none">
-          <ion-label class="ion-text-wrap">
-            Usa la lluvia medida por la estación agroclimática más cercana en vez de la del modelo (opcional).
-            Requiere una clave personal de la API de INIA: agromet.inia.cl/api/v2
-          </ion-label>
-        </ion-item>
-        <ion-item>
-          <ion-input type="password" label="Clave de API de Agromet" labelPlacement="stacked"
+      <!-- Agromet -->
+      <h2 class="section md-title-small">Lluvia observada · INIA Agromet</h2>
+      <div class="card">
+        <p class="md-body-medium md-variant intro">
+          Opcional. Usa la lluvia medida por la estación agroclimática más cercana en lugar de la del modelo.
+          Requiere una clave personal de la API de INIA.
+        </p>
+        <div class="field">
+          <ion-input fill="outline" type="password" label="Clave de API" labelPlacement="floating"
                      [value]="agrometKey()" (ionInput)="agrometKey.set($any($event).detail.value ?? '')" />
-        </ion-item>
+        </div>
         @if (agromet(); as a) {
-          <ion-item lines="none">
-            <ion-label class="ion-text-wrap">📡 {{ a.stationName }} · {{ a.distanceKm.toFixed(1) }} km</ion-label>
-          </ion-item>
+          <div class="row">
+            <div class="li-icon"><ion-icon name="radio-outline" /></div>
+            <div class="li-text">
+              <span class="md-body-large">{{ a.stationName }}</span>
+              <span class="md-body-medium md-variant">A {{ a.distanceKm.toFixed(1) }} km de tu jardín</span>
+            </div>
+          </div>
         }
-        <ion-item lines="none">
-          <ion-button fill="outline" (click)="findStation()">Buscar estación cercana</ion-button>
+        <div class="chips">
+          <button class="chip" (click)="findStation()"><ion-icon name="search-outline" />Buscar estación cercana</button>
           @if (agromet()) {
-            <ion-button fill="outline" (click)="testStation()">Probar</ion-button>
-            <ion-button fill="outline" color="medium" (click)="agromet.set(undefined)">Quitar</ion-button>
+            <button class="chip" (click)="testStation()"><ion-icon name="pulse-outline" />Probar</button>
+            <button class="chip" (click)="agromet.set(undefined)"><ion-icon name="close-outline" />Quitar</button>
           }
-        </ion-item>
+        </div>
+      </div>
 
-        <ion-list-header>Notificaciones</ion-list-header>
-        <ion-item lines="none">
-          <ion-label class="ion-text-wrap">
-            Para que la alerta de las 06:30 llegue puntual, permite «Alarmas y recordatorios» y excluye la app del ahorro de batería.
-          </ion-label>
-        </ion-item>
-        <ion-item lines="none">
-          <ion-button fill="outline" (click)="permissions()">Permisos de notificación</ion-button>
-          <ion-button fill="outline" (click)="exactAlarms()">Alarmas exactas</ion-button>
-        </ion-item>
-      </ion-list>
-      <div class="ion-padding"><ion-button expand="block" (click)="save()">Guardar</ion-button></div>
+      <!-- Notificaciones -->
+      <h2 class="section md-title-small">Notificaciones</h2>
+      <div class="card">
+        <button class="row link" (click)="permissions()">
+          <div class="li-icon"><ion-icon name="notifications-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">Permiso de notificaciones</span>
+            <span class="md-body-medium md-variant">Necesario para el aviso de las 06:30</span>
+          </div>
+          <ion-icon name="chevron-forward-outline" class="md-variant" />
+        </button>
+        <div class="divider inset"></div>
+        <button class="row link" (click)="exactAlarms()">
+          <div class="li-icon"><ion-icon name="alarm-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">Alarmas exactas</span>
+            <span class="md-body-medium md-variant">Permite «Alarmas y recordatorios» y excluye la app del ahorro de batería</span>
+          </div>
+          <ion-icon name="chevron-forward-outline" class="md-variant" />
+        </button>
+      </div>
+      <div class="bottom-space"></div>
     </ion-content>
+    <div class="save-bar">
+      <ion-button expand="block" (click)="save()">Guardar cambios</ion-button>
+    </div>
   `,
+  styles: [`
+    :host { display: flex; flex-direction: column; height: 100%; }
+    ion-content { flex: 1; }
+    .section { margin: 24px 24px 8px; color: var(--md-primary); }
+    .card { margin: 0 16px; padding: 8px 0; border-radius: var(--md-shape-lg); background: var(--md-surface-container-low); }
+    .row { display: flex; align-items: center; gap: 16px; width: 100%; padding: 12px 16px; min-height: 56px;
+      background: none; border: 0; text-align: left; color: inherit; font: inherit; }
+    .row.link, .row.result { cursor: pointer; }
+    .row.result { min-height: 48px; padding-left: 20px; }
+    .li-icon { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center;
+      background: var(--md-secondary-container); color: var(--md-on-secondary-container); font-size: 20px; }
+    .li-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+    .value { color: var(--md-primary); }
+    .m3-slider { padding: 0 20px; }
+    .field { padding: 8px 16px; }
+    .field.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    ion-input[fill='outline'] { --border-radius: 4px; --border-color: var(--md-outline); --highlight-color-focused: var(--md-primary); }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; }
+    .chip { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 16px 0 8px; border-radius: 8px;
+      border: 1px solid var(--md-outline); background: transparent; color: var(--md-on-surface-variant);
+      font: 500 14px/20px var(--md-font); letter-spacing: .1px; cursor: pointer;
+      ion-icon { font-size: 18px; color: var(--md-primary); } }
+    .intro { margin: 8px 16px 0; }
+    .divider { height: 1px; margin: 8px 0; background: var(--md-outline-variant); }
+    .divider.inset { margin-left: 72px; }
+    .bottom-space { height: 24px; }
+    .save-bar { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--md-surface-container); }
+    .save-bar ion-button { margin: 0; height: 48px; }
+  `],
 })
 export class SettingsPage implements OnInit {
   private engine = inject(IrrigationEngineService);
@@ -133,6 +196,13 @@ export class SettingsPage implements OnInit {
   private background = inject(BackgroundService);
   private location = inject(LocationService);
   private toasts = inject(ToastController);
+
+  constructor() {
+    addIcons({
+      alarmOutline, chevronForwardOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
+      notificationsOutline, pulseOutline, radioOutline, searchOutline, waterOutline,
+    });
+  }
 
   readonly min = THRESHOLD_MIN_MM;
   readonly max = THRESHOLD_MAX_MM;
@@ -162,7 +232,7 @@ export class SettingsPage implements OnInit {
   }
 
   private async toast(message: string): Promise<void> {
-    (await this.toasts.create({ message, duration: 2200 })).present();
+    (await this.toasts.create({ message, duration: 2500, cssClass: 'md-snackbar' })).present();
   }
 
   async useGps(): Promise<void> {

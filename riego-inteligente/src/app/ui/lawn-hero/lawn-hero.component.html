@@ -1,0 +1,96 @@
+<div class="sky">
+  @for (m of [message()]; track m) {
+    @if (m) { <div class="bubble" role="status">{{ m }}</div> }
+  }
+
+  <svg viewBox="0 0 320 220" [attr.preserveAspectRatio]="compact() ? 'xMidYMax slice' : 'xMidYMid meet'" role="img" aria-label="Tu pasto, ánimo: {{ shownMood() }}">
+    <!-- clima -->
+    @if (scene() === 'sun') {
+      <g transform="translate(268 46)">
+        <g>
+          @if (!reduceMotion) {
+            <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="24s" repeatCount="indefinite" />
+          }
+          @for (a of [0, 45, 90, 135, 180, 225, 270, 315]; track a) {
+            <line x1="0" y1="-37" x2="0" y2="-31" class="ray" stroke-width="3" stroke-linecap="round" [attr.transform]="'rotate(' + a + ')'" />
+          }
+        </g>
+        <circle r="26" class="sun-halo" />
+        <circle r="18" class="sun" />
+      </g>
+    } @else {
+      <g class="cloud" [class.dark]="scene() === 'rain'">
+        <path d="M40 66 a16 16 0 0 1 4 -31 a22 22 0 0 1 42 -6 a18 18 0 0 1 30 14 a14 14 0 0 1 -6 23 Z" />
+      </g>
+      <g class="cloud far" [class.dark]="scene() === 'rain'">
+        <path d="M200 52 a12 12 0 0 1 3 -23 a16 16 0 0 1 31 -4 a13 13 0 0 1 22 10 a10 10 0 0 1 -4 17 Z" />
+      </g>
+    }
+    @if (scene() === 'rain') {
+      @for (x of rainX; track x; let i = $index) {
+        <line class="drop" [attr.x1]="x" y1="70" [attr.x2]="x - 3" y2="82" [style.animation-delay]="(i % 8) * 0.12 + 's'" />
+      }
+    }
+    @if (scene() === 'wind') {
+      @for (y of [60, 88, 116]; track y; let i = $index) {
+        <path class="gust" [attr.d]="'M0 ' + y + ' q 30 -10 60 0 t 60 0 t 40 -4'" [style.animation-delay]="i * 0.5 + 's'" />
+      }
+    }
+
+    <!-- suelo -->
+    <path class="hill" d="M0 188 Q80 168 160 184 T320 178 V220 H0 Z" />
+    <path class="soil" d="M0 204 Q80 196 160 204 T320 200 V220 H0 Z" />
+
+    <!-- mascota -->
+    <g class="mascot" [class.bounce]="bouncing()" tabindex="0" role="button" aria-label="Toca para que el pasto te hable"
+       (click)="poke()" (keydown.enter)="poke()" (keydown.space)="poke(); $event.preventDefault()">
+      @for (b of blades(); track $index) {
+        <g [attr.transform]="'translate(' + b.x + ' ' + b.y + ') rotate(' + b.rot + ')'">
+          <path [attr.d]="b.d" [class]="'blade t' + b.tone">
+            @if (!reduceMotion) {
+              <animateTransform attributeName="transform" type="rotate" values="-3 0 0; 3 0 0; -3 0 0" [attr.dur]="b.dur" repeatCount="indefinite" />
+            }
+          </path>
+        </g>
+      }
+      <ellipse class="body" [attr.cx]="body.cx" [attr.cy]="body.cy" [attr.rx]="body.rx" [attr.ry]="body.ry" />
+      <ellipse class="shine" cx="132" cy="128" rx="14" ry="6" />
+
+      <!-- cara (mínima) -->
+      @switch (shownMood()) {
+        @case ('happy') {
+          <path class="stroke" d="M131 148 Q138 141 145 148 M175 148 Q182 141 189 148" />
+          <path class="stroke" d="M148 162 Q160 172 172 162" />
+          <circle class="cheek" cx="124" cy="160" r="6" /><circle class="cheek" cx="196" cy="160" r="6" />
+        }
+        @case ('content') {
+          <circle class="eye" cx="138" cy="148" r="4.5" /><circle class="eye" cx="182" cy="148" r="4.5" />
+          <path class="stroke" d="M150 162 Q160 168 170 162" />
+        }
+        @case ('thirsty') {
+          <circle class="eye" cx="138" cy="150" r="4.5" /><circle class="eye" cx="182" cy="150" r="4.5" />
+          <path class="stroke thin" d="M130 139 L145 142 M190 139 L175 142" />
+          <path class="stroke" d="M151 166 L169 166" />
+          <path class="drip" d="M202 130 q-5 8 0 11 q5 -3 0 -11 Z" />
+        }
+        @case ('wilted') {
+          <path class="stroke" d="M131 150 Q138 154 145 150 M175 150 Q182 154 189 150" />
+          <path class="stroke" d="M150 170 Q160 163 170 170" />
+        }
+      }
+    </g>
+
+    <!-- riego -->
+    @if (watering()) {
+      <g class="sprinkler">
+        <rect x="150" y="12" width="20" height="8" rx="3" />
+        @for (x of sprinkleX; track x; let i = $index) {
+          <ellipse class="sdrop" [attr.cx]="x + 10" cy="26" rx="2.2" ry="4" [style.animation-delay]="(i % 7) * 0.09 + 's'" />
+        }
+        @for (s of [[84, 110], [236, 100], [112, 70], [212, 74]]; track s[0]; let i = $index) {
+          <text class="spark" [attr.x]="s[0]" [attr.y]="s[1]" [style.animation-delay]="i * 0.2 + 's'">✨</text>
+        }
+      </g>
+    }
+  </svg>
+</div>

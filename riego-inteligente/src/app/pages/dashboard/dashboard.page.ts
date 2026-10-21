@@ -1,42 +1,57 @@
-import { Component, OnInit, computed, inject } from '@angular/core';
+import { Component, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import {
   AlertController,
   IonButton,
-  IonButtons,
-  IonCard,
-  IonCardContent,
-  IonCardHeader,
-  IonCardTitle,
   IonContent,
+  IonFab,
   IonHeader,
   IonIcon,
-  IonItem,
-  IonLabel,
+  IonModal,
+  IonRange,
   IonRefresher,
   IonRefresherContent,
-  IonTitle,
   IonToggle,
   IonToolbar,
   ToastController,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { settingsOutline, waterOutline, createOutline, locationOutline } from 'ionicons/icons';
+import {
+  flagOutline,
+  flowerOutline,
+  leafOutline,
+  locationOutline,
+  optionsOutline,
+  rainyOutline,
+  settingsOutline,
+  thermometerOutline,
+  trendingUpOutline,
+  umbrellaOutline,
+  waterOutline,
+} from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
-import { round1 } from '../../core/irrigation-core';
+import { humidityPct, round1 } from '../../core/irrigation-core';
+import { lawnMessages, lawnMood, lawnScene } from '../../core/lawn-mood';
+import { LawnHeroComponent } from '../../ui/lawn-hero/lawn-hero.component';
 
-const RING_R = 82;
-const RING_LEN = 2 * Math.PI * RING_R;
+const SLOT = 300 / 7;
+
+/** Número con coma decimal chilena. */
+export function fmt(v: number, digits = 1): string {
+  return v.toLocaleString('es-CL', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+}
+
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
   imports: [
-    RouterLink, IonHeader, IonToolbar, IonTitle, IonButtons, IonButton, IonIcon, IonContent, IonCard,
-    IonCardHeader, IonCardTitle, IonCardContent, IonItem, IonLabel, IonToggle, IonRefresher, IonRefresherContent,
+    RouterLink, IonHeader, IonToolbar, IonButton, IonIcon, IonContent, IonFab, IonToggle, IonRefresher,
+    IonRefresherContent, IonModal, IonRange, LawnHeroComponent,
   ],
   templateUrl: './dashboard.page.html',
   styleUrls: ['./dashboard.page.scss'],
@@ -51,118 +66,137 @@ export class DashboardPage implements OnInit {
   private router = inject(Router);
 
   readonly snap = this.engine.snapshot;
-  readonly ringLen = RING_LEN;
-  readonly ringR = RING_R;
+  readonly hero = viewChild(LawnHeroComponent);
+  readonly fmt = fmt;
 
   constructor() {
-    addIcons({ settingsOutline, waterOutline, createOutline, locationOutline });
-  }
-
-  readonly deficit = computed(() => round1(this.snap()?.evaluation?.deficitMm ?? this.snap()?.state.deficitMm ?? 0));
-  readonly humidity = computed(() => Math.round(this.snap()?.evaluation?.humidityPct ?? 100));
-  readonly ringOffset = computed(() => RING_LEN * (1 - this.humidity() / 100));
-  readonly ringColor = computed(() => (this.humidity() >= 60 ? 'var(--ri-ok)' : this.humidity() >= 40 ? 'var(--ri-warn)' : '#d64545'));
-
-  readonly status = computed(() => {
-    const ev = this.snap()?.evaluation;
-    if (!ev) return { cls: 'paused', title: 'Sin datos de clima', detail: this.snap()?.error ?? 'Cargando…' };
-    const wind = ev.windWarning && ev.status === 'irrigate' ? ` · 💨 Viento ${Math.round(ev.windMaxKmh)} km/h: riega temprano` : '';
-    if (ev.status === 'irrigate')
-      return { cls: 'irrigate', title: `Toca regar ${ev.minutes} minutos`, detail: `Déficit ${round1(ev.deficitMm)} mm · Riega entre 06:30 y 08:30${wind}` };
-    if (ev.status === 'paused_rain')
-      return { cls: 'paused', title: 'Pausado por lluvia', detail: `${Math.round(ev.rainProbPct)}% de prob. de lluvia (${round1(ev.rainForecastMm)} mm previstos)` };
-    return { cls: 'ok', title: 'No regar hoy (Suelo húmedo)', detail: `Déficit ${round1(ev.deficitMm)} mm · umbral ${this.snap()?.settings.thresholdMm} mm` };
-  });
-
-  /** Lluvia de hoy y déficit proyectado para mañana (la lluvia de hoy se descuenta mañana). */
-  readonly outlook = computed(() => {
-    const ev = this.snap()?.evaluation;
-    if (!ev) return null;
-    const rain =
-      ev.rainForecastMm > 0 || ev.rainProbPct >= 30
-        ? `🌧️ Hoy: ${round1(ev.rainForecastMm)} mm previstos (${Math.round(ev.rainProbPct)}% prob.)` +
-          (ev.effectiveRainTodayMm > 0 ? ` · ${round1(ev.effectiveRainTodayMm)} mm útiles` : ' · lluvia insuficiente (< 2 mm)')
-        : null;
-    const tomorrow = `Mañana: ~${round1(ev.projectedDeficitMm)} mm de déficit (ETc −${round1(ev.etcTodayMm)}, lluvia +${round1(ev.effectiveRainTodayMm)})`;
-    return { rain, tomorrow };
-  });
-
-  readonly overseedOn = computed(() => (this.snap()?.overseedDaysLeft ?? 0) > 0);
-
-  // Gráfico de 7 días (SVG)
-  readonly chartH = 130;
-  readonly bars = computed(() => {
-    const days = this.snap()?.chart ?? [];
-    const max = Math.max(4, ...days.map((d) => Math.max(d.etcMm, d.replenishedMm)));
-    const slot = 300 / 7;
-    const h = (v: number) => (v / max) * (this.chartH - 10);
-    return days.map((d, i) => {
-      const x = 10 + i * slot;
-      return {
-        label: d.date.slice(8) + '/' + d.date.slice(5, 7),
-        etc: { x: x + 2, y: this.chartH - h(d.etcMm), h: h(d.etcMm), v: round1(d.etcMm) },
-        water: { x: x + slot / 2, y: this.chartH - h(d.replenishedMm), h: h(d.replenishedMm), v: round1(d.replenishedMm) },
-        w: slot / 2 - 4,
-        lx: x + slot / 2,
-        estimated: d.estimated,
-      };
+    addIcons({
+      settingsOutline, waterOutline, locationOutline, leafOutline, umbrellaOutline, thermometerOutline,
+      rainyOutline, flagOutline, trendingUpOutline, flowerOutline, optionsOutline,
     });
-  });
-
-  async ngOnInit(): Promise<void> {
-    const snap = this.snap() ?? (await this.engine.refresh());
-    if (!snap.settings.locationSet) await this.askLocation();
   }
+
+  // ───────────── Tarjeta principal ─────────────
+  readonly deficit = computed(() => this.snap()?.evaluation?.deficitMm ?? this.snap()?.state.deficitMm ?? 0);
+  readonly humidity = computed(() => Math.round(this.snap()?.evaluation?.humidityPct ?? 100));
+  readonly mood = computed(() => lawnMood(this.humidity(), this.snap()?.evaluation?.status ?? 'ok'));
+  readonly scene = computed(() => {
+    const ev = this.snap()?.evaluation;
+    return ev ? lawnScene(ev) : 'sun';
+  });
+  readonly messages = computed(() => lawnMessages(this.mood(), this.scene(), this.snap()?.evaluation ?? null));
+  readonly level = computed(() => (this.humidity() >= 60 ? 'good' : this.humidity() >= 40 ? 'warn' : 'bad'));
+  /** Marcador "aquí se riega": humedad útil equivalente al umbral. */
+  readonly thresholdPct = computed(() => humidityPct(this.snap()?.settings.thresholdMm ?? 8));
 
   readonly placeLabel = computed(() => {
     const s = this.snap();
     if (!s) return '';
-    const name = s.settings.placeName ?? `${s.settings.latitude}, ${s.settings.longitude}`;
+    const name = (s.settings.placeName ?? `${s.settings.latitude}, ${s.settings.longitude}`).split(',')[0];
     return s.elevationM != null ? `${name} · ${Math.round(s.elevationM)} m` : name;
   });
 
-  /** Primer arranque: sin esto el clima sería el de Santiago (coordenadas por defecto). */
-  private async askLocation(): Promise<void> {
-    const alert = await this.alerts.create({
-      header: '📍 ¿Dónde está tu jardín?',
-      message:
-        'El riego se calcula con el clima de tu ubicación. Por ahora se usa Santiago de Chile. ' +
-        'Usamos solo una ubicación aproximada (~1 km).',
-      backdropDismiss: false,
-      buttons: [
-        {
-          text: 'Usar mi ubicación',
-          handler: () => {
-            this.useGps();
-            return true;
-          },
-        },
-        { text: 'Buscar ciudad', handler: () => { this.router.navigateByUrl('/settings'); return true; } },
-        {
-          text: 'Mantener Santiago',
-          role: 'cancel',
-          handler: () => { this.engine.saveSettings({ locationSet: true }); },
-        },
-      ],
-    });
-    await alert.present();
-  }
-
-  private async useGps(): Promise<void> {
-    const fix = await this.location.detect();
-    if (!fix) {
-      (await this.toasts.create({ message: 'No se pudo obtener la ubicación. Búscala por ciudad en Ajustes.', duration: 3000 })).present();
-      return;
+  // ───────────── Recomendación ─────────────
+  readonly status = computed(() => {
+    const ev = this.snap()?.evaluation;
+    const thr = this.snap()?.settings.thresholdMm ?? 8;
+    if (!ev) return { cls: 'neutral', icon: 'umbrella-outline', title: 'Sin datos del clima', detail: this.snap()?.error ?? 'Cargando…' };
+    if (ev.status === 'irrigate') {
+      const wind = ev.windWarning ? ` Viento de ${Math.round(ev.windMaxKmh)} km/h: riega temprano.` : '';
+      return {
+        cls: 'water', icon: 'water-outline',
+        title: `Riega ${ev.minutes} minutos hoy`,
+        detail: `Entre 06:30 y 08:30. Déficit acumulado de ${fmt(ev.deficitMm)} mm.${wind}`,
+      };
     }
-    await this.engine.saveSettings({
-      latitude: fix.latitude,
-      longitude: fix.longitude,
-      placeName: fix.placeName ?? undefined,
-      useGps: true,
-      locationSet: true,
+    if (ev.status === 'paused_rain')
+      return {
+        cls: 'neutral', icon: 'umbrella-outline', title: 'Riego en pausa por lluvia',
+        detail: `${Math.round(ev.rainProbPct)}% de probabilidad · ${fmt(ev.rainForecastMm)} mm previstos hoy.`,
+      };
+    return {
+      cls: 'ok', icon: 'leaf-outline', title: 'No es necesario regar',
+      detail: `El suelo tiene humedad suficiente. Se riega al llegar a ${fmt(thr)} mm de déficit.`,
+    };
+  });
+
+  // ───────────── Mosaicos de hoy ─────────────
+  readonly tiles = computed(() => {
+    const ev = this.snap()?.evaluation;
+    if (!ev) return [];
+    return [
+      { icon: 'thermometer-outline', label: 'Temp. máxima', value: `${Math.round(ev.tempMaxC)}°`, note: 'Hoy' },
+      {
+        icon: 'rainy-outline', label: 'Lluvia', value: `${fmt(ev.rainForecastMm)} mm`,
+        note: ev.effectiveRainTodayMm > 0 ? `${Math.round(ev.rainProbPct)}% · ${fmt(ev.effectiveRainTodayMm)} mm útiles` : `${Math.round(ev.rainProbPct)}% de prob.`,
+      },
+      {
+        icon: 'flag-outline', label: 'Viento máx.', value: `${Math.round(ev.windMaxKmh)} km/h`,
+        note: ev.windWarning ? 'Fuerte: riega temprano' : 'Normal', warn: ev.windWarning,
+      },
+      { icon: 'leaf-outline', label: 'Consumo del pasto', value: `${fmt(ev.etcTodayMm)} mm`, note: `ETc · Kc ${fmt(ev.kc, 2)}` },
+    ];
+  });
+
+  readonly tomorrow = computed(() => {
+    const ev = this.snap()?.evaluation;
+    if (!ev) return null;
+    return {
+      value: `${fmt(ev.projectedDeficitMm)} mm`,
+      note: `Hoy consume ${fmt(ev.etcTodayMm)} mm y la lluvia aporta ${fmt(ev.effectiveRainTodayMm)} mm`,
+    };
+  });
+
+  readonly overseedOn = computed(() => (this.snap()?.overseedDaysLeft ?? 0) > 0);
+
+  // ───────────── Gráfico de 7 días ─────────────
+  readonly chartH = 128;
+  readonly selected = signal<number | null>(null);
+  readonly bars = computed(() => {
+    const days = this.snap()?.chart ?? [];
+    const max = Math.max(4, ...days.map((d) => Math.max(d.etcMm, d.replenishedMm)));
+    const h = (v: number) => Math.max(v > 0 ? 3 : 0, (v / max) * (this.chartH - 12));
+    return days.map((d, i) => {
+      const x = 10 + i * SLOT;
+      const wd = new Date(`${d.date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short' }).replace('.', '');
+      return {
+        day: d,
+        label: cap(wd.slice(0, 3)),
+        slotX: x,
+        slot: SLOT,
+        etc: { x: x + SLOT / 2 - 11, y: this.chartH - h(d.etcMm), h: h(d.etcMm) },
+        water: { x: x + SLOT / 2 + 1, y: this.chartH - h(d.replenishedMm), h: h(d.replenishedMm) },
+        w: 10,
+        lx: x + SLOT / 2,
+      };
     });
-    await this.notifications.reschedule();
-    await this.background.sync();
+  });
+  readonly selectedDay = computed(() => {
+    const bars = this.bars();
+    if (!bars.length) return null;
+    const d = bars[this.selected() ?? bars.length - 1].day;
+    return {
+      title: cap(new Date(`${d.date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })) +
+        (d.estimated ? ' · estimado' : ''),
+      loss: fmt(d.etcMm),
+      gain: fmt(d.replenishedMm),
+      detail: `Lluvia ${fmt(d.rainMm)} mm · Riego ${fmt(d.irrigationMm)} mm`,
+    };
+  });
+
+  // ───────────── Ajuste manual (hoja inferior) ─────────────
+  readonly adjustOpen = signal(false);
+  readonly adjustValue = signal(0);
+  readonly previewMood = computed(() => {
+    const mm = this.adjustValue();
+    const thr = this.snap()?.settings.thresholdMm ?? 8;
+    return lawnMood(humidityPct(mm), mm >= thr ? 'irrigate' : 'ok');
+  });
+  readonly previewMessages = computed(() => [`${Math.round(humidityPct(this.adjustValue()))}% de humedad útil`]);
+
+  async ngOnInit(): Promise<void> {
+    const snap = this.snap() ?? (await this.engine.refresh());
+    if (!snap.settings.locationSet) await this.askLocation();
   }
 
   async refresh(ev?: CustomEvent): Promise<void> {
@@ -172,46 +206,69 @@ export class DashboardPage implements OnInit {
     (ev?.target as HTMLIonRefresherElement | undefined)?.complete();
   }
 
+  private async snackbar(message: string): Promise<void> {
+    (await this.toasts.create({ message, duration: 2500, position: 'bottom', cssClass: 'md-snackbar' })).present();
+  }
+
   private async afterChange(msg: string): Promise<void> {
     await this.notifications.reschedule();
     await this.background.sync();
-    (await this.toasts.create({ message: msg, duration: 2000, position: 'bottom' })).present();
+    await this.snackbar(msg);
   }
 
+  /** Riega: la ilustración muestra el aspersor mientras se guarda el registro. */
   async registerIrrigation(): Promise<void> {
+    this.hero()?.water();
     await this.engine.registerIrrigation('manual');
-    await this.afterChange('Riego registrado: déficit en 0 mm');
+    await this.afterChange('Riego registrado. El déficit volvió a 0 mm.');
   }
 
-  async adjustManually(): Promise<void> {
-    const alert = await this.alerts.create({
-      header: 'Ajustar humedad manualmente',
-      message: '¿Cómo ves la tierra hoy?',
-      inputs: [
-        { type: 'radio', label: 'Muy húmeda / encharcada (0 mm)', value: 0 },
-        { type: 'radio', label: 'Húmeda (3 mm)', value: 3 },
-        { type: 'radio', label: 'Normal (6 mm)', value: 6 },
-        { type: 'radio', label: 'Seca (10 mm)', value: 10 },
-        { type: 'radio', label: 'Muy seca / pasto marchito (14 mm)', value: 14 },
-      ],
-      buttons: [
-        { text: 'Cancelar', role: 'cancel' },
-        {
-          text: 'Aplicar',
-          handler: async (mm: number | undefined) => {
-            if (mm === undefined) return false;
-            await this.engine.setDeficit(mm);
-            await this.afterChange(`Déficit ajustado a ${mm} mm`);
-            return true;
-          },
-        },
-      ],
-    });
-    await alert.present();
+  openAdjust(): void {
+    this.adjustValue.set(round1(this.snap()?.state.deficitMm ?? 0));
+    this.adjustOpen.set(true);
+  }
+
+  async applyAdjust(): Promise<void> {
+    const mm = this.adjustValue();
+    this.adjustOpen.set(false);
+    await this.engine.setDeficit(mm);
+    await this.afterChange(`Déficit ajustado a ${fmt(mm)} mm`);
   }
 
   async toggleOverseed(ev: CustomEvent): Promise<void> {
     await this.engine.setOverseed(!!ev.detail.checked);
     await this.afterChange(ev.detail.checked ? 'Modo Resiembra activado por 10 días' : 'Modo Resiembra desactivado');
+  }
+
+  // ───────────── Ubicación (primer arranque) ─────────────
+  /** Sin esto el clima sería el de Santiago (coordenadas por defecto). */
+  private async askLocation(): Promise<void> {
+    const alert = await this.alerts.create({
+      header: '¿Dónde está tu jardín?',
+      message:
+        'El riego se calcula con el clima de tu ubicación. Por ahora se usa Santiago de Chile. ' +
+        'Solo se usa una ubicación aproximada (~1 km).',
+      backdropDismiss: false,
+      buttons: [
+        { text: 'Mantener Santiago', role: 'cancel', handler: () => { this.engine.saveSettings({ locationSet: true }); } },
+        { text: 'Buscar ciudad', handler: () => { this.router.navigateByUrl('/settings'); return true; } },
+        { text: 'Usar ubicación', handler: () => { this.useGps(); return true; } },
+      ],
+    });
+    await alert.present();
+  }
+
+  private async useGps(): Promise<void> {
+    const fix = await this.location.detect();
+    if (!fix) return this.snackbar('No se pudo obtener la ubicación. Búscala por ciudad en Ajustes.');
+    await this.engine.saveSettings({
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      placeName: fix.placeName ?? undefined,
+      useGps: true,
+      locationSet: true,
+    });
+    await this.notifications.reschedule();
+    await this.background.sync();
   }
 }

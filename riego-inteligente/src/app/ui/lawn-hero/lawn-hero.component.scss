@@ -1,0 +1,77 @@
+:host {
+  display: block;
+  --sky-a: #d6efff; --sky-b: #f3fbff;
+  --body: #4cb877; --blade-1: #2e9c5c; --blade-2: #63cf8d;
+  --ground: #3f9a58; --soil: #8a6a4a; --ink: #173a26;
+  --sun: #ffcf4a; --cloud: #ffffff;
+}
+:host(.scene-rain) { --sky-a: #c4cfdb; --sky-b: #e6ebf1; --cloud: #9aa8b8; }
+:host(.scene-wind) { --sky-a: #d3ebf5; --sky-b: #f1f9fc; }
+:host(.scene-cloud) { --sky-a: #d9e1ea; --sky-b: #f1f4f7; }
+:host(.mood-content) { --body: #47ad70; --blade-1: #2d9157; --blade-2: #5cc485; }
+:host(.mood-thirsty) { --body: #b3bc54; --blade-1: #949f3c; --blade-2: #c5cd69; --ground: #8f9a4c; }
+:host(.mood-wilted) { --body: #b19a5e; --blade-1: #8c7845; --blade-2: #a68e55; --ground: #8a7b4c; }
+
+@media (prefers-color-scheme: dark) {
+  :host { --sky-a: #10263a; --sky-b: #1d3b55; --ground: #2b6d40; --soil: #4f3d2c; --sun: #f2c14e; --cloud: #c9d4df; }
+  :host(.scene-rain) { --sky-a: #141c27; --sky-b: #253244; --cloud: #5d6b7d; }
+  :host(.scene-wind) { --sky-a: #12293b; --sky-b: #22455c; }
+  :host(.scene-cloud) { --sky-a: #19222d; --sky-b: #2c3846; }
+  :host(.mood-thirsty) { --ground: #66713a; }
+  :host(.mood-wilted) { --ground: #665b3a; }
+}
+
+.sky {
+  position: relative; overflow: hidden; border-radius: var(--md-shape-xl, 28px);
+  background: linear-gradient(180deg, var(--sky-a), var(--sky-b));
+  transition: background .6s;
+}
+svg { display: block; width: 100%; height: auto; }
+:host(.compact) svg { height: 180px; }
+
+/* Rich tooltip M3 */
+.bubble {
+  position: absolute; z-index: 2; top: 12px; left: 12px; max-width: 62%;
+  padding: 8px 12px; border-radius: 12px;
+  font: 500 13px/18px var(--md-font, Roboto, sans-serif); letter-spacing: .1px;
+  background: var(--md-surface-container-lowest, #fff); color: var(--md-on-surface, #171d18);
+  box-shadow: var(--md-elev-1);
+  animation: pop .28s cubic-bezier(.2, 0, 0, 1);
+}
+
+.sun { fill: var(--sun); }
+.sun-halo { fill: var(--sun); opacity: .22; }
+.ray { stroke: var(--sun); stroke-linecap: round; }
+.hill { fill: var(--ground); transition: fill .6s; }
+.soil { fill: var(--soil); }
+.cloud { fill: var(--cloud); opacity: .95; animation: drift 16s ease-in-out infinite alternate; &.far { opacity: .7; animation-duration: 21s; } &.dark { fill: var(--cloud); } }
+.drop { stroke: #4f9be8; stroke-width: 2; stroke-linecap: round; animation: fall 1s linear infinite; }
+.gust { fill: none; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; opacity: .7; animation: gust 2.6s linear infinite; }
+
+.mascot { cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; }
+.mascot:focus-visible .body { stroke: var(--md-primary, #1b6c3a); stroke-width: 3; }
+.mascot.bounce { animation: bounce .6s cubic-bezier(.2, 0, 0, 1); }
+.blade { transition: fill .6s; &.t1 { fill: var(--blade-1); } &.t2 { fill: var(--blade-2); } }
+.body { fill: var(--body); transition: fill .6s; }
+.shine { fill: #fff; opacity: .22; }
+.eye { fill: var(--ink); }
+.stroke { fill: none; stroke: var(--ink); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; &.thin { stroke-width: 2.5; } }
+.cheek { fill: #ff9aa9; opacity: .35; }
+.drip { fill: #7cc4f5; animation: drip 1.8s ease-in infinite; }
+
+.sprinkler rect { fill: #8b97a5; }
+.sdrop { fill: #4f9be8; opacity: .9; animation: sprinkle .75s linear infinite; }
+.spark { font-size: 18px; animation: twinkle 1s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+
+@keyframes pop { from { transform: translateY(4px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes drift { from { transform: translateX(-10px); } to { transform: translateX(24px); } }
+@keyframes fall { from { transform: translateY(0); opacity: 0; } 15% { opacity: 1; } to { transform: translateY(118px); opacity: 0; } }
+@keyframes gust { from { transform: translateX(-130px); opacity: 0; } 20%, 80% { opacity: .7; } to { transform: translateX(330px); opacity: 0; } }
+@keyframes bounce { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-12px); } }
+@keyframes drip { from { transform: translateY(-2px); opacity: 1; } to { transform: translateY(9px); opacity: 0; } }
+@keyframes sprinkle { from { transform: translateY(0); opacity: 0; } 20% { opacity: 1; } to { transform: translateY(150px); opacity: 0; } }
+@keyframes twinkle { 0%, 100% { transform: scale(.6); opacity: .4; } 50% { transform: scale(1.1); opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .cloud, .drop, .gust, .mascot.bounce, .drip, .sdrop, .spark, .bubble { animation: none !important; }
+}
