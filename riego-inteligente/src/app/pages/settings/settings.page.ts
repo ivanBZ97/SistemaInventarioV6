@@ -15,8 +15,8 @@ import {
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
-  alarmOutline, chevronForwardOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-  notificationsOutline, pulseOutline, radioOutline, searchOutline, waterOutline,
+  alarmOutline, checkmarkOutline, chevronForwardOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
+  notificationsOutline, pulseOutline, radioOutline, searchOutline, timeOutline, waterOutline,
 } from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
@@ -25,7 +25,7 @@ import { LocationService } from '../../core/location.service';
 import { Place, searchPlaces } from '../../core/open-meteo';
 import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../core/agromet';
 import type { AgrometConfig } from '../../core/models';
-import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate } from '../../core/irrigation-core';
+import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate } from '../../core/irrigation-core';
 
 @Component({
   selector: 'app-settings',
@@ -136,11 +136,27 @@ import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, r
       <!-- Notificaciones -->
       <h2 class="section md-title-small">Notificaciones</h2>
       <div class="card">
+        <div class="row">
+          <div class="li-icon"><ion-icon name="time-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">Hora del aviso matutino</span>
+            <span class="md-body-medium md-variant">Dentro de 06:30–08:30: nunca de noche, para prevenir hongos</span>
+          </div>
+        </div>
+        <div class="chips times" role="radiogroup" aria-label="Hora del aviso matutino">
+          @for (t of timeOptions; track t) {
+            <button class="chip" role="radio" [class.on]="morningTime() === t" [attr.aria-checked]="morningTime() === t"
+                    (click)="morningTime.set(t)">
+              @if (morningTime() === t) { <ion-icon name="checkmark-outline" /> }{{ t }}
+            </button>
+          }
+        </div>
+        <div class="divider inset"></div>
         <button class="row link" (click)="permissions()">
           <div class="li-icon"><ion-icon name="notifications-outline" /></div>
           <div class="li-text">
             <span class="md-body-large">Permiso de notificaciones</span>
-            <span class="md-body-medium md-variant">Necesario para el aviso de las 06:30</span>
+            <span class="md-body-medium md-variant">Necesario para el aviso matutino</span>
           </div>
           <ion-icon name="chevron-forward-outline" class="md-variant" />
         </button>
@@ -178,6 +194,9 @@ import { DEFAULT_SETTINGS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, r
     .field.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     ion-input[fill='outline'] { --border-radius: 4px; --border-color: var(--md-outline); --highlight-color-focused: var(--md-primary); }
     .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; }
+    .chip.on { background: var(--md-secondary-container); color: var(--md-on-secondary-container); border-color: transparent; }
+    .chips.times .chip { padding: 0 12px; }
+    .chips.times .chip.on { padding-left: 8px; }
     .chip { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 16px 0 8px; border-radius: 8px;
       border: 1px solid var(--md-outline); background: transparent; color: var(--md-on-surface-variant);
       font: 500 14px/20px var(--md-font); letter-spacing: .1px; cursor: pointer;
@@ -199,11 +218,13 @@ export class SettingsPage implements OnInit {
 
   constructor() {
     addIcons({
-      alarmOutline, chevronForwardOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-      notificationsOutline, pulseOutline, radioOutline, searchOutline, waterOutline,
+      alarmOutline, checkmarkOutline, chevronForwardOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
+      notificationsOutline, pulseOutline, radioOutline, searchOutline, timeOutline, waterOutline,
     });
   }
 
+  readonly timeOptions = MORNING_TIME_OPTIONS;
+  morningTime = signal('06:30');
   readonly min = THRESHOLD_MIN_MM;
   readonly max = THRESHOLD_MAX_MM;
   threshold = signal(DEFAULT_SETTINGS.thresholdMm);
@@ -227,6 +248,7 @@ export class SettingsPage implements OnInit {
     this.placeName.set(s.settings.placeName);
     this.elevation.set(s.elevationM !== null ? Math.round(s.elevationM) : null);
     this.auto.set(s.settings.useGps);
+    this.morningTime.set(s.settings.morningTime ?? '06:30');
     this.agromet.set(s.settings.agromet);
     this.agrometKey.set(s.settings.agromet?.apiKey ?? '');
   }
@@ -332,6 +354,7 @@ export class SettingsPage implements OnInit {
       agromet: this.agromet() ? { ...this.agromet()!, apiKey: this.agrometKey().trim() || this.agromet()!.apiKey } : undefined,
       useGps: this.auto(),
       locationSet: true,
+      morningTime: this.morningTime(),
     });
     await this.notifications.reschedule();
     await this.background.sync();

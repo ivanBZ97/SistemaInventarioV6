@@ -321,6 +321,19 @@ export function startOverseed(state: WaterState, today: ISODate): WaterState {
 
 // ───────────────────────── Notificaciones ─────────────────────────
 
+/** Horas elegibles para el aviso matutino: cada 15 min dentro de la ventana 06:30–08:30. */
+export const MORNING_TIME_OPTIONS = ['06:30', '06:45', '07:00', '07:15', '07:30', '07:45', '08:00', '08:15', '08:30'];
+
+/** Hora del aviso elegida por el usuario, limitada a la ventana (jamás nocturna). */
+export function morningTimeOf(settings: Pick<Settings, 'morningTime'>): { hour: number; minute: number } {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(settings.morningTime ?? '');
+  const mins = m ? Number(m[1]) * 60 + Number(m[2]) : MORNING.hour * 60 + MORNING.minute;
+  const lo = MORNING.hour * 60 + MORNING.minute;
+  const hi = WINDOW_END.hour * 60 + WINDOW_END.minute;
+  const c = clamp(mins, lo, hi);
+  return { hour: Math.floor(c / 60), minute: c % 60 };
+}
+
 /** Fuerza una hora de alerta de riego dentro de 06:30–08:30 (jamás riego nocturno). */
 export function clampToIrrigationWindow(at: Date): Date {
   const start = atTime(toISODate(at), MORNING);
@@ -382,13 +395,14 @@ export interface Plan {
 
 /**
  * Decide qué notificaciones dejar programadas:
- *  - Matutina (id 1001): hoy a las 06:30 si aún no pasó; si estamos dentro de la ventana y hoy no se
- *    programó nada (p. ej. tras reiniciar el teléfono) se emite de inmediato; si no, mañana 06:30.
+ *  - Matutina (id 1001): hoy a la hora elegida (06:30 por defecto) si aún no pasó; si estamos dentro de la
+ *    ventana y hoy no se programó nada (p. ej. tras reiniciar el teléfono) se emite de inmediato; si no, mañana.
  *  - Resiembra (id 1002): 13:00 del día correspondiente si el modo está activo y tmax ≥ 20 °C.
  */
 export function planNotifications({ state, weather, settings, now }: PlanInput): Plan {
   const today = toISODate(now);
-  const morningToday = atTime(today, MORNING);
+  const morning = morningTimeOf(settings);
+  const morningToday = atTime(today, morning);
   const windowEnd = atTime(today, WINDOW_END);
   const notifications: PlannedNotification[] = [];
   let morningFor: ISODate | null = null;
@@ -403,7 +417,7 @@ export function planNotifications({ state, weather, settings, now }: PlanInput):
     at = new Date(now.getTime() + 5_000);
   } else {
     targetDate = addDays(today, 1);
-    at = atTime(targetDate, MORNING);
+    at = atTime(targetDate, morning);
   }
 
   if (state.snoozedDate !== targetDate) {

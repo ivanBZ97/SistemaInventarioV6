@@ -179,3 +179,20 @@ test('aviso "no regar" incluye el próximo riego estimado', () => {
   const p = c.planNotifications({ state: state({ asOf: '2026-01-13', deficitMm: 1 }), weather: w, settings: S, now: new Date(2026, 0, 13, 5, 0) });
   assert.match(p.notifications[0].body, /Próximo riego estimado: (jueves|viernes)\./);
 });
+
+test('hora del aviso configurable, siempre dentro de 06:30–08:30', () => {
+  assert.deepEqual(c.morningTimeOf({}), { hour: 6, minute: 30 });
+  assert.deepEqual(c.morningTimeOf({ morningTime: '07:15' }), { hour: 7, minute: 15 });
+  assert.deepEqual(c.morningTimeOf({ morningTime: '05:00' }), { hour: 6, minute: 30 }); // nunca antes
+  assert.deepEqual(c.morningTimeOf({ morningTime: '21:00' }), { hour: 8, minute: 30 }); // nunca de noche
+  assert.deepEqual(c.morningTimeOf({ morningTime: 'basura' }), { hour: 6, minute: 30 });
+  const w = ['10', '11', '12', '13', '14'].map((d) => wx(`2026-01-${d}`));
+  const st = state({ asOf: '2026-01-13' });
+  const s = { ...S, morningTime: '07:45' };
+  const before = c.planNotifications({ state: st, weather: w, settings: s, now: new Date(2026, 0, 13, 7, 0) });
+  assert.equal(before.morningFor, '2026-01-13');
+  assert.deepEqual([before.notifications[0].at.getHours(), before.notifications[0].at.getMinutes()], [7, 45]);
+  const after = c.planNotifications({ state: { ...st, lastMorningScheduledFor: '2026-01-13' }, weather: w, settings: s, now: new Date(2026, 0, 13, 9, 0) });
+  assert.equal(after.morningFor, '2026-01-14');
+  assert.deepEqual([after.notifications[0].at.getHours(), after.notifications[0].at.getMinutes()], [7, 45]);
+});

@@ -22,7 +22,7 @@ export class NotificationService {
     await LocalNotifications.createChannel({
       id: 'riego-matutino',
       name: 'Evaluación matutina de riego',
-      description: 'Alerta diaria de las 06:30 con el balance hídrico',
+      description: 'Alerta diaria matutina con el balance hídrico',
       importance: 5,
       visibility: 1,
       vibration: true,
@@ -80,7 +80,7 @@ export class NotificationService {
     if (Capacitor.isNativePlatform()) await LocalNotifications.changeExactNotificationSetting();
   }
 
-  /** (Re)programa las alertas de 06:30 y 13:00 según el plan vigente. */
+  /** (Re)programa el aviso matutino y el de resiembra (13:00) según el plan vigente. */
   async reschedule(): Promise<void> {
     if (!Capacitor.isNativePlatform()) return;
     let planned;

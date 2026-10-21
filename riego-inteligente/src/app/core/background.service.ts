@@ -8,7 +8,7 @@ const RUNNER = { label: 'cl.riego.inteligente.check', event: 'syncState' };
 /**
  * Worker en segundo plano (WorkManager vía @capacitor/background-runner).
  * La app le entrega una copia del estado y ajustes; el worker (runner/background.ts) cada ~15 min
- * baja el clima, recalcula con el MISMO motor y reprograma las alertas de 06:30 / 13:00,
+ * baja el clima, recalcula con el MISMO motor y reprograma el aviso matutino y el de las 13:00,
  * por lo que funcionan con la app cerrada.
  */
 @Injectable({ providedIn: 'root' })

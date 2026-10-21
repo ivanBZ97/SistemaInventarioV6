@@ -8,6 +8,8 @@ export interface Settings {
   sprinklerRateMmMin: number;
   latitude: number;
   longitude: number;
+  /** Hora del aviso matutino "HH:MM" (se limita a la ventana 06:30–08:30). */
+  morningTime?: string;
   /** true = la app actualiza sola la ubicación si te mueves (> 10 km). */
   useGps: boolean;
   /** Nombre legible del lugar (p. ej. "Pudahuel, Región Metropolitana"). */
