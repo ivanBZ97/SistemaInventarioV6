@@ -123,3 +123,30 @@ ion-fab { margin: 0 8px 8px 0; }
 .sheet ion-range { padding: 0 4px; }
 .sheet-scale { display: flex; justify-content: space-between; }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 24px 0; }
+
+/* Próximo riego */
+.next-card { margin: 0 16px; padding: 16px; border-radius: var(--md-shape-lg); background: var(--md-surface-container-low); }
+.next-head { display: flex; align-items: center; gap: 16px; }
+.next-icon {
+  width: 48px; height: 48px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); font-size: 24px;
+}
+.next-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 16px; }
+.strip-day {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0 10px;
+  border: 0; border-radius: var(--md-shape-md); background: transparent; color: var(--md-on-surface);
+  font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background .2s;
+  &.sel { background: var(--md-surface-container-highest); }
+  &.irrigate { background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
+  .mark { font-size: 16px; color: var(--md-on-surface-variant); }
+  &.irrigate .mark { color: var(--md-tertiary); }
+}
+.gauge {
+  position: relative; width: 8px; height: 40px; border-radius: 4px; overflow: hidden;
+  background: var(--md-surface-container-highest);
+  .gauge-fill { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 4px; background: var(--md-primary); transition: height .4s; }
+}
+.strip-day.irrigate .gauge-fill { background: var(--md-tertiary); }
+.strip-detail { margin: 12px 4px 0; }
+.next-note { margin: 8px 4px 0; }

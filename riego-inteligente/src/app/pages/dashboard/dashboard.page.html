@@ -71,6 +71,38 @@
       </ion-button>
     </section>
 
+    <!-- Próximo riego -->
+    @if (next(); as n) {
+      <h2 class="section md-title-medium">Próximo riego</h2>
+      <div class="next-card">
+        <div class="next-head">
+          <div class="next-icon"><ion-icon name="calendar-outline" /></div>
+          <div class="next-text">
+            <span class="md-headline-small">{{ n.when }}</span>
+            <span class="md-body-medium md-variant">{{ n.lead }} · unos {{ n.minutes }} min ({{ n.deficit }} mm)</span>
+          </div>
+        </div>
+        <div class="strip" role="list">
+          @for (d of strip(); track d.date; let i = $index) {
+            <button class="strip-day" role="listitem" [class.irrigate]="d.irrigate" [class.sel]="selectedForecast() === i"
+                    (click)="selectedForecast.set(selectedForecast() === i ? null : i)"
+                    [attr.aria-label]="d.label + ': déficit ' + fmt(d.deficitMm) + ' milímetros' + (d.irrigate ? ', día de riego' : '')">
+              <span class="md-label-medium">{{ d.label }}</span>
+              <span class="md-body-small md-variant">{{ d.dayNum }}</span>
+              <span class="gauge"><span class="gauge-fill" [style.height.%]="d.fill"></span></span>
+              <ion-icon class="mark" [name]="d.irrigate ? 'water-outline' : d.rainy ? 'rainy-outline' : 'leaf-outline'" />
+            </button>
+          }
+        </div>
+        @if (stripDetail(); as sd) {
+          <p class="md-body-small strip-detail">{{ sd }}</p>
+        }
+        @for (note of n.notes; track note) {
+          <p class="md-body-small md-variant next-note">{{ note }}</p>
+        }
+      </div>
+    }
+
     <!-- Hoy -->
     @if (tiles().length) {
       <h2 class="section md-title-medium">Hoy en tu jardín</h2>

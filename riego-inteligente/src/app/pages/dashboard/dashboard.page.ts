@@ -17,6 +17,7 @@ import {
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
+  calendarOutline,
   flagOutline,
   flowerOutline,
   leafOutline,
@@ -33,7 +34,7 @@ import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
-import { humidityPct, round1 } from '../../core/irrigation-core';
+import { humidityPct, longDateEs, round1, weekdayEs } from '../../core/irrigation-core';
 import { lawnMessages, lawnMood, lawnScene } from '../../core/lawn-mood';
 import { LawnHeroComponent } from '../../ui/lawn-hero/lawn-hero.component';
 
@@ -72,7 +73,7 @@ export class DashboardPage implements OnInit {
   constructor() {
     addIcons({
       settingsOutline, waterOutline, locationOutline, leafOutline, umbrellaOutline, thermometerOutline,
-      rainyOutline, flagOutline, trendingUpOutline, flowerOutline, optionsOutline,
+      rainyOutline, flagOutline, calendarOutline, trendingUpOutline, flowerOutline, optionsOutline,
     });
   }
 
@@ -118,6 +119,42 @@ export class DashboardPage implements OnInit {
       cls: 'ok', icon: 'leaf-outline', title: 'No es necesario regar',
       detail: `El suelo tiene humedad suficiente. Se riega al llegar a ${fmt(thr)} mm de déficit.`,
     };
+  });
+
+  // ───────────── Próximo riego (pronóstico) ─────────────
+  readonly selectedForecast = signal<number | null>(null);
+  readonly next = computed(() => {
+    const n = this.snap()?.next;
+    if (!n) return null;
+    const when =
+      n.daysAhead === 0 ? 'Hoy' : n.daysAhead === 1 ? 'Mañana' : cap(longDateEs(n.date));
+    const lead =
+      n.daysAhead === 0 ? 'Entre 06:30 y 08:30' : n.daysAhead === 1 ? 'Mañana entre 06:30 y 08:30' : `En ${n.daysAhead} días, entre 06:30 y 08:30`;
+    const notes: string[] = [];
+    if (n.beyondForecast) notes.push('Estimado más allá del pronóstico disponible; se irá ajustando.');
+    if (n.delayedByRain) notes.push(`La lluvia prevista del ${weekdayEs(n.delayedByRain)} retrasa el riego.`);
+    return { when, lead, minutes: n.minutes, deficit: fmt(n.deficitMm), notes, beyond: n.beyondForecast };
+  });
+  /** Franja de días: barra = déficit relativo al umbral. */
+  readonly strip = computed(() => {
+    const n = this.snap()?.next;
+    const thr = this.snap()?.settings.thresholdMm ?? 8;
+    if (!n) return [];
+    return n.timeline.slice(0, 7).map((d, i) => ({
+      ...d,
+      label: i === 0 ? 'Hoy' : cap(weekdayEs(d.date).slice(0, 3)),
+      dayNum: Number(d.date.slice(8)),
+      fill: Math.min(100, (d.deficitMm / thr) * 100),
+      rainy: d.rainMm >= 1 || d.rainProbPct >= 50,
+    }));
+  });
+  readonly stripDetail = computed(() => {
+    const days = this.strip();
+    const i = this.selectedForecast();
+    if (i === null || !days[i]) return null;
+    const d = days[i];
+    const what = d.irrigate ? 'Día de riego' : d.rainBlock ? 'Riego bloqueado por lluvia' : d.deficitMm >= (this.snap()?.settings.thresholdMm ?? 8) ? 'Pospuesto' : 'Sin riego';
+    return `${cap(longDateEs(d.date))} · ${what} · déficit ${fmt(d.deficitMm)} mm · lluvia ${fmt(d.rainMm)} mm (${Math.round(d.rainProbPct)}%)`;
   });
 
   // ───────────── Mosaicos de hoy ─────────────

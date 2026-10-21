@@ -10,6 +10,7 @@ import {
   buildChart,
   deficitFromHumidity,
   evaluate,
+  forecastNextIrrigation,
   overseedActive,
   overseedDaysLeft,
   planNotifications,
@@ -17,6 +18,7 @@ import {
   startOverseed,
   toISODate,
 } from './irrigation-core';
+import type { NextIrrigation } from './irrigation-core';
 import type {
   ChartDay,
   DailyWeather,
@@ -33,6 +35,8 @@ export interface Snapshot {
   state: WaterState;
   today: string;
   evaluation: Evaluation | null;
+  /** Próximo riego estimado con el pronóstico. */
+  next: NextIrrigation | null;
   chart: ChartDay[];
   overseedDaysLeft: number;
   staleWeather: boolean;
@@ -116,6 +120,7 @@ export class IrrigationEngineService {
       state,
       today,
       evaluation,
+      next: days.length ? forecastNextIrrigation(state, days, settings, today) : null,
       chart: buildChart(today, history, days, irrigations),
       overseedDaysLeft: overseedDaysLeft(state, today),
       staleWeather: stale,

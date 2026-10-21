@@ -143,3 +143,39 @@ test('pasto mascota: escena del clima y frases', () => {
   assert.ok(lm.lawnMessages('thirsty', 'sun', { minutes: 15, rainForecastMm: 0, windMaxKmh: 0 })[0].includes('15 min'));
   assert.ok(lm.lawnMessages('happy', 'rain', { minutes: 0, rainForecastMm: 12, windMaxKmh: 0 }).some((m) => m.includes('lluvia')));
 });
+
+test('próximo riego: primer día con déficit ≥ umbral y sin lluvia', () => {
+  // ETc = 4 × 0,85 = 3,4 mm/día (enero). Hoy 13 con 2 mm → 5,4 → 8,8 el día 15.
+  const w = ['13', '14', '15', '16', '17'].map((d) => wx(`2026-01-${d}`));
+  const n = c.forecastNextIrrigation(state({ asOf: '2026-01-13', deficitMm: 2 }), w, S, '2026-01-13');
+  assert.equal(n.date, '2026-01-15');
+  assert.equal(n.daysAhead, 2);
+  assert.equal(n.minutes, 15); // 8,8 / 0,6
+  assert.equal(n.beyondForecast, false);
+  assert.equal(n.timeline.filter((d) => d.irrigate).length, 1);
+});
+
+test('próximo riego: la lluvia lo retrasa y el bloqueo lo salta', () => {
+  const w = [wx('2026-01-13'), wx('2026-01-14', { precipitationMm: 10 }), wx('2026-01-15'), wx('2026-01-16'), wx('2026-01-17')];
+  const n = c.forecastNextIrrigation(state({ asOf: '2026-01-13', deficitMm: 6 }), w, S, '2026-01-13');
+  // 13: 6 ; 14: 9,4 pero llueve 10 (bloqueo) ; 15: 9,4+3,4−8 = 4,8 ; 16: 8,2 → riego
+  assert.equal(n.date, '2026-01-16');
+  assert.equal(n.delayedByRain, '2026-01-14');
+  assert.equal(n.timeline[1].rainBlock, true);
+});
+
+test('próximo riego: hoy si ya toca; extrapola fuera del pronóstico', () => {
+  const w = ['13', '14'].map((d) => wx(`2026-01-${d}`));
+  assert.equal(c.forecastNextIrrigation(state({ asOf: '2026-01-13', deficitMm: 9 }), w, S, '2026-01-13').daysAhead, 0);
+  const far = c.forecastNextIrrigation(state({ asOf: '2026-01-13', deficitMm: 0 }), w, S, '2026-01-13');
+  assert.equal(far.beyondForecast, true);
+  assert.equal(far.date, '2026-01-15'); // 0 → 3,4 → 6,8 → 10,2 el 15
+  assert.equal(c.weekdayEs('2026-10-22'), 'jueves');
+  assert.equal(c.longDateEs('2026-10-22'), 'jueves 22 de octubre');
+});
+
+test('aviso "no regar" incluye el próximo riego estimado', () => {
+  const w = ['13', '14', '15', '16'].map((d) => wx(`2026-01-${d}`));
+  const p = c.planNotifications({ state: state({ asOf: '2026-01-13', deficitMm: 1 }), weather: w, settings: S, now: new Date(2026, 0, 13, 5, 0) });
+  assert.match(p.notifications[0].body, /Próximo riego estimado: (jueves|viernes)\./);
+});

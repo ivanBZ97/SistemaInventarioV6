@@ -191,6 +191,120 @@ export function evaluate(
   };
 }
 
+// ───────────────────────── Próximo riego (pronóstico) ─────────────────────────
+
+const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+/** "jueves" (sin depender de Intl: también corre en el worker en segundo plano). */
+export function weekdayEs(date: ISODate): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return WEEKDAYS[new Date(y, m - 1, d).getDay()];
+}
+
+/** "jueves 23 de octubre" */
+export function longDateEs(date: ISODate): string {
+  const [, m, d] = date.split('-').map(Number);
+  return `${weekdayEs(date)} ${d} de ${MONTHS[m - 1]}`;
+}
+
+export interface ForecastDay {
+  date: ISODate;
+  /** Déficit al inicio del día (mm). */
+  deficitMm: number;
+  etcMm: number;
+  rainMm: number;
+  effectiveRainMm: number;
+  rainProbPct: number;
+  /** El riego se bloquearía ese día por lluvia pronosticada. */
+  rainBlock: boolean;
+  /** Día en que tocaría regar. */
+  irrigate: boolean;
+}
+
+export interface NextIrrigation {
+  /** Fecha estimada del próximo riego. */
+  date: ISODate;
+  daysAhead: number;
+  minutes: number;
+  deficitMm: number;
+  /** true si cae más allá de los días con pronóstico (se extrapola con el ETc promedio y sin lluvia). */
+  beyondForecast: boolean;
+  /** Primer día de lluvia útil que retrasa el riego, si lo hay. */
+  delayedByRain: ISODate | null;
+  timeline: ForecastDay[];
+}
+
+/**
+ * Proyecta el balance con el pronóstico, día a día desde hoy, aplicando las mismas reglas que la
+ * evaluación matutina (umbral + bloqueo por lluvia). Devuelve el primer día en que tocaría regar.
+ */
+export function forecastNextIrrigation(
+  state: WaterState,
+  weather: DailyWeather[],
+  settings: Settings,
+  today: ISODate,
+): NextIrrigation | null {
+  const start = rollForward(state, weather, today).state.deficitMm;
+  const future = weather.filter((w) => w.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+  if (!future.length) return null;
+
+  const timeline: ForecastDay[] = [];
+  let deficit = start;
+  let found: ForecastDay | null = null;
+  let delayedByRain: ISODate | null = null;
+  for (const w of future) {
+    const rainBlock = w.precipitationProbMax >= RAIN_PROB_BLOCK_PCT || w.precipitationMm >= RAIN_SUM_BLOCK_MM;
+    const snoozed = state.snoozedDate === w.date;
+    const day: ForecastDay = {
+      date: w.date,
+      deficitMm: deficit,
+      etcMm: etc(w.et0Mm, w.date),
+      rainMm: w.precipitationMm,
+      effectiveRainMm: effectiveRain(w.precipitationMm),
+      rainProbPct: w.precipitationProbMax,
+      rainBlock,
+      irrigate: false,
+    };
+    if (!found && deficit >= settings.thresholdMm && !rainBlock && !snoozed) {
+      day.irrigate = true;
+      found = day;
+    }
+    if (!found && !delayedByRain && day.effectiveRainMm > 0) delayedByRain = w.date;
+    timeline.push(day);
+    // si hoy se riega, el balance proyectado vuelve a 0 desde ese día
+    deficit = Math.max(0, (day.irrigate ? 0 : deficit) + day.etcMm - day.effectiveRainMm);
+  }
+
+  if (found) {
+    return {
+      date: found.date,
+      daysAhead: diffDays(found.date, today),
+      minutes: minutesFor(found.deficitMm, settings.sprinklerRateMmMin),
+      deficitMm: found.deficitMm,
+      beyondForecast: false,
+      delayedByRain,
+      timeline,
+    };
+  }
+
+  // Más allá del pronóstico: se extrapola con el ETc promedio y sin lluvia.
+  const avgEtc = timeline.reduce((s, d) => s + d.etcMm, 0) / timeline.length;
+  if (avgEtc <= 0) return null;
+  const extra = Math.max(1, Math.ceil((settings.thresholdMm - deficit) / avgEtc));
+  const date = addDays(timeline[timeline.length - 1].date, extra);
+  const deficitAt = deficit + avgEtc * (extra - 1);
+  return {
+    date,
+    daysAhead: diffDays(date, today),
+    minutes: minutesFor(deficitAt, settings.sprinklerRateMmMin),
+    deficitMm: deficitAt,
+    beyondForecast: true,
+    delayedByRain,
+    timeline,
+  };
+}
+
 // ───────────────────────── Modo resiembra ─────────────────────────
 
 export function overseedActive(state: WaterState, date: ISODate): boolean {
@@ -295,7 +409,12 @@ export function planNotifications({ state, weather, settings, now }: PlanInput):
   if (state.snoozedDate !== targetDate) {
     const ev = evaluate(state, weather, settings, targetDate);
     if (ev) {
-      notifications.push(morningNotification(ev, at));
+      const n = morningNotification(ev, at);
+      if (ev.status === 'ok') {
+        const next = forecastNextIrrigation(state, weather, settings, targetDate);
+        if (next && next.daysAhead > 0) n.body += ` Próximo riego estimado: ${weekdayEs(next.date)}.`;
+      }
+      notifications.push(n);
       morningFor = targetDate;
     }
   }
