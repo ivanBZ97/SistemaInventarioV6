@@ -110,7 +110,7 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
       <h2 class="section md-title-small">Estación meteorológica</h2>
       <div class="card">
         <p class="md-body-medium md-variant intro">
-          Usa la lluvia y la evapotranspiración (ET0) medidas por una estación real cerca de tu jardín en lugar de las del pronóstico.
+          Usa la lluvia (la de hoy, casi en tiempo real) y la evapotranspiración (ET0) medidas por una estación real cerca de tu jardín en lugar de las del pronóstico.
         </p>
         <div class="row">
           <div class="li-icon"><ion-icon name="radio-outline" /></div>

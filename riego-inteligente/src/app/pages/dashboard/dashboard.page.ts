@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, OnDestroy, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import {
   AlertController,
@@ -35,6 +35,7 @@ import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
 import { humidityPct, longDateEs, round1, weekdayEs } from '../../core/irrigation-core';
+import { LIVE_FRESH_MS } from '../../core/dmc';
 import { lawnMessages, lawnMood, lawnScene } from '../../core/lawn-mood';
 import { LawnHeroComponent } from '../../ui/lawn-hero/lawn-hero.component';
 
@@ -47,6 +48,15 @@ export function fmt(v: number, digits = 1): string {
 
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
+/** "18:45" */
+const clock = (t: number) => {
+  const d = new Date(t);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/** Con la app abierta: lluvia de la estación cada 5 min (publica cada minuto, con ~25 min de atraso). */
+const LIVE_REFRESH_MS = 5 * 60_000;
+
 @Component({
   selector: 'app-dashboard',
   standalone: true,
@@ -57,7 +67,7 @@ const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
   templateUrl: './dashboard.page.html',
   styleUrls: ['./dashboard.page.scss'],
 })
-export class DashboardPage implements OnInit {
+export class DashboardPage implements OnInit, OnDestroy {
   private engine = inject(IrrigationEngineService);
   private notifications = inject(NotificationService);
   private background = inject(BackgroundService);
@@ -110,15 +120,66 @@ export class DashboardPage implements OnInit {
         detail: `Entre 06:30 y 08:30. Déficit acumulado de ${fmt(ev.deficitMm)} mm.${wind}`,
       };
     }
+    const station = this.snap()?.settings.dmc?.name ?? 'la estación';
+    if (ev.status === 'paused_rain' && ev.rainBlockReason === 'raining')
+      return {
+        cls: 'neutral', icon: 'rainy-outline', title: 'Está lloviendo en tu sector',
+        detail: `${fmt(ev.rainMeasuredMm ?? 0)} mm hoy en ${station}. Espera a que pare: la app descuenta lo que cae.`,
+      };
+    if (ev.status === 'paused_rain' && ev.rainBlockReason === 'measured')
+      return {
+        cls: 'neutral', icon: 'rainy-outline', title: 'Riego en pausa por lluvia',
+        detail: `Hoy ya llovieron ${fmt(ev.rainMeasuredMm ?? 0)} mm en ${station}.`,
+      };
     if (ev.status === 'paused_rain')
       return {
         cls: 'neutral', icon: 'umbrella-outline', title: 'Riego en pausa por lluvia',
         detail: `${Math.round(ev.rainProbPct)}% de probabilidad · ${fmt(ev.rainForecastMm)} mm previstos hoy.`,
       };
+    const fell = ev.rainMeasuredMm ?? 0;
     return {
       cls: 'ok', icon: 'leaf-outline', title: 'No es necesario regar',
-      detail: `El suelo tiene humedad suficiente. Se riega al llegar a ${fmt(thr)} mm de déficit.`,
+      detail: fell > 0
+        ? `Hoy ya llovieron ${fmt(fell)} mm en ${station}. Se riega al llegar a ${fmt(thr)} mm de déficit.`
+        : `El suelo tiene humedad suficiente. Se riega al llegar a ${fmt(thr)} mm de déficit.`,
     };
+  });
+
+  // ───────────── Lluvia en tu sector (casi en tiempo real) ─────────────
+  /** Reloj para "hace X min". */
+  readonly now = signal(Date.now());
+  readonly selectedHour = signal<number | null>(null);
+  readonly live = computed(() => {
+    const s = this.snap();
+    const r = s?.liveRain;
+    if (!s?.settings.dmc || !r) return null;
+    const now = this.now();
+    const ago = Math.max(0, Math.round((now - r.lastAtMs) / 60_000));
+    const midnight = new Date(`${s.today}T00:00:00`).getTime();
+    const hasToday = r.sinceMs !== null;
+    const max = Math.max(1, ...r.hourly);
+    const hourNow = new Date(now).getHours();
+    const ev = s.evaluation;
+    return {
+      station: s.settings.dmc.name,
+      mm: fmt(hasToday ? r.mm : 0),
+      hasToday,
+      anyRain: hasToday && r.mm > 0,
+      until: (r.lastAtMs < midnight ? 'ayer ' : '') + clock(r.lastAtMs),
+      ago: ago < 60 ? `hace ${ago} min` : `hace ${Math.floor(ago / 60)} h ${ago % 60} min`,
+      chip: r.rainingNow ? 'raining' : now - r.lastAtMs <= LIVE_FRESH_MS ? 'live' : 'stale',
+      since: r.sinceMs !== null && r.sinceMs > midnight + 10 * 60_000 ? clock(r.sinceMs) : null,
+      lastHour: fmt(r.lastHourMm),
+      forecast: ev ? `${fmt(ev.rainForecastMm)} mm (${Math.round(ev.rainProbPct)} %)` : null,
+      bars: r.hourly.map((mm, h) => ({ h, mm, pct: mm > 0 ? Math.max(8, (mm / max) * 100) : 0, future: h > hourNow })),
+    };
+  });
+  readonly hourDetail = computed(() => {
+    const h = this.selectedHour();
+    const l = this.live();
+    if (h === null || !l) return null;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(h)}:00–${pad((h + 1) % 24)}:00 · ${fmt(l.bars[h].mm)} mm`;
   });
 
   // ───────────── Próximo riego (pronóstico) ─────────────
@@ -132,7 +193,8 @@ export class DashboardPage implements OnInit {
       n.daysAhead === 0 ? 'Entre 06:30 y 08:30' : n.daysAhead === 1 ? 'Mañana entre 06:30 y 08:30' : `En ${n.daysAhead} días, entre 06:30 y 08:30`;
     const notes: string[] = [];
     if (n.beyondForecast) notes.push('Estimado más allá del pronóstico disponible; se irá ajustando.');
-    if (n.delayedByRain) notes.push(`La lluvia prevista del ${weekdayEs(n.delayedByRain)} retrasa el riego.`);
+    if (n.delayedByRain === this.snap()?.today) notes.push('La lluvia de hoy retrasa el riego.');
+    else if (n.delayedByRain) notes.push(`La lluvia prevista del ${weekdayEs(n.delayedByRain)} retrasa el riego.`);
     return { when, lead, minutes: n.minutes, deficit: fmt(n.deficitMm), notes, beyond: n.beyondForecast };
   });
   /** Franja de días: barra = déficit relativo al umbral. */
@@ -163,10 +225,7 @@ export class DashboardPage implements OnInit {
     if (!ev) return [];
     return [
       { icon: 'thermometer-outline', label: 'Temp. máxima', value: `${Math.round(ev.tempMaxC)}°`, note: 'Hoy' },
-      {
-        icon: 'rainy-outline', label: 'Lluvia', value: `${fmt(ev.rainForecastMm)} mm`,
-        note: ev.effectiveRainTodayMm > 0 ? `${Math.round(ev.rainProbPct)}% · ${fmt(ev.effectiveRainTodayMm)} mm útiles` : `${Math.round(ev.rainProbPct)}% de prob.`,
-      },
+      { icon: 'rainy-outline', label: 'Lluvia prevista', value: `${fmt(ev.rainForecastMm)} mm`, note: `${Math.round(ev.rainProbPct)}% de prob.` },
       {
         icon: 'flag-outline', label: 'Viento máx.', value: `${Math.round(ev.windMaxKmh)} km/h`,
         note: ev.windWarning ? 'Fuerte: riega temprano' : 'Normal', warn: ev.windWarning,
@@ -237,9 +296,29 @@ export class DashboardPage implements OnInit {
   });
   readonly previewMessages = computed(() => [`${Math.round(humidityPct(this.adjustValue()))}% de humedad útil`]);
 
+  private timers: ReturnType<typeof setInterval>[] = [];
+
   async ngOnInit(): Promise<void> {
+    this.timers.push(setInterval(() => this.now.set(Date.now()), 30_000));
+    this.timers.push(setInterval(() => this.liveRefresh(), LIVE_REFRESH_MS));
     const snap = this.snap() ?? (await this.engine.refresh());
     if (!snap.settings.locationSet) await this.askLocation();
+  }
+
+  ngOnDestroy(): void {
+    this.timers.forEach(clearInterval);
+  }
+
+  /** Lluvia nueva de la estación: si cambia la decisión, se reprograman los avisos. */
+  private async liveRefresh(): Promise<void> {
+    if (document.visibilityState !== 'visible') return;
+    const before = this.snap()?.evaluation;
+    const after = (await this.engine.refresh()).evaluation;
+    this.now.set(Date.now());
+    if (before?.status !== after?.status || before?.rainMeasuredMm !== after?.rainMeasuredMm) {
+      await this.notifications.reschedule();
+      await this.background.sync();
+    }
   }
 
   async refresh(ev?: CustomEvent): Promise<void> {
@@ -291,7 +370,7 @@ export class DashboardPage implements OnInit {
   }
 
   openAdjust(): void {
-    this.adjustValue.set(round1(this.snap()?.state.deficitMm ?? 0));
+    this.adjustValue.set(round1(this.deficit()));
     this.adjustOpen.set(true);
   }
 

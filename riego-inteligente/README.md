@@ -41,7 +41,8 @@ riego-inteligente/
 | ETc | `ET0 × Kc` |
 | Balance | `Déficit_hoy = max(0, Déficit_ayer + ETc_ayer − Lluvia_efectiva_ayer − Riego_ayer)`; lluvia efectiva = 80 % si > 2 mm, si no 0 |
 | Umbral / minutos | `déficit ≥ 8 mm` (configurable 6–12) → `round(déficit / tasa)` min (tasa por defecto 0.6 mm/min) |
-| Bloqueo lluvia | prob. máx ≥ 50 % **o** ≥ 4 mm ⇒ "Riego pausado por pronóstico de lluvia" |
+| Bloqueo lluvia | prob. máx ≥ 50 % **o** ≥ 4 mm pronosticados ⇒ "Riego pausado por pronóstico de lluvia"; con estación, ≥ 4 mm ya medidos hoy ⇒ "Riego pausado por lluvia", y ≥ 0,5 mm en la última hora ⇒ "Riego pausado: está lloviendo" |
+| Lluvia de hoy (estación) | lo medido hoy hasta la última lectura baja el déficit actual (80 % si > 2 mm; tras un riego o ajuste de hoy solo cuenta lo caído después); para mañana cuenta el máximo entre lo medido y lo pronosticado |
 | Viento | > 25 km/h ⇒ aviso "riega temprano" en la alerta |
 | Sin riego nocturno | toda alerta de riego se fuerza a 06:30–08:30 (`clampToIrrigationWindow`) |
 | Resiembra | 10 días; chequeo extra 13:00, si `tmax ≥ 20 °C` envía "🌱 Modo Resiembra: Rocía solo los parches…" |
@@ -121,17 +122,17 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
 
 ## Fuentes de clima
 
-- **Open-Meteo multi-modelo:** pide ECMWF IFS, GFS e ICON en la misma consulta y promedia ET0, lluvia,
-  temperatura y viento (los modelos sin dato no cuentan). Si ningún modelo entrega probabilidad de lluvia, se
+- **Open-Meteo multi-modelo:** pide ECMWF IFS, GFS e ICON en la misma consulta; promedia ET0, temperatura y
+  viento, y usa la mediana para la lluvia (los modelos sin dato no cuentan). Si ningún modelo entrega probabilidad de lluvia, se
   estima como el % de modelos que pronostican ≥ 1 mm.
 - **Lluvia observada sin clave (Dirección Meteorológica de Chile):** Ajustes → "Usar la estación más cercana"
   elige la estación automática (EMA) de la DMC más próxima (en Buin: El Milagro, código 330160) y lee el recurso
   JSON `…/datosRecientesEma/<código>` (últimas ~12 h, una lectura por minuto).
   La variante mensual (`…/<código>/<año>/<mes>`) hoy exige usuario y token (responde 404), por eso no se usa.
   Como cada consulta cubre ~12 h, las lecturas se guardan en un almacén local (app: Preferences `dmcStore`;
-  worker: CapacitorKV, consulta cada 4 h) y con él se arman los días: `aguaCaida24Horas` es un acumulado que se
+  worker: CapacitorKV) y con él se arman los días: `aguaCaida24Horas` es un acumulado que se
   reinicia a las 12:00 UTC, la lluvia diaria es la suma de incrementos y solo se usan días con ≥ 20 h cubiertas
-  (sin contar huecos de más de 1 h). Tras un fallo se reintenta en 1 h. "Probar" muestra un diagnóstico (estado
+  (sin contar huecos de más de 1 h). Tras un fallo se reintenta en 1 h (con la app abierta, en la siguiente consulta). "Probar" muestra un diagnóstico (estado
   HTTP, lecturas, campo de lluvia, lluvia de las últimas 24 h y días completos) que se puede copiar.
   Los días ya contabilizados con lluvia del modelo se corrigen solos cuando llega la medida.
   En octubre de 2026 todo `…/productos/…` responde 404: con **usuario y token** (registro gratuito en el portal;
@@ -141,6 +142,13 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
   valor en mm), que completa los días que las lecturas no alcanzan a cubrir; las lecturas tienen prioridad. Las credenciales se guardan solo en el
   teléfono y el diagnóstico las oculta. "Probar" también informa el resumen diario oficial y el servicio público WIS2
   de la DMC (`wischile.meteochile.gob.cl/oapi`), para evaluar fuentes alternativas.
+- **Lluvia de hoy casi en tiempo real:** la EMA publica una lectura por minuto con ~25 min de atraso. Con la app
+  abierta se consulta cada 5 min (deslizar hacia abajo fuerza la consulta) y la tarjeta "Lluvia en tu sector"
+  muestra lo caído hoy hasta la última lectura ("hasta las 18:45"), la lluvia por hora y si está lloviendo
+  (≥ 0,5 mm en la última hora, con una lectura de menos de 90 min). En segundo plano el worker consulta cada
+  30 min si llueve, si se pronostica lluvia (≥ 1 mm o ≥ 30 %) o en la hora y media antes del aviso de la
+  mañana; si no, cada 2 h. El resumen diario oficial se pide como máximo cada 3 h. "Probar" informa la lluvia
+  de hoy, el atraso de la estación y el tamaño de cada consulta.
 - **ET0 medida con la estación (FAO-56 Penman-Monteith):** con las lecturas por minuto de la EMA
   (`temperatura`, `humedadRelativa`, `radiacionGlobalInst`, `fuerzaDelVientoPromedio10Minutos` en nudos) se
   arman bloques de 10 min y, por día local con ≥ 21 h medidas, Tmáx/Tmín, presión de vapor real media (desde

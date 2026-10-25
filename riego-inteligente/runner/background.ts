@@ -3,6 +3,7 @@
 // archivo (runners/background.js) e incluye el mismo motor agronómico que usa la app.
 import {
   applyRainOverrides,
+  morningTimeOf,
   planNotifications,
   reconcileObservedEt0,
   reconcileObservedRain,
@@ -12,12 +13,15 @@ import { fetchForecast } from '../src/app/core/open-meteo';
 import { applyObservedRain, mergeObservedRain } from '../src/app/core/agromet';
 import {
   type DmcStore,
+  backgroundStationMaxAgeMs,
   et0Correction,
+  liveRainFromStore,
   observedFromStore,
   recordEt0Pairs,
   refreshDmcStore,
   stationEt0,
   stationMeta,
+  withLiveRain,
   withStationEt0,
 } from '../src/app/core/dmc';
 import type { DailyWeather, DayRecord, DmcConfig, Settings, WaterState } from '../src/app/core/models';
@@ -47,20 +51,32 @@ function load(): Snapshot | null {
 }
 
 const DMC_STORE = 'dmcStore';
-const DMC_MAX_AGE_MS = 4 * 3_600_000;
 
 /**
- * Datos medidos por la estación DMC: consulta cada 4 h (cada consulta trae ~12 h) y acumula. Devuelve la
- * lluvia y la ET0 FAO-56 de los días cerrados, y la corrección del pronóstico de ET0.
+ * Datos medidos por la estación DMC (cada consulta trae ~12 h y se acumulan): lluvia y ET0 FAO-56 de los días
+ * cerrados, corrección del pronóstico de ET0 y lluvia de hoy hasta la última lectura. Consulta cada 30 min si
+ * llueve, si se pronostica lluvia o antes del aviso de la mañana; si no, cada 2 h.
  */
 async function dmcData(cfg: DmcConfig, settings: Settings, today: string, modelDays: DailyWeather[]) {
   const raw = CapacitorKV.get(DMC_STORE)?.value;
   const prev = raw ? (JSON.parse(raw) as DmcStore) : null;
-  const { store } = await refreshDmcStore(prev, cfg.code, Date.now(), DMC_MAX_AGE_MS, false, settings.dmcAuth);
+  const now = Date.now();
+  const maxAge = backgroundStationMaxAgeMs(
+    now,
+    liveRainFromStore(prev, cfg.code, today, now),
+    modelDays.find((d) => d.date === today),
+    morningTimeOf(settings),
+  );
+  const { store } = await refreshDmcStore(prev, cfg.code, now, maxAge, false, settings.dmcAuth);
   const et0 = stationEt0(store.met ?? [], stationMeta(cfg, settings.latitude, null), today);
   const saved = recordEt0Pairs(store, et0, modelDays, today);
-  CapacitorKV.set(DMC_STORE, JSON.stringify(saved));
-  return { rain: observedFromStore(saved, cfg.code, today), et0, correction: et0Correction(saved.et0Pairs, today) };
+  if (store !== prev || JSON.stringify(saved.et0Pairs) !== JSON.stringify(prev?.et0Pairs)) CapacitorKV.set(DMC_STORE, JSON.stringify(saved));
+  return {
+    rain: observedFromStore(saved, cfg.code, today),
+    et0,
+    correction: et0Correction(saved.et0Pairs, today),
+    live: liveRainFromStore(saved, cfg.code, today, now),
+  };
 }
 
 /** La app envía aquí su estado cada vez que cambia (ver BackgroundService.sync). */
@@ -100,7 +116,8 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
       observed = inia.observed;
     }
     let weather = applyRainOverrides(measured, snap.rainOverrides, today);
-    if (dmc) weather = withStationEt0(weather, dmc.et0, dmc.correction, today);
+    // ET0 medida y, para hoy, la lluvia que ya cayó (pausa o descuenta el riego del aviso de la mañana).
+    if (dmc) weather = withLiveRain(withStationEt0(weather, dmc.et0, dmc.correction, today), dmc.live, today);
     // Días ya contados con lluvia/ET0 del modelo → se corrigen en memoria (la app lo guarda al abrirse).
     const rec = reconcileObservedRain(snap.state, snap.history ?? [], Object.fromEntries(observed), snap.rainOverrides);
     const { state } = reconcileObservedEt0(rec.state, rec.history, Object.fromEntries(dmc?.et0 ?? []));

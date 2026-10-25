@@ -74,6 +74,48 @@
       </ion-button>
     </section>
 
+    <!-- Lluvia en tu sector: estación DMC, hasta su última lectura -->
+    @if (live(); as l) {
+      <h2 class="section md-title-medium">Lluvia en tu sector</h2>
+      <div class="live-card">
+        <div class="live-head">
+          <div class="live-icon"><ion-icon name="rainy-outline" /></div>
+          <div class="live-text">
+            <span class="md-label-medium md-variant">Hoy en {{ l.station }}</span>
+            <span class="md-headline-small">{{ l.mm }} mm</span>
+          </div>
+          <span class="live-chip md-label-medium" [class]="'live-chip md-label-medium ' + l.chip">
+            <i class="live-dot"></i>{{ l.chip === 'raining' ? 'Lloviendo' : l.chip === 'live' ? 'En vivo' : 'Sin datos nuevos' }}
+          </span>
+        </div>
+        <p class="md-body-medium md-variant live-sub">
+          @if (l.hasToday) {
+            Hasta las {{ l.until }} ({{ l.ago }})@if (l.since) { · desde las {{ l.since }} }
+          } @else {
+            Aún no hay lecturas de hoy · la última es de las {{ l.until }}
+          }
+        </p>
+        @if (l.anyRain) {
+          <div class="hours" role="list" aria-label="Lluvia por hora">
+            @for (b of l.bars; track b.h) {
+              <button class="hour" role="listitem" [class.future]="b.future" [class.sel]="selectedHour() === b.h"
+                      (click)="selectedHour.set(selectedHour() === b.h ? null : b.h)"
+                      [attr.aria-label]="b.h + ' horas: ' + fmt(b.mm) + ' milímetros'">
+                <span class="hour-bar" [style.height.%]="b.pct"></span>
+              </button>
+            }
+          </div>
+          <div class="hours-scale md-body-small md-variant"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+          @if (hourDetail(); as hd) {
+            <p class="md-body-small live-detail">{{ hd }}</p>
+          }
+        }
+        <p class="md-body-small md-variant live-foot">
+          Última hora: {{ l.lastHour }} mm@if (l.forecast) { · Pronóstico para hoy: {{ l.forecast }} }
+        </p>
+      </div>
+    }
+
     <!-- Próximo riego -->
     @if (next(); as n) {
       <h2 class="section md-title-medium">Próximo riego</h2>

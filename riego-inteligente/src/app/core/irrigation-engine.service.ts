@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { StorageService } from './storage.service';
-import { WeatherService } from './weather.service';
+import { STATION_LIVE_MAX_AGE_MS, WeatherService } from './weather.service';
 import { LocationService } from './location.service';
 import { SOIL_SENSOR_PROVIDER } from './soil-sensor.provider';
 import {
@@ -29,6 +29,7 @@ import type {
   DayRecord,
   Evaluation,
   IrrigationEvent,
+  LiveRain,
   PlannedNotification,
   Settings,
   WaterState,
@@ -52,6 +53,8 @@ export interface Snapshot {
   /** Estación que aportó la ET0 medida (días pasados) y la corrección aplicada al pronóstico de ET0. */
   et0Source: string | null;
   et0Ratio: number | null;
+  /** Lluvia de hoy medida por la estación hasta su última lectura (se actualiza cada 5 min con la app abierta). */
+  liveRain: LiveRain | null;
   error: string | null;
 }
 
@@ -83,7 +86,10 @@ export class IrrigationEngineService {
     return { settings, state, history, irrigations, rainOverrides };
   }
 
-  /** Recalcula todo: avanza el balance hasta hoy, aplica sensor (si hay), evalúa y refresca el snapshot. */
+  /**
+   * Recalcula todo: avanza el balance hasta hoy, aplica sensor (si hay), evalúa y refresca el snapshot.
+   * `forceWeather` (deslizar para actualizar) vuelve a pedir el pronóstico y la estación.
+   */
   async refresh(forceWeather = false): Promise<Snapshot> {
     const now = new Date();
     const today = toISODate(now);
@@ -97,9 +103,14 @@ export class IrrigationEngineService {
     let observedEt0: Record<string, number> = {};
     let et0Source: string | null = null;
     let et0Ratio: number | null = null;
+    let liveRain: LiveRain | null = null;
     let error: string | null = null;
     try {
-      ({ days, stale, elevationM, rainSource, observedRain, observedEt0, et0Source, et0Ratio } = await this.weather.getForecast(settings, forceWeather));
+      ({ days, stale, elevationM, rainSource, observedRain, observedEt0, et0Source, et0Ratio, liveRain } = await this.weather.getForecast(
+        settings,
+        forceWeather,
+        forceWeather ? 60_000 : STATION_LIVE_MAX_AGE_MS,
+      ));
     } catch (e) {
       error = 'Sin conexión y sin datos en caché. Se muestra el último balance guardado.';
     }
@@ -131,7 +142,7 @@ export class IrrigationEngineService {
     try {
       const reading = await this.sensor.read();
       if (reading && Date.now() - Date.parse(reading.takenAt) < SENSOR_MAX_AGE_MS) {
-        state = { ...state, deficitMm: deficitFromHumidity(reading.moisturePct), source: 'sensor', resetDate: today };
+        state = { ...state, deficitMm: deficitFromHumidity(reading.moisturePct), source: 'sensor', resetDate: today, resetAt: Date.parse(reading.takenAt) };
       }
     } catch {
       /* sensor caído: se mantiene el balance teórico */
@@ -153,6 +164,7 @@ export class IrrigationEngineService {
       rainSource,
       et0Source,
       et0Ratio,
+      liveRain,
       error,
     };
     this.snapshot.set(snap);
@@ -190,19 +202,21 @@ export class IrrigationEngineService {
 
   /** "Ya regué" / "Registrar riego ahora": déficit → 0 mm y se anota en el historial. */
   async registerIrrigation(source: IrrigationEvent['source'] = 'manual'): Promise<void> {
-    await this.refresh();
+    const snap = await this.refresh();
     const { state, irrigations } = await this.loadAll();
-    const mm = state.deficitMm;
+    // Lo que faltaba reponer ahora: el déficit actual ya descuenta la lluvia caída hoy.
+    const mm = snap.evaluation?.deficitMm ?? state.deficitMm;
     const event: IrrigationEvent = { date: toISODate(new Date()), at: new Date().toISOString(), mm, source };
     await this.storage.set('irrigations', [...irrigations, event].slice(-200));
-    await this.storage.set('state', { ...applyIrrigation(state), snoozedDate: undefined, resetDate: event.date });
+    await this.storage.set('state', { ...applyIrrigation(state), snoozedDate: undefined, resetDate: event.date, resetAt: Date.parse(event.at) });
     await this.refresh();
   }
 
   /** "Ajustar humedad manualmente": fija el déficit a un valor (0 = muy húmedo, 12+ = muy seco). */
   async setDeficit(mm: number): Promise<void> {
     const { state } = await this.loadAll();
-    await this.storage.set('state', { ...state, deficitMm: Math.max(0, mm), source: 'manual', resetDate: toISODate(new Date()) });
+    const now = new Date();
+    await this.storage.set('state', { ...state, deficitMm: Math.max(0, mm), source: 'manual', resetDate: toISODate(now), resetAt: now.getTime() });
     await this.refresh();
   }
 

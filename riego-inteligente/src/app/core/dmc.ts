@@ -5,10 +5,10 @@
 // octubre de 2026 responde 404. Cada consulta trae solo las últimas horas, así que las lecturas se guardan
 // en un almacén local (la app y el worker tienen el suyo) y con él se arman los días completos.
 // Funciones sin dependencias de Angular: las usan la app y el worker en segundo plano.
-import { addDays, distanceKm, toISODate } from './irrigation-core';
+import { RAINING_NOW_MM, addDays, atTime, distanceKm, toISODate } from './irrigation-core';
 import { DMC_STATIONS_FALLBACK } from './dmc-stations';
 import { type DailyMet, WIND_10M_TO_2M, et0PenmanMonteith, satVapourPressure } from './fao56';
-import type { DailyWeather, DmcAuth, DmcConfig, ISODate } from './models';
+import type { DailyWeather, DmcAuth, DmcConfig, ISODate, LiveRain } from './models';
 
 const BASE = 'https://climatologia.meteochile.gob.cl/application/productos';
 const SERVICES = 'https://climatologia.meteochile.gob.cl/application/servicios';
@@ -389,10 +389,13 @@ export interface DmcStore {
   metFields?: MetFields;
   /** Pares (ET0 estación, ET0 modelo) por día: miden el sesgo del modelo. */
   et0Pairs?: Record<ISODate, [number, number]>;
+  /** Última consulta del resumen diario (cambia una vez al día: no hace falta pedirlo en cada consulta). */
+  summaryAt?: number;
 }
 
 const KEEP_MS = 5 * 86_400_000;
 const RETRY_AFTER_FAILURE_MS = 60 * 60_000;
+const SUMMARY_EVERY_MS = 3 * 3_600_000;
 
 export function mergeStore(prev: DmcStore | null, code: string, rf: RainField, pts: RainPoint[], now: number): DmcStore {
   const same = prev && prev.code === code && prev.field === rf.field;
@@ -400,7 +403,8 @@ export function mergeStore(prev: DmcStore | null, code: string, rf: RainField, p
   pts.forEach(([t, v]) => map.set(t, v));
   let merged: RainPoint[] = [...map].filter(([t]) => t >= now - KEEP_MS).sort((a, b) => a[0] - b[0]);
   if (rf.kind === 'accumulated') merged = downsampleAccumulated(merged);
-  const keep = prev?.code === code ? { daily: prev.daily, met: prev.met, metFields: prev.metFields, et0Pairs: prev.et0Pairs } : {};
+  const keep =
+    prev?.code === code ? { daily: prev.daily, met: prev.met, metFields: prev.metFields, et0Pairs: prev.et0Pairs, summaryAt: prev.summaryAt } : {};
   return { ...keep, code, field: rf.field, kind: rf.kind, attemptAt: now, ok: true, pts: merged };
 }
 
@@ -522,7 +526,8 @@ export async function fetchRecent(code: string, auth?: DmcAuth): Promise<RecentF
 
 /**
  * Consulta la estación si el almacén está viejo (o si `force`) y agrega las lecturas nuevas. Nunca lanza.
- * Tras un fallo espera 1 h antes de reintentar, salvo que se fuerce (botón "Probar").
+ * Tras un fallo espera 1 h antes de reintentar (o `maxAgeMs`, si es menor: con la app abierta), salvo que se
+ * fuerce (botón "Probar").
  */
 export async function refreshDmcStore(
   store: DmcStore | null,
@@ -533,7 +538,7 @@ export async function refreshDmcStore(
   auth?: DmcAuth,
 ): Promise<{ store: DmcStore; fetched?: RecentFetch; rain?: RainField | null; summary?: SummaryFetch }> {
   const current = store && store.code === code ? store : null;
-  const wait = current?.ok ? maxAgeMs : RETRY_AFTER_FAILURE_MS;
+  const wait = current?.ok ? maxAgeMs : Math.min(maxAgeMs, RETRY_AFTER_FAILURE_MS);
   if (!force && current && now - current.attemptAt < wait) return { store: current };
   const fetched = await fetchRecent(code, auth);
   const rain = fetched.ok ? detectRainField(fetched.samples) : null;
@@ -546,9 +551,10 @@ export async function refreshDmcStore(
     const { fields } = detectMetFields(fetched.samples);
     if (fields) next = { ...next, metFields: fields, met: mergeMetBuckets(next.met ?? [], metBuckets(fetched.samples, fields), now) };
   }
-  // Con token, el resumen diario oficial aporta el total de ayer aunque falten lecturas.
-  const summary = hasAuth(auth) ? await fetchDailySummary(code, auth) : undefined;
-  if (summary) next = mergeDaily(next, summary.daily, toISODate(new Date(now)));
+  // Con token, el resumen diario oficial aporta el total de ayer aunque falten lecturas (cada 3 h basta).
+  const summaryDue = force || !current?.summaryAt || now - current.summaryAt >= SUMMARY_EVERY_MS;
+  const summary = hasAuth(auth) && summaryDue ? await fetchDailySummary(code, auth) : undefined;
+  if (summary) next = { ...mergeDaily(next, summary.daily, toISODate(new Date(now))), summaryAt: now };
   return { store: next, fetched, rain, summary };
 }
 
@@ -585,12 +591,85 @@ export function withDmcRain(
   };
 }
 
+// ───────────── Lluvia de hoy, casi en tiempo real ─────────────
+
+/** Una lectura más vieja que esto (la DMC publica con ~25 min de atraso) ya no dice si está lloviendo. */
+export const LIVE_FRESH_MS = 90 * 60_000;
+
+/**
+ * Lluvia de hoy hasta la última lectura guardada, por hora y por bloque de 10 min. Un acumulado necesita la
+ * lectura anterior: sin ella (o con un hueco largo desde ayer) se cuenta desde la primera lectura de hoy.
+ */
+export function liveRainFromStore(store: DmcStore | null, code: string, today: ISODate, now: number): LiveRain | null {
+  if (!store || store.code !== code || !store.kind || !store.pts.length) return null;
+  const pts = [...store.pts].sort((a, b) => a[0] - b[0]);
+  const lastAtMs = pts[pts.length - 1][0];
+  const hourly = new Array<number>(24).fill(0);
+  const steps: [number, number][] = [];
+  let sinceMs: number | null = null;
+  let lastHour = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [t, v] = pts[i];
+    const prev = pts[i - 1];
+    const linked = !!prev && t - prev[0] <= MAX_GAP_MS;
+    // Lluvia del intervalo que termina en esta lectura (si el acumulado baja, hubo reinicio).
+    const mm = store.kind === 'increment' ? v : !prev ? null : v >= prev[1] ? v - prev[1] : v;
+    if (mm !== null && (linked || store.kind === 'increment') && t > lastAtMs - 3_600_000) lastHour += mm;
+    if (toISODate(new Date(t)) !== today) continue;
+    const fromYesterday = !!prev && toISODate(new Date(prev[0])) !== today;
+    if (sinceMs === null) sinceMs = fromYesterday && linked ? atTime(today, { hour: 0, minute: 0 }).getTime() : t;
+    // Un intervalo que empezó ayer con un hueco largo no se puede repartir entre los dos días.
+    if (mm === null || mm <= 0 || (store.kind === 'accumulated' && fromYesterday && !linked)) continue;
+    steps.push([t, Math.round(mm * 100) / 100]);
+    hourly[new Date(t).getHours()] += mm;
+  }
+  const r1 = (x: number) => Math.round(x * 10) / 10;
+  const lastHourMm = r1(lastHour);
+  return {
+    date: today,
+    mm: r1(steps.reduce((s, [, x]) => s + x, 0)),
+    sinceMs,
+    lastAtMs,
+    lastHourMm,
+    rainingNow: now - lastAtMs <= LIVE_FRESH_MS && lastHourMm >= RAINING_NOW_MM,
+    hourly: hourly.map(r1),
+    steps,
+  };
+}
+
+/** Agrega a hoy la lluvia ya medida (ver `dayRain`): el balance de hoy y el aviso de la mañana la consideran. */
+export function withLiveRain(days: DailyWeather[], live: LiveRain | null, today: ISODate): DailyWeather[] {
+  if (!live || live.date !== today) return days;
+  return days.map((d) => (d.date === today ? { ...d, live } : d));
+}
+
+/**
+ * Cada cuánto consultar la estación en segundo plano (cada consulta trae ~12 h): cada 30 min si llueve, si se
+ * pronostica lluvia o en la hora y media antes del aviso de la mañana; si no, cada 2 h.
+ */
+export function backgroundStationMaxAgeMs(
+  now: number,
+  live: LiveRain | null,
+  today: DailyWeather | undefined,
+  morning: { hour: number; minute: number },
+): number {
+  const wet = !!live && (live.lastHourMm > 0 || live.steps.some(([t]) => t >= live.lastAtMs - 3 * 3_600_000));
+  const likely = !!today && (today.precipitationMm >= 1 || today.precipitationProbMax >= 30);
+  const alertAt = atTime(toISODate(new Date(now)), morning).getTime();
+  const beforeAlert = now >= alertAt - 90 * 60_000 && now < alertAt;
+  return wet || likely || beforeAlert ? 30 * 60_000 : 2 * 3_600_000;
+}
+
 // ───────────── Diagnóstico ("Probar") ─────────────
 
 const fmtMm = (v: number) => `${String(Math.round(v * 10) / 10).replace('.', ',')} mm`;
+const clock = (t: number) => {
+  const d = new Date(t);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
 const hhmm = (t: number) => {
   const d = new Date(t);
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${clock(t)}`;
 };
 
 /** Prueba un recurso y resume qué devolvió (estado, claves y el inicio del contenido, sin credenciales). */
@@ -639,8 +718,16 @@ export async function diagnoseDmc(
   } else {
     const pts = rainPoints(f.samples, rain);
     if (pts.length) {
-      lines.push(`✓ Datos recientes: ${pts.length} lecturas, de ${hhmm(pts[0][0])} a ${hhmm(pts[pts.length - 1][0])} · campo ${rain.field}.`);
+      const kb = Math.round(JSON.stringify(f.samples).length / 1024);
+      lines.push(`✓ Datos recientes: ${pts.length} lecturas (≈ ${kb} KB), de ${hhmm(pts[0][0])} a ${hhmm(pts[pts.length - 1][0])} · campo ${rain.field}.`);
       lines.push(`Lluvia en ese periodo: ${fmtMm(totalRain(pts, rain.kind))}.`);
+      const live = liveRainFromStore(next, code, today, now);
+      if (live?.sinceMs != null) {
+        lines.push(
+          `Lluvia de hoy: ${fmtMm(live.mm)} desde las ${clock(live.sinceMs)} hasta las ${clock(live.lastAtMs)} ` +
+            `(${Math.round((now - live.lastAtMs) / 60_000)} min de atraso)${live.rainingNow ? ' · está lloviendo' : ''}.`,
+        );
+      }
     } else {
       lines.push(`Datos recientes: ${f.samples.length} lecturas, pero ninguna con valor de ${rain.field}.`);
     }

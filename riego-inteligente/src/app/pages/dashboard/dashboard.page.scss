@@ -65,6 +65,43 @@
 /* Secciones */
 .section { margin: 28px 20px 8px; color: var(--md-on-surface); }
 
+/* Lluvia en tu sector (estación, casi en tiempo real) */
+.live-card { margin: 0 16px; padding: 16px; border-radius: var(--md-shape-lg); background: var(--md-surface-container-low); }
+.live-head { display: flex; align-items: center; gap: 16px; }
+.live-icon {
+  width: 48px; height: 48px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); font-size: 24px;
+}
+.live-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.live-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; white-space: nowrap;
+  border-radius: var(--md-shape-sm); border: 1px solid var(--md-outline-variant); color: var(--md-on-surface-variant);
+  &.live .live-dot { background: var(--md-primary); animation: live-pulse 2s ease-in-out infinite; }
+  &.raining {
+    border-color: transparent; background: var(--md-tertiary-container); color: var(--md-on-tertiary-container);
+    .live-dot { background: var(--md-tertiary); animation: live-pulse 1.2s ease-in-out infinite; }
+  }
+  &.stale {
+    border-color: transparent; background: var(--md-warning-container); color: var(--md-on-warning-container);
+    .live-dot { background: var(--md-warning); }
+  }
+}
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--md-outline); }
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .live-chip .live-dot { animation: none; } }
+.live-sub { margin: 12px 0 0; }
+.hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; height: 56px; margin-top: 16px; }
+.hour {
+  display: flex; align-items: flex-end; height: 100%; padding: 0; border: 0; border-radius: 3px; cursor: pointer;
+  background: var(--md-surface-container-highest); -webkit-tap-highlight-color: transparent;
+  &.future { background: transparent; box-shadow: inset 0 0 0 1px var(--md-outline-variant); }
+  &.sel { box-shadow: 0 0 0 2px var(--md-on-surface); }
+}
+.hour-bar { display: block; width: 100%; border-radius: 3px; background: var(--md-data-gain); transition: height .4s; }
+.hours-scale { display: flex; justify-content: space-between; margin-top: 4px; }
+.live-detail { margin: 8px 0 0; }
+.live-foot { margin: 12px 0 0; }
+
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 16px; }
 .tile {
   display: flex; flex-direction: column; gap: 2px; padding: 16px; border-radius: var(--md-shape-lg);

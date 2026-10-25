@@ -65,15 +65,40 @@ export interface WaterState {
   source: 'model' | 'manual' | 'sensor';
   /** Último día en que el déficit se fijó por riego, ajuste manual o sensor: la lluvia anterior ya no influye. */
   resetDate?: ISODate;
+  /** Instante (ms) de ese riego/ajuste: de la lluvia medida hoy solo cuenta la caída después. */
+  resetAt?: number;
+}
+
+/** Lluvia de hoy medida por la estación hasta su última lectura (casi en tiempo real). */
+export interface LiveRain {
+  /** Día local al que corresponde (hoy). */
+  date: ISODate;
+  /** mm caídos hoy entre `sinceMs` y `lastAtMs`. */
+  mm: number;
+  /** Desde cuándo hay lecturas hoy (medianoche si las hay desde entonces); null si aún no hay de hoy. */
+  sinceMs: number | null;
+  /** Instante de la lectura más reciente de la estación. */
+  lastAtMs: number;
+  /** mm en la hora previa a la última lectura. */
+  lastHourMm: number;
+  /** Está lloviendo: lectura reciente con lluvia en la última hora. */
+  rainingNow: boolean;
+  /** mm por hora local de hoy (24 valores; el 0 es 00:00–01:00). */
+  hourly: number[];
+  /** [instante, mm] de cada intervalo de hoy (bloques de 10 min): permite contar desde un riego o ajuste. */
+  steps: [number, number][];
 }
 
 export interface DailyWeather {
   date: ISODate;
   et0Mm: number;
+  /** Pronóstico de los modelos; en días pasados, lo medido si hay estación. */
   precipitationMm: number;
   precipitationProbMax: number;
   tempMaxC: number;
   windMaxKmh: number;
+  /** Solo hoy: lluvia ya medida por la estación (manda si supera al pronóstico, ver `dayRain`). */
+  live?: LiveRain;
 }
 
 export interface DayRecord {
@@ -95,6 +120,7 @@ export type IrrigationStatus = 'ok' | 'irrigate' | 'paused_rain';
 export interface Evaluation {
   date: ISODate;
   status: IrrigationStatus;
+  /** Déficit actual: el del inicio del día menos la lluvia útil ya medida hoy por la estación. */
   deficitMm: number;
   minutes: number;
   etcYesterdayMm: number;
@@ -102,6 +128,12 @@ export interface Evaluation {
   tempMaxC: number;
   rainProbPct: number;
   rainForecastMm: number;
+  /** Lluvia medida hoy por la estación hasta su última lectura, o null si no hay estación/lecturas. */
+  rainMeasuredMm: number | null;
+  /** La estación registra lluvia en la última hora. */
+  rainingNow: boolean;
+  /** Motivo de la pausa: ya llovió lo suficiente, está lloviendo o lo dice el pronóstico. */
+  rainBlockReason: 'measured' | 'raining' | 'forecast' | null;
   /** Lluvia efectiva prevista hoy (80 % si > 2 mm); se descuenta del balance mañana. */
   effectiveRainTodayMm: number;
   etcTodayMm: number;

@@ -38,6 +38,8 @@ export const THRESHOLD_MAX_MM = 12;
 
 export const RAIN_PROB_BLOCK_PCT = 50;
 export const RAIN_SUM_BLOCK_MM = 4;
+/** Lluvia medida en la última hora desde la que "está lloviendo" (pausa el riego aunque el pronóstico no la vea). */
+export const RAINING_NOW_MM = 0.5;
 export const WIND_WARN_KMH = 25;
 export const MIN_EFFECTIVE_RAIN_MM = 2;
 export const EFFECTIVE_RAIN_FACTOR = 0.8;
@@ -107,6 +109,25 @@ export function effectiveRain(precipitationMm: number): number {
   return precipitationMm > MIN_EFFECTIVE_RAIN_MM ? precipitationMm * EFFECTIVE_RAIN_FACTOR : 0;
 }
 
+/** Lluvia del día: la ya medida hoy por la estación manda si supera a la pronosticada. */
+export function dayRain(w: DailyWeather): number {
+  return w.live && w.live.date === w.date && w.live.sinceMs !== null ? Math.max(w.precipitationMm, w.live.mm) : w.precipitationMm;
+}
+
+/**
+ * Lluvia medida hoy aplicada al balance. `afterReset` es lo caído después del riego/ajuste de hoy (si no
+ * hubo, todo lo de hoy): ya está en el suelo y baja el déficit actual. Si el ajuste es de hoy pero no tiene
+ * hora (versión anterior), no se descuenta nada: mejor no contar dos veces la misma lluvia.
+ */
+function measuredToday(state: WaterState, w: DailyWeather, date: ISODate) {
+  const live = w.live && w.live.date === date ? w.live : null;
+  if (!live) return { measured: null, afterReset: 0, beforeReset: 0, rainingNow: false };
+  const measured = live.sinceMs !== null ? live.mm : null;
+  const resetAt = state.resetDate === date ? (state.resetAt ?? Infinity) : -Infinity;
+  const afterReset = round1(live.steps.reduce((s, [t, mm]) => (t > resetAt ? s + mm : s), 0));
+  return { measured, afterReset, beforeReset: Math.max(0, (measured ?? 0) - afterReset), rainingNow: live.rainingNow };
+}
+
 export function minutesFor(deficitMm: number, rateMmMin: number): number {
   return Math.round(deficitMm / rateMmMin);
 }
@@ -142,7 +163,7 @@ export function rollForward(
   for (let d = state.asOf; d < targetDate; d = addDays(d, 1)) {
     const w = byDate.get(d);
     const dayEtc = w ? etc(w.et0Mm, d) : avgEtc;
-    const rain = w ? effectiveRain(w.precipitationMm) : 0;
+    const rain = w ? effectiveRain(dayRain(w)) : 0;
     deficit = Math.max(0, deficit + dayEtc - rain);
     days.push({ date: d, etcMm: dayEtc, effectiveRainMm: rain });
   }
@@ -243,12 +264,17 @@ export function evaluate(
   if (!today) return null;
   const yesterday = weather.find((w) => w.date === addDays(date, -1));
   const rolled = rollForward(state, weather, date).state;
-  const deficit = rolled.deficitMm;
-  const rainBlock =
+  const m = measuredToday(state, today, date);
+  // La lluvia que ya cayó hoy está en el suelo: baja el déficit actual y el riego que corresponde.
+  const deficit = Math.max(0, rolled.deficitMm - effectiveRain(m.afterReset));
+  const forecastBlock =
     today.precipitationProbMax >= RAIN_PROB_BLOCK_PCT || today.precipitationMm >= RAIN_SUM_BLOCK_MM;
+  const measuredBlock = (m.measured ?? 0) >= RAIN_SUM_BLOCK_MM;
+  const rainBlock = forecastBlock || measuredBlock || m.rainingNow;
   const needs = deficit >= settings.thresholdMm;
   const etcToday = etc(today.et0Mm, date);
-  const rainToday = effectiveRain(today.precipitationMm);
+  // Para mañana cuenta la lluvia de todo el día, salvo la caída antes de un riego/ajuste de hoy.
+  const rainToday = effectiveRain(Math.max(0, dayRain(today) - m.beforeReset));
   return {
     date,
     status: !needs ? 'ok' : rainBlock ? 'paused_rain' : 'irrigate',
@@ -259,9 +285,12 @@ export function evaluate(
     tempMaxC: today.tempMaxC,
     rainProbPct: today.precipitationProbMax,
     rainForecastMm: today.precipitationMm,
+    rainMeasuredMm: m.measured,
+    rainingNow: m.rainingNow,
+    rainBlockReason: measuredBlock ? 'measured' : m.rainingNow ? 'raining' : forecastBlock ? 'forecast' : null,
     effectiveRainTodayMm: rainToday,
     etcTodayMm: etcToday,
-    projectedDeficitMm: Math.max(0, deficit + etcToday - rainToday),
+    projectedDeficitMm: Math.max(0, rolled.deficitMm + etcToday - rainToday),
     windMaxKmh: today.windMaxKmh,
     windWarning: today.windMaxKmh > WIND_WARN_KMH,
     rainBlock,
@@ -332,19 +361,26 @@ export function forecastNextIrrigation(
   let found: ForecastDay | null = null;
   let delayedByRain: ISODate | null = null;
   for (const w of future) {
-    const rainBlock = w.precipitationProbMax >= RAIN_PROB_BLOCK_PCT || w.precipitationMm >= RAIN_SUM_BLOCK_MM;
+    // Hoy decide igual que la evaluación: déficit actual con la lluvia ya medida y pausa si llovió o llueve.
+    const m = w.date === today ? measuredToday(state, w, today) : null;
+    const rainBlock =
+      w.precipitationProbMax >= RAIN_PROB_BLOCK_PCT ||
+      w.precipitationMm >= RAIN_SUM_BLOCK_MM ||
+      (!!m && ((m.measured ?? 0) >= RAIN_SUM_BLOCK_MM || m.rainingNow));
     const snoozed = state.snoozedDate === w.date;
+    const rainMm = m ? Math.max(0, dayRain(w) - m.beforeReset) : w.precipitationMm;
+    const current = m ? Math.max(0, deficit - effectiveRain(m.afterReset)) : deficit;
     const day: ForecastDay = {
       date: w.date,
-      deficitMm: deficit,
+      deficitMm: current,
       etcMm: etc(w.et0Mm, w.date),
-      rainMm: w.precipitationMm,
-      effectiveRainMm: effectiveRain(w.precipitationMm),
+      rainMm,
+      effectiveRainMm: effectiveRain(rainMm),
       rainProbPct: w.precipitationProbMax,
       rainBlock,
       irrigate: false,
     };
-    if (!found && deficit >= settings.thresholdMm && !rainBlock && !snoozed) {
+    if (!found && current >= settings.thresholdMm && !rainBlock && !snoozed) {
       day.irrigate = true;
       found = day;
     }
@@ -438,6 +474,23 @@ export function morningNotification(ev: Evaluation, at: Date): PlannedNotificati
       actions: true,
     };
   }
+  const measured = ev.rainMeasuredMm ?? 0;
+  if (ev.status === 'paused_rain' && ev.rainBlockReason === 'raining') {
+    return {
+      ...base,
+      title: '🌧️ Riego pausado: está lloviendo',
+      body: `Déficit de ${round1(ev.deficitMm)} mm, pero está lloviendo en tu sector${measured > 0 ? ` (${round1(measured)} mm hasta ahora)` : ''}.`,
+      actions: false,
+    };
+  }
+  if (ev.status === 'paused_rain' && ev.rainBlockReason === 'measured') {
+    return {
+      ...base,
+      title: '🌧️ Riego pausado por lluvia',
+      body: `Déficit de ${round1(ev.deficitMm)} mm, pero hoy ya llovieron ${round1(measured)} mm en tu sector.`,
+      actions: false,
+    };
+  }
   if (ev.status === 'paused_rain') {
     return {
       ...base,
@@ -450,7 +503,9 @@ export function morningNotification(ev: Evaluation, at: Date): PlannedNotificati
   return {
     ...base,
     title: '✅ Hoy no hace falta regar',
-    body: `Suelo con humedad suficiente (${Math.round(ev.humidityPct)}%). Déficit: ${round1(ev.deficitMm)} mm.`,
+    body:
+      `Suelo con humedad suficiente (${Math.round(ev.humidityPct)}%). Déficit: ${round1(ev.deficitMm)} mm.` +
+      (measured > 0 ? ` Hoy ya llovieron ${round1(measured)} mm.` : ''),
     actions: false,
   };
 }
@@ -545,7 +600,7 @@ export function buildChart(
     const h = hist.get(date);
     const w = wx.get(date);
     const dayEtc = h ? h.etcMm : w ? etc(w.et0Mm, date) : 0;
-    const rain = h ? h.effectiveRainMm : w ? effectiveRain(w.precipitationMm) : 0;
+    const rain = h ? h.effectiveRainMm : w ? effectiveRain(dayRain(w)) : 0;
     const irr = irrigations.filter((e) => e.date === date).reduce((s, e) => s + e.mm, 0);
     out.push({
       date,
