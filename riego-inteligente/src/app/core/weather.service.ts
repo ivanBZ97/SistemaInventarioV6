@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { StorageService } from './storage.service';
 import { fetchForecastWithMeta } from './open-meteo';
 import { applyObservedRain } from './agromet';
-import { applyDmcRain } from './dmc';
+import { type DmcStore, observedFromStore, refreshDmcStore, withDmcRain } from './dmc';
 import { toISODate } from './irrigation-core';
 import type { DailyWeather, Settings } from './models';
 
@@ -50,7 +50,14 @@ export class WeatherService {
       const { elevationM } = forecast;
       // Lluvia medida en días pasados: estación DMC (sin clave) y, si no hay, INIA Agromet (con clave).
       const today = toISODate(new Date());
-      const dmc = await applyDmcRain(forecast.days, settings.dmc, today);
+      let dmc = withDmcRain(forecast.days, new Map(), undefined, today);
+      if (settings.dmc) {
+        // Cada consulta trae ~24 h de lecturas: se acumulan en un almacén local para armar días completos.
+        const prev = await this.storage.get<DmcStore | null>('dmcStore', null);
+        const { store } = await refreshDmcStore(prev, settings.dmc.code, Date.now(), 60 * 60_000);
+        await this.storage.set('dmcStore', store);
+        dmc = withDmcRain(forecast.days, observedFromStore(store, settings.dmc.code, today), settings.dmc, today);
+      }
       const measured = dmc.source ? dmc : await applyObservedRain(forecast.days, settings.agromet, today);
       const days = measured.days;
       const rainSource = measured.source;

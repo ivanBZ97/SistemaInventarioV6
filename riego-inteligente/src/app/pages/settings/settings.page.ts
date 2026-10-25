@@ -15,7 +15,7 @@ import {
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
-  alarmOutline, checkmarkOutline, chevronForwardOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
+  alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
   notificationsOutline, pulseOutline, radioOutline, searchOutline, timeOutline, waterOutline,
 } from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
@@ -24,7 +24,8 @@ import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
 import { Place, searchPlaces } from '../../core/open-meteo';
 import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../core/agromet';
-import { fetchDmcDailyRain, listDmcStations, nearestDmcStation } from '../../core/dmc';
+import { type DmcStore, diagnoseDmc, listDmcStations, nearestDmcStation } from '../../core/dmc';
+import { StorageService } from '../../core/storage.service';
 import type { AgrometConfig, DmcConfig } from '../../core/models';
 import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate } from '../../core/irrigation-core';
 
@@ -128,7 +129,10 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
           }
         </div>
         @if (dmcReport(); as r) {
-          <p class="md-body-small report" [class.err]="r.error">{{ r.text }}</p>
+          <div class="md-body-small report" [class.err]="r.error">
+            @for (l of r.lines; track $index) { <p>{{ l }}</p> }
+            <button class="copy" (click)="copyReport()"><ion-icon name="copy-outline" />Copiar diagnóstico</button>
+          </div>
         }
         <div class="divider"></div>
         <p class="md-body-medium md-variant intro">INIA Agromet (opcional, requiere una clave personal de la API de INIA).</p>
@@ -225,6 +229,9 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
     .intro { margin: 8px 16px 0; }
     .report { margin: 4px 16px 8px; padding: 8px 12px; border-radius: 8px; background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
     .report.err { background: var(--md-error-container); color: var(--md-on-error-container); }
+    .report p { margin: 0 0 4px; }
+    .report .copy { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 4px 0; border: 0;
+      background: none; color: inherit; font: 500 12px/16px var(--md-font); text-decoration: underline; cursor: pointer; }
     .divider { height: 1px; margin: 8px 0; background: var(--md-outline-variant); }
     .divider.inset { margin-left: 72px; }
     .bottom-space { height: 24px; }
@@ -238,10 +245,11 @@ export class SettingsPage implements OnInit {
   private background = inject(BackgroundService);
   private location = inject(LocationService);
   private toasts = inject(ToastController);
+  private storage = inject(StorageService);
 
   constructor() {
     addIcons({
-      alarmOutline, checkmarkOutline, chevronForwardOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
+      alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
       notificationsOutline, pulseOutline, radioOutline, searchOutline, timeOutline, waterOutline,
     });
   }
@@ -260,7 +268,7 @@ export class SettingsPage implements OnInit {
   auto = signal(false);
   agromet = signal<AgrometConfig | undefined>(undefined);
   dmc = signal<DmcConfig | undefined>(undefined);
-  dmcReport = signal<{ text: string; error: boolean } | null>(null);
+  dmcReport = signal<{ lines: string[]; error: boolean } | null>(null);
   agrometKey = signal('');
   query = signal('');
   results = signal<Place[]>([]);
@@ -314,30 +322,40 @@ export class SettingsPage implements OnInit {
     if (!st) return this.toast('No se encontraron estaciones de la DMC');
     this.dmc.set({ code: st.code, name: st.name, distanceKm: Math.round(st.distanceKm * 10) / 10 });
     if (st.distanceKm > 25) {
-      this.dmcReport.set({ text: `La estación más cercana está a ${st.distanceKm.toFixed(0)} km: puede no representar la lluvia de tu jardín.`, error: true });
+      this.toast(`La estación más cercana está a ${st.distanceKm.toFixed(0)} km: puede no representar la lluvia de tu jardín.`);
     }
     await this.testDmc();
   }
 
-  /** Lee la lluvia de los últimos días en la estación, para contrastarla con agrometeorologia.cl. */
+  /** Prueba la estación y muestra qué entregó (para contrastar con agrometeorologia.cl o reportar un cambio). */
   async testDmc(): Promise<void> {
     const cfg = this.dmc();
     if (!cfg) return;
-    this.dmcReport.set({ text: 'Consultando la estación…', error: false });
+    this.dmcReport.set({ lines: ['Consultando la estación…'], error: false });
+    let r: Awaited<ReturnType<typeof diagnoseDmc>>;
     try {
-      const today = toISODate(new Date());
-      const obs = await fetchDmcDailyRain(cfg.code, addDays(today, -3), addDays(today, -1));
-      if (!obs.size) {
-        this.dmcReport.set({ text: 'La estación respondió, pero sin días completos de datos. Se seguirá usando el pronóstico.', error: true });
-        return;
-      }
-      const txt = [...obs.entries()].sort().map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)}: ${String(round1(mm)).replace('.', ',')} mm`).join(' · ');
-      this.dmcReport.set({ text: `Lluvia medida → ${txt}. Pulsa Guardar cambios para usarla.`, error: false });
+      const prev = await this.storage.get<DmcStore | null>('dmcStore', null);
+      r = await diagnoseDmc(cfg.code, prev, toISODate(new Date()));
+      await this.storage.set('dmcStore', r.store);
     } catch (e) {
-      this.dmcReport.set({
-        text: `No se pudo leer la estación (${e instanceof Error ? e.message : 'sin respuesta'}). La app seguirá usando el pronóstico.`,
-        error: true,
-      });
+      this.dmcReport.set({ lines: [`Error inesperado al probar la estación: ${e instanceof Error ? e.message : e}`], error: true });
+      return;
+    }
+    this.dmcReport.set({
+      lines: r.ok ? [...r.lines, 'Pulsa Guardar cambios para usar esta estación.'] : [...r.lines, 'Mientras tanto, la app sigue usando el pronóstico.'],
+      error: !r.ok,
+    });
+  }
+
+  /** Copia el diagnóstico para enviarlo como texto. */
+  async copyReport(): Promise<void> {
+    const r = this.dmcReport();
+    if (!r) return;
+    try {
+      await navigator.clipboard.writeText(r.lines.join('\n'));
+      this.toast('Diagnóstico copiado');
+    } catch {
+      this.toast('No se pudo copiar; envía una captura de pantalla');
     }
   }
 

@@ -1,10 +1,10 @@
 // Worker en segundo plano (@capacitor/background-runner). Corre en un motor JS aislado, sin DOM:
 // solo dispone de fetch, CapacitorKV y CapacitorNotifications. Se empaqueta con esbuild en un único
 // archivo (runners/background.js) e incluye el mismo motor agronómico que usa la app.
-import { addDays, applyRainOverrides, planNotifications, reconcileObservedRain, toISODate } from '../src/app/core/irrigation-core';
+import { applyRainOverrides, planNotifications, reconcileObservedRain, toISODate } from '../src/app/core/irrigation-core';
 import { fetchForecast } from '../src/app/core/open-meteo';
 import { applyObservedRain, mergeObservedRain } from '../src/app/core/agromet';
-import { fetchDmcDailyRain } from '../src/app/core/dmc';
+import { type DmcStore, observedFromStore, refreshDmcStore } from '../src/app/core/dmc';
 import type { DayRecord, Settings, WaterState } from '../src/app/core/models';
 
 declare const CapacitorKV: {
@@ -31,17 +31,16 @@ function load(): Snapshot | null {
   return raw ? (JSON.parse(raw) as Snapshot) : null;
 }
 
-const DMC_CACHE = 'dmcRain';
+const DMC_STORE = 'dmcStore';
 const DMC_MAX_AGE_MS = 6 * 3_600_000;
 
-/** Lluvia medida por la estación DMC, con caché de 6 h (evita bajar el mes completo cada 15 min). */
+/** Lluvia medida por la estación DMC: consulta cada 6 h (~24 h por consulta) y acumula las lecturas. */
 async function dmcRain(code: string, today: string): Promise<Map<string, number>> {
-  const raw = CapacitorKV.get(DMC_CACHE)?.value;
-  const cached = raw ? (JSON.parse(raw) as { code: string; at: number; daily: Record<string, number> }) : null;
-  if (cached && cached.code === code && Date.now() - cached.at < DMC_MAX_AGE_MS) return new Map(Object.entries(cached.daily));
-  const daily = await fetchDmcDailyRain(code, addDays(today, -3), addDays(today, -1));
-  CapacitorKV.set(DMC_CACHE, JSON.stringify({ code, at: Date.now(), daily: Object.fromEntries(daily) }));
-  return daily;
+  const raw = CapacitorKV.get(DMC_STORE)?.value;
+  const prev = raw ? (JSON.parse(raw) as DmcStore) : null;
+  const { store } = await refreshDmcStore(prev, code, Date.now(), DMC_MAX_AGE_MS);
+  CapacitorKV.set(DMC_STORE, JSON.stringify(store));
+  return observedFromStore(store, code, today);
 }
 
 /** La app envía aquí su estado cada vez que cambia (ver BackgroundService.sync). */

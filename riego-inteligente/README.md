@@ -119,12 +119,15 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
   temperatura y viento (los modelos sin dato no cuentan). Si ningún modelo entrega probabilidad de lluvia, se
   estima como el % de modelos que pronostican ≥ 1 mm.
 - **Lluvia observada sin clave (Dirección Meteorológica de Chile):** Ajustes → "Usar la estación más cercana"
-  elige la estación automática (EMA) de la DMC más próxima (en Buin: El Milagro, código 330160) usando los
-  recursos JSON públicos del Portal de Servicios Climáticos (`climatologia.meteochile.gob.cl/application/productos`).
-  `aguaCaida24Horas` es un acumulado que se reinicia a las 12:00 UTC: la lluvia diaria se obtiene sumando los
-  incrementos entre lecturas, y solo se usan días con ≥ 20 h de datos. Si la lista de estaciones no responde se usa
-  un catastro incluido en la app; si los datos no responden, se sigue con el pronóstico. El worker guarda la
-  lluvia leída 6 h para no descargar el mes completo cada 15 min. Formato tomado del paquete agrometR (MIT).
+  elige la estación automática (EMA) de la DMC más próxima (en Buin: El Milagro, código 330160) y lee el recurso
+  JSON público `climatologia.meteochile.gob.cl/application/productos/datosRecientesEma/<código>` (~24 h de lecturas).
+  La variante mensual (`…/<código>/<año>/<mes>`) hoy exige usuario y token (responde 404), por eso no se usa.
+  Como cada consulta cubre ~24 h, las lecturas se guardan en un almacén local (app: Preferences `dmcStore`;
+  worker: CapacitorKV, consulta cada 6 h) y con él se arman los días: `aguaCaida24Horas` es un acumulado que se
+  reinicia a las 12:00 UTC, la lluvia diaria es la suma de incrementos y solo se usan días con ≥ 20 h cubiertas
+  (sin contar huecos de más de 1 h). Tras un fallo se reintenta en 1 h. "Probar" muestra un diagnóstico (estado
+  HTTP, lecturas, campo de lluvia, lluvia de las últimas 24 h y días completos) que se puede copiar.
+  Los días ya contabilizados con lluvia del modelo se corrigen solos cuando llega la medida.
 - **Lluvia observada (opcional, INIA Agromet):** con una clave personal de la API (`https://agromet.inia.cl/api/v2/`),
   Ajustes → "Buscar estación cercana" elige la estación más próxima que mida precipitación (la variable se
   busca por nombre, porque los IDs numéricos no son consistentes). Esa lluvia medida reemplaza a la del modelo
