@@ -18,6 +18,7 @@ import {
 import { addIcons } from 'ionicons';
 import {
   calendarOutline,
+  checkmarkOutline,
   flagOutline,
   flowerOutline,
   leafOutline,
@@ -36,6 +37,7 @@ import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
 import { humidityPct, longDateEs, round1, weekdayEs } from '../../core/irrigation-core';
 import { LIVE_FRESH_MS } from '../../core/dmc';
+import type { OverseedArea } from '../../core/models';
 import { lawnMessages, lawnMood, lawnScene } from '../../core/lawn-mood';
 import { LawnHeroComponent } from '../../ui/lawn-hero/lawn-hero.component';
 
@@ -83,7 +85,7 @@ export class DashboardPage implements OnInit, OnDestroy {
   constructor() {
     addIcons({
       settingsOutline, waterOutline, locationOutline, leafOutline, umbrellaOutline, thermometerOutline,
-      rainyOutline, flagOutline, calendarOutline, trendingUpOutline, flowerOutline, optionsOutline,
+      rainyOutline, flagOutline, calendarOutline, trendingUpOutline, flowerOutline, optionsOutline, checkmarkOutline,
     });
   }
 
@@ -97,8 +99,10 @@ export class DashboardPage implements OnInit, OnDestroy {
   });
   readonly messages = computed(() => lawnMessages(this.mood(), this.scene(), this.snap()?.evaluation ?? null));
   readonly level = computed(() => (this.humidity() >= 60 ? 'good' : this.humidity() >= 40 ? 'warn' : 'bad'));
+  /** Umbral de hoy: el de Ajustes, o el de siembra (2 mm) si hay Resiembra de todo el jardín. */
+  readonly threshold = computed(() => this.snap()?.evaluation?.thresholdMm ?? this.snap()?.settings.thresholdMm ?? 8);
   /** Marcador "aquí se riega": humedad útil equivalente al umbral. */
-  readonly thresholdPct = computed(() => humidityPct(this.snap()?.settings.thresholdMm ?? 8));
+  readonly thresholdPct = computed(() => humidityPct(this.threshold()));
 
   readonly placeLabel = computed(() => {
     const s = this.snap();
@@ -110,14 +114,21 @@ export class DashboardPage implements OnInit, OnDestroy {
   // ───────────── Recomendación ─────────────
   readonly status = computed(() => {
     const ev = this.snap()?.evaluation;
-    const thr = this.snap()?.settings.thresholdMm ?? 8;
+    const thr = this.threshold();
     if (!ev) return { cls: 'neutral', icon: 'umbrella-outline', title: 'Sin datos del clima', detail: this.snap()?.error ?? 'Cargando…' };
+    const patches = ev.overseed === 'patches' ? ' Rocía también los parches sembrados unos 30 s.' : '';
     if (ev.status === 'irrigate') {
       const wind = ev.windWarning ? ` Viento de ${Math.round(ev.windMaxKmh)} km/h: riega temprano.` : '';
+      if (ev.overseed === 'full')
+        return {
+          cls: 'water', icon: 'water-outline',
+          title: `Riego de siembra: ${ev.minutes} min`,
+          detail: `Riego corto en todo el jardín para mantener húmeda la semilla. Si hace calor, repite a las 13:00.${wind}`,
+        };
       return {
         cls: 'water', icon: 'water-outline',
         title: `Riega ${ev.minutes} minutos hoy`,
-        detail: `Entre 06:30 y 08:30. Déficit acumulado de ${fmt(ev.deficitMm)} mm.${wind}`,
+        detail: `Entre 06:30 y 08:30. Déficit acumulado de ${fmt(ev.deficitMm)} mm.${wind}${patches}`,
       };
     }
     const station = this.snap()?.settings.dmc?.name ?? 'la estación';
@@ -139,9 +150,9 @@ export class DashboardPage implements OnInit, OnDestroy {
     const fell = ev.rainMeasuredMm ?? 0;
     return {
       cls: 'ok', icon: 'leaf-outline', title: 'No es necesario regar',
-      detail: fell > 0
+      detail: (fell > 0
         ? `Hoy ya llovieron ${fmt(fell)} mm en ${station}. Se riega al llegar a ${fmt(thr)} mm de déficit.`
-        : `El suelo tiene humedad suficiente. Se riega al llegar a ${fmt(thr)} mm de déficit.`,
+        : `El suelo tiene humedad suficiente. Se riega al llegar a ${fmt(thr)} mm de déficit.`) + patches,
     };
   });
 
@@ -200,7 +211,7 @@ export class DashboardPage implements OnInit, OnDestroy {
   /** Franja de días: barra = déficit relativo al umbral. */
   readonly strip = computed(() => {
     const n = this.snap()?.next;
-    const thr = this.snap()?.settings.thresholdMm ?? 8;
+    const thr = this.threshold();
     if (!n) return [];
     return n.timeline.slice(0, 7).map((d, i) => ({
       ...d,
@@ -215,7 +226,7 @@ export class DashboardPage implements OnInit, OnDestroy {
     const i = this.selectedForecast();
     if (i === null || !days[i]) return null;
     const d = days[i];
-    const what = d.irrigate ? 'Día de riego' : d.rainBlock ? 'Riego bloqueado por lluvia' : d.deficitMm >= (this.snap()?.settings.thresholdMm ?? 8) ? 'Pospuesto' : 'Sin riego';
+    const what = d.irrigate ? 'Día de riego' : d.rainBlock ? 'Riego bloqueado por lluvia' : d.deficitMm >= this.threshold() ? 'Pospuesto' : 'Sin riego';
     return `${cap(longDateEs(d.date))} · ${what} · déficit ${fmt(d.deficitMm)} mm · lluvia ${fmt(d.rainMm)} mm (${Math.round(d.rainProbPct)}%)`;
   });
 
@@ -244,6 +255,15 @@ export class DashboardPage implements OnInit, OnDestroy {
   });
 
   readonly overseedOn = computed(() => (this.snap()?.overseedDaysLeft ?? 0) > 0);
+  readonly overseedArea = computed<OverseedArea>(() => this.snap()?.state.overseedArea ?? 'patches');
+  readonly overseedText = computed(() => {
+    const left = this.snap()?.overseedDaysLeft ?? 0;
+    if (!this.overseedOn()) return 'Riego especial mientras germina la semilla nueva (10 días)';
+    const days = `quedan ${left} ${left === 1 ? 'día' : 'días'}`;
+    return this.overseedArea() === 'full'
+      ? `Todo el jardín · ${days}. Riego corto cada mañana y otro a las 13:00 si hace ≥ 20 °C.`
+      : `Por sectores · ${days}. El pasto se riega normal; rocía lo sembrado 30 s cada día.`;
+  });
 
   // ───────────── Gráfico de 7 días ─────────────
   readonly chartH = 128;
@@ -291,7 +311,7 @@ export class DashboardPage implements OnInit, OnDestroy {
   readonly adjustValue = signal(0);
   readonly previewMood = computed(() => {
     const mm = this.adjustValue();
-    const thr = this.snap()?.settings.thresholdMm ?? 8;
+    const thr = this.threshold();
     return lawnMood(humidityPct(mm), mm >= thr ? 'irrigate' : 'ok');
   });
   readonly previewMessages = computed(() => [`${Math.round(humidityPct(this.adjustValue()))}% de humedad útil`]);
@@ -382,8 +402,44 @@ export class DashboardPage implements OnInit, OnDestroy {
   }
 
   async toggleOverseed(ev: CustomEvent): Promise<void> {
-    await this.engine.setOverseed(!!ev.detail.checked);
-    await this.afterChange(ev.detail.checked ? 'Modo Resiembra activado por 10 días' : 'Modo Resiembra desactivado');
+    if (!ev.detail.checked) {
+      await this.engine.setOverseed(false);
+      return this.afterChange('Modo Resiembra desactivado');
+    }
+    const area = await this.askSeedArea();
+    if (!area) {
+      (ev.target as HTMLIonToggleElement).checked = false;
+      return;
+    }
+    await this.engine.setOverseed(true, area);
+    await this.afterChange(area === 'full' ? 'Resiembra de todo el jardín por 10 días' : 'Resiembra por sectores por 10 días');
+  }
+
+  /** Dónde se sembró: cambia cómo se riega mientras dura el modo Resiembra. */
+  private async askSeedArea(): Promise<OverseedArea | null> {
+    const alert = await this.alerts.create({
+      header: 'Modo Resiembra',
+      message:
+        '¿Dónde sembraste? Todo el jardín: riego corto cada mañana para todo el pasto, y otro a las 13:00 si hace calor. ' +
+        'Por sectores: el pasto se riega normal y tú rocías lo sembrado.',
+      inputs: [
+        { type: 'radio', label: 'Todo el jardín', value: 'full' },
+        { type: 'radio', label: 'Por sectores (parches)', value: 'patches', checked: true },
+      ],
+      buttons: [
+        { text: 'Cancelar', role: 'cancel' },
+        { text: 'Activar', role: 'confirm' },
+      ],
+    });
+    await alert.present();
+    const { role, data } = await alert.onDidDismiss<{ values?: OverseedArea }>();
+    return role === 'confirm' ? (data?.values ?? 'patches') : null;
+  }
+
+  async setOverseedArea(area: OverseedArea): Promise<void> {
+    if (area === this.overseedArea()) return;
+    await this.engine.setOverseedArea(area);
+    await this.afterChange(area === 'full' ? 'Resiembra: todo el jardín' : 'Resiembra: por sectores');
   }
 
   // ───────────── Ubicación (primer arranque) ─────────────

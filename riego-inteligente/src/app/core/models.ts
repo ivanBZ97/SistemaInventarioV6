@@ -52,6 +52,8 @@ export interface AgrometConfig {
   rainVariableId: string;
 }
 
+export type OverseedArea = 'full' | 'patches';
+
 export interface WaterState {
   /** Déficit hídrico (mm) al inicio del día `asOf`. */
   deficitMm: number;
@@ -60,6 +62,8 @@ export interface WaterState {
   snoozedDate?: ISODate;
   /** Fecha de término (inclusive) del modo resiembra. */
   overseedUntil?: ISODate;
+  /** Dónde se sembró: todo el jardín (riego corto y seguido para todo) o solo parches (se rocían a mano). */
+  overseedArea?: OverseedArea;
   /** Última fecha para la que se programó la alerta matutina (anti-duplicados). */
   lastMorningScheduledFor?: ISODate;
   source: 'model' | 'manual' | 'sensor';
@@ -134,6 +138,10 @@ export interface Evaluation {
   rainingNow: boolean;
   /** Motivo de la pausa: ya llovió lo suficiente, está lloviendo o lo dice el pronóstico. */
   rainBlockReason: 'measured' | 'raining' | 'forecast' | null;
+  /** Modo Resiembra activo ese día y dónde se sembró (null si no está activo). */
+  overseed: OverseedArea | null;
+  /** Umbral de riego usado ese día (más bajo mientras germina una siembra de todo el jardín). */
+  thresholdMm: number;
   /** Lluvia efectiva prevista hoy (80 % si > 2 mm); se descuenta del balance mañana. */
   effectiveRainTodayMm: number;
   etcTodayMm: number;

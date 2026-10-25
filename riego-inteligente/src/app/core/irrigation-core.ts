@@ -7,6 +7,7 @@ import type {
   Evaluation,
   IrrigationEvent,
   ISODate,
+  OverseedArea,
   PlannedNotification,
   Settings,
   WaterState,
@@ -45,6 +46,10 @@ export const MIN_EFFECTIVE_RAIN_MM = 2;
 export const EFFECTIVE_RAIN_FACTOR = 0.8;
 export const OVERSEED_DAYS = 10;
 export const OVERSEED_TEMP_C = 20;
+/** Siembra de todo el jardín: se riega al llegar a 2 mm de déficit (riego corto casi a diario) para que la semilla no se seque. */
+export const SEEDBED_THRESHOLD_MM = 2;
+/** Riego corto de las 13:00 en días de calor (siembra de todo el jardín). */
+export const SEEDBED_SPRAY_MM = 2;
 
 /** Ventana permitida para alertas de riego (nunca riego nocturno). */
 export const MORNING = { hour: 6, minute: 30 };
@@ -271,7 +276,8 @@ export function evaluate(
     today.precipitationProbMax >= RAIN_PROB_BLOCK_PCT || today.precipitationMm >= RAIN_SUM_BLOCK_MM;
   const measuredBlock = (m.measured ?? 0) >= RAIN_SUM_BLOCK_MM;
   const rainBlock = forecastBlock || measuredBlock || m.rainingNow;
-  const needs = deficit >= settings.thresholdMm;
+  const threshold = thresholdFor(state, settings, date);
+  const needs = deficit >= threshold;
   const etcToday = etc(today.et0Mm, date);
   // Para mañana cuenta la lluvia de todo el día, salvo la caída antes de un riego/ajuste de hoy.
   const rainToday = effectiveRain(Math.max(0, dayRain(today) - m.beforeReset));
@@ -288,6 +294,8 @@ export function evaluate(
     rainMeasuredMm: m.measured,
     rainingNow: m.rainingNow,
     rainBlockReason: measuredBlock ? 'measured' : m.rainingNow ? 'raining' : forecastBlock ? 'forecast' : null,
+    overseed: overseedActive(state, date) ? overseedArea(state) : null,
+    thresholdMm: threshold,
     effectiveRainTodayMm: rainToday,
     etcTodayMm: etcToday,
     projectedDeficitMm: Math.max(0, rolled.deficitMm + etcToday - rainToday),
@@ -380,7 +388,7 @@ export function forecastNextIrrigation(
       rainBlock,
       irrigate: false,
     };
-    if (!found && current >= settings.thresholdMm && !rainBlock && !snoozed) {
+    if (!found && current >= thresholdFor(state, settings, w.date) && !rainBlock && !snoozed) {
       day.irrigate = true;
       found = day;
     }
@@ -429,8 +437,23 @@ export function overseedDaysLeft(state: WaterState, date: ISODate): number {
   return state.overseedUntil && date <= state.overseedUntil ? diffDays(state.overseedUntil, date) + 1 : 0;
 }
 
-export function startOverseed(state: WaterState, today: ISODate): WaterState {
-  return { ...state, overseedUntil: addDays(today, OVERSEED_DAYS - 1) };
+export function startOverseed(state: WaterState, today: ISODate, area: OverseedArea = 'patches'): WaterState {
+  return { ...state, overseedUntil: addDays(today, OVERSEED_DAYS - 1), overseedArea: area };
+}
+
+/** Dónde se sembró (los estados guardados antes de poder elegirlo eran de parches). */
+export function overseedArea(state: WaterState): OverseedArea {
+  return state.overseedArea ?? 'patches';
+}
+
+/**
+ * Umbral de riego del día. Mientras germina una siembra de todo el jardín, el suelo de la superficie no puede
+ * secarse: se riega corto y seguido (umbral de 2 mm). Con parches el pasto sigue su umbral normal.
+ */
+export function thresholdFor(state: WaterState, settings: Settings, date: ISODate): number {
+  return overseedActive(state, date) && overseedArea(state) === 'full'
+    ? Math.min(settings.thresholdMm, SEEDBED_THRESHOLD_MM)
+    : settings.thresholdMm;
 }
 
 // ───────────────────────── Notificaciones ─────────────────────────
@@ -464,13 +487,25 @@ export function morningNotification(ev: Evaluation, at: Date): PlannedNotificati
     channelId: 'riego-matutino' as const,
     at: clampToIrrigationWindow(at),
   };
+  // Siembra por parches: el pasto se riega normal y los parches se rocían a mano todos los días.
+  const patches = ev.overseed === 'patches' ? ' 🌱 Rocía también los parches sembrados unos 30 segundos.' : '';
+  if (ev.status === 'irrigate' && ev.overseed === 'full') {
+    return {
+      ...base,
+      title: `🌱 Riego de siembra: ${ev.minutes} min en todo el jardín`,
+      body:
+        `Riego corto para mantener húmeda la semilla. Déficit: ${round1(ev.deficitMm)} mm | ` +
+        `Temp máx hoy: ${Math.round(ev.tempMaxC)}°C.${wind}`,
+      actions: true,
+    };
+  }
   if (ev.status === 'irrigate') {
     return {
       ...base,
       title: `💧 Hoy toca regar el pasto (${ev.minutes} min)`,
       body:
         `Déficit acumulado: ${round1(ev.deficitMm)} mm | ETc ayer: ${round1(ev.etcYesterdayMm)} mm | ` +
-        `Temp máx hoy: ${Math.round(ev.tempMaxC)}°C.${wind}`,
+        `Temp máx hoy: ${Math.round(ev.tempMaxC)}°C.${wind}${patches}`,
       actions: true,
     };
   }
@@ -505,13 +540,30 @@ export function morningNotification(ev: Evaluation, at: Date): PlannedNotificati
     title: '✅ Hoy no hace falta regar',
     body:
       `Suelo con humedad suficiente (${Math.round(ev.humidityPct)}%). Déficit: ${round1(ev.deficitMm)} mm.` +
-      (measured > 0 ? ` Hoy ya llovieron ${round1(measured)} mm.` : ''),
+      (measured > 0 ? ` Hoy ya llovieron ${round1(measured)} mm.` : '') +
+      patches,
     actions: false,
   };
 }
 
 export const OVERSEED_MESSAGE =
   '🌱 Modo Resiembra: Rocía solo los parches sembrados durante 30 segundos para mantener la semilla húmeda sin encharcar el resto del pasto';
+
+/**
+ * Aviso de las 13:00 en días de calor: rociar los parches o, si se sembró todo el jardín, un riego corto para
+ * todo. Si la estación ya midió lluvia hoy (o está lloviendo), la semilla está húmeda y no hace falta.
+ */
+export function overseedMessage(state: WaterState, w: DailyWeather, settings: Settings, date: ISODate): string {
+  const m = measuredToday(state, w, date);
+  if (m.rainingNow || (m.measured ?? 0) > MIN_EFFECTIVE_RAIN_MM) {
+    return '🌱 Modo Resiembra: la lluvia de hoy mantiene húmeda la semilla. No hace falta regar a mediodía.';
+  }
+  if (overseedArea(state) === 'full') {
+    const min = Math.max(1, minutesFor(SEEDBED_SPRAY_MM, settings.sprinklerRateMmMin));
+    return `🌱 Modo Resiembra: Riega todo el jardín ${min} min (riego corto) para que la semilla no se seque con el calor.`;
+  }
+  return OVERSEED_MESSAGE;
+}
 
 export interface PlanInput {
   state: WaterState;
@@ -530,7 +582,8 @@ export interface Plan {
  * Decide qué notificaciones dejar programadas:
  *  - Matutina (id 1001): hoy a la hora elegida (06:30 por defecto) si aún no pasó; si estamos dentro de la
  *    ventana y hoy no se programó nada (p. ej. tras reiniciar el teléfono) se emite de inmediato; si no, mañana.
- *  - Resiembra (id 1002): 13:00 del día correspondiente si el modo está activo y tmax ≥ 20 °C.
+ *  - Resiembra (id 1002): 13:00 del día correspondiente si el modo está activo y tmax ≥ 20 °C (parches: rociarlos;
+ *    todo el jardín: riego corto).
  */
 export function planNotifications({ state, weather, settings, now }: PlanInput): Plan {
   const today = toISODate(now);
@@ -575,7 +628,7 @@ export function planNotifications({ state, weather, settings, now }: PlanInput):
         id: NOTIF_ID_OVERSEED,
         channelId: 'riego-resiembra',
         title: '🌱 Modo Resiembra',
-        body: OVERSEED_MESSAGE,
+        body: overseedMessage(state, w, settings, seedDate),
         at: atTime(seedDate, OVERSEED_CHECK),
         actions: false,
       });

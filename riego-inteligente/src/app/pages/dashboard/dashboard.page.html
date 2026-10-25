@@ -46,7 +46,7 @@
       </div>
       <div class="scale md-body-small md-variant">
         <span>Crítico</span>
-        <span class="scale-thr" [style.left.%]="thresholdPct()">Riego · {{ fmt(s.settings.thresholdMm) }} mm</span>
+        <span class="scale-thr" [style.left.%]="thresholdPct()">Riego · {{ fmt(threshold()) }} mm</span>
         <span>Pleno</span>
       </div>
       @if (s.state.source !== 'model' || s.rainSource || s.et0Source) {
@@ -180,12 +180,20 @@
         <div class="li-icon"><ion-icon name="flower-outline" /></div>
         <div class="li-text">
           <span class="md-body-large">Modo Resiembra</span>
-          <span class="md-body-medium md-variant">
-            {{ overseedOn() ? 'Quedan ' + s.overseedDaysLeft + ' días · aviso a las 13:00 si hace ≥ 20 °C' : '10 días de humedad extra para semillas nuevas' }}
-          </span>
+          <span class="md-body-medium md-variant">{{ overseedText() }}</span>
         </div>
         <ion-toggle [checked]="overseedOn()" (ionChange)="toggleOverseed($event)" aria-label="Modo Resiembra" />
       </div>
+      @if (overseedOn()) {
+        <div class="seed-area" role="radiogroup" aria-label="Dónde sembraste">
+          <button class="chip" role="radio" [class.on]="overseedArea() === 'full'" [attr.aria-checked]="overseedArea() === 'full'" (click)="setOverseedArea('full')">
+            @if (overseedArea() === 'full') { <ion-icon name="checkmark-outline" /> }Todo el jardín
+          </button>
+          <button class="chip" role="radio" [class.on]="overseedArea() === 'patches'" [attr.aria-checked]="overseedArea() === 'patches'" (click)="setOverseedArea('patches')">
+            @if (overseedArea() === 'patches') { <ion-icon name="checkmark-outline" /> }Por sectores
+          </button>
+        </div>
+      }
     </div>
 
     <!-- Balance 7 días -->

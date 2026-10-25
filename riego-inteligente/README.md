@@ -45,7 +45,7 @@ riego-inteligente/
 | Lluvia de hoy (estación) | lo medido hoy hasta la última lectura baja el déficit actual (80 % si > 2 mm; tras un riego o ajuste de hoy solo cuenta lo caído después); para mañana cuenta el máximo entre lo medido y lo pronosticado |
 | Viento | > 25 km/h ⇒ aviso "riega temprano" en la alerta |
 | Sin riego nocturno | toda alerta de riego se fuerza a 06:30–08:30 (`clampToIrrigationWindow`) |
-| Resiembra | 10 días; chequeo extra 13:00, si `tmax ≥ 20 °C` envía "🌱 Modo Resiembra: Rocía solo los parches…" |
+| Resiembra | 10 días; al activarlo se elige dónde se sembró. **Todo el jardín:** se riega al llegar a 2 mm de déficit (riego corto casi a diario, "🌱 Riego de siembra") y a las 13:00, si `tmax ≥ 20 °C`, un riego corto de todo el jardín. **Por sectores:** el pasto sigue su umbral, el aviso de la mañana recuerda rociar lo sembrado y a las 13:00 (`tmax ≥ 20 °C`) envía "🌱 Modo Resiembra: Rocía solo los parches…". Si la estación ya midió lluvia hoy, el aviso de las 13:00 dice que no hace falta regar |
 | Humedad útil | 0 mm = 100 %, 12 mm = 20 % (lineal) |
 
 El riego registrado ("Ya regué", "Registrar Riego Ahora") baja el déficit a 0 mm en el momento (por eso el

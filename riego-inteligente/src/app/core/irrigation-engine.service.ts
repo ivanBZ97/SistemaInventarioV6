@@ -30,6 +30,7 @@ import type {
   Evaluation,
   IrrigationEvent,
   LiveRain,
+  OverseedArea,
   PlannedNotification,
   Settings,
   WaterState,
@@ -227,11 +228,19 @@ export class IrrigationEngineService {
     await this.refresh();
   }
 
-  async setOverseed(active: boolean): Promise<void> {
+  /** Modo Resiembra por 10 días, en todo el jardín o solo en parches (cambia cómo se riega). */
+  async setOverseed(active: boolean, area: OverseedArea = 'patches'): Promise<void> {
     const { state } = await this.loadAll();
     const today = toISODate(new Date());
-    const next = active ? startOverseed(state, today) : { ...state, overseedUntil: undefined };
+    const next = active ? startOverseed(state, today, area) : { ...state, overseedUntil: undefined, overseedArea: undefined };
     await this.storage.set('state', next);
+    await this.refresh();
+  }
+
+  /** Cambia dónde se sembró sin reiniciar los días del modo Resiembra. */
+  async setOverseedArea(area: OverseedArea): Promise<void> {
+    const { state } = await this.loadAll();
+    await this.storage.set('state', { ...state, overseedArea: area });
     await this.refresh();
   }
 
