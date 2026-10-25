@@ -82,11 +82,17 @@ npx cap sync android             # copia www/ y plugins al proyecto Android
 #  - permisos del AndroidManifest (ver abajo)
 #  - en android/app/build.gradle, dentro de repositories { flatDir { ... } }:
 #      dirs '../../node_modules/@capacitor/background-runner/android/src/main/libs', 'libs'
+#  - el bloque signingConfigs.debug que usa android/app/debug.keystore
 
 cd android && ./gradlew assembleDebug
 # APK: android/app/build/outputs/apk/debug/app-debug.apk
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+El APK de depuración se firma con `android/app/debug.keystore`, que está en el repositorio a propósito
+(contraseña `android`, alias `androiddebugkey`). Así cada APK compilado en GitHub Actions se instala encima del
+anterior y conserva los datos; sin esa clave fija, cada compilación generaba una distinta y Android obligaba a
+desinstalar. Para publicar en Play Store se usa otra clave, privada.
 
 Atajo: `npm run apk:debug`. Para depurar en un dispositivo: `npx cap run android`. Para ver la UI en el navegador:
 `npm start` (las notificaciones/worker solo funcionan en Android).
