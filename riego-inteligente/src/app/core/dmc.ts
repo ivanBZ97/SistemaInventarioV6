@@ -188,7 +188,7 @@ export function dailyRainFromAccumulated(samples: DmcSample[], field = 'aguaCaid
   return dailyRainFromPoints(rainPoints(samples, { field, kind: 'accumulated' }), 'accumulated');
 }
 
-/** Lluvia total de un conjunto de lecturas (p. ej. las últimas 24 h de una consulta). */
+/** Lluvia total de un conjunto de lecturas (p. ej. las ~12 h de una consulta). */
 export function totalRain(points: RainPoint[], kind: RainKind): number {
   let mm = 0;
   for (const d of dailyRainFromPoints(points, kind).values()) mm += d.mm;
@@ -205,6 +205,8 @@ export interface DmcStore {
   attemptAt: number;
   ok: boolean;
   pts: RainPoint[];
+  /** Lluvia diaria según el resumen diario oficial (con token): completa los días que las lecturas no cubren. */
+  daily?: Record<ISODate, number>;
 }
 
 const KEEP_MS = 5 * 86_400_000;
@@ -215,7 +217,92 @@ export function mergeStore(prev: DmcStore | null, code: string, rf: RainField, p
   const map = new Map<number, number>(same ? prev!.pts : []);
   pts.forEach(([t, v]) => map.set(t, v));
   const merged = [...map].filter(([t]) => t >= now - KEEP_MS).sort((a, b) => a[0] - b[0]);
-  return { code, field: rf.field, kind: rf.kind, attemptAt: now, ok: true, pts: merged };
+  return { code, field: rf.field, kind: rf.kind, attemptAt: now, ok: true, pts: merged, daily: prev?.code === code ? prev.daily : undefined };
+}
+
+// ───────────── Resumen diario oficial (con token) ─────────────
+
+/** "24-10-2026", "24/10/2026" o "2026-10-24" → fecha ISO. */
+export function parseDmcDate(s: unknown): ISODate | null {
+  if (typeof s !== 'string') return null;
+  const t = s.trim();
+  let m = /^(\d{2})[-/](\d{2})[-/](\d{4})/.exec(t);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+/**
+ * Lluvia diaria del resumen diario de la DMC: bloque `aguaCaidaDiaria` (fecha dd-mm-aaaa + valor en mm).
+ * Tolera variantes (arreglo, objeto por fecha, hoy/ayer anidados). No usa `aguaCaidaDiariaEstacion`.
+ */
+export function parseDailySummary(json: unknown): Map<ISODate, number> {
+  const out = new Map<ISODate, number>();
+  const take = (fecha: unknown, valor: unknown) => {
+    const d = parseDmcDate(fecha);
+    const v = unitNumber(valor);
+    if (d && v !== null && v >= 0) out.set(d, v);
+  };
+  const read = (block: unknown, depth: number): void => {
+    if (depth > 3 || block === null || typeof block !== 'object') return;
+    if (Array.isArray(block)) return block.forEach((b) => read(b, depth + 1));
+    const o = block as Record<string, unknown>;
+    if ('fecha' in o && ('valor' in o || 'value' in o)) return take(o['fecha'], o['valor'] ?? o['value']);
+    for (const [k, v] of Object.entries(o)) {
+      if (parseDmcDate(k)) take(k, v && typeof v === 'object' ? ((v as Record<string, unknown>)['valor'] ?? (v as Record<string, unknown>)['value']) : v);
+      else read(v, depth + 1);
+    }
+  };
+  const visit = (node: unknown, depth: number): void => {
+    if (depth > 6 || node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) return node.forEach((n) => visit(n, depth + 1));
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (k === 'aguaCaidaDiaria') read(v, 0);
+      else visit(v, depth + 1);
+    }
+  };
+  visit(json, 0);
+  return out;
+}
+
+/** Fragmento del resumen donde están los datos de lluvia (para el diagnóstico si no se pudo leer). */
+function summarySnippet(json: unknown, auth?: DmcAuth): string {
+  let found: unknown = null;
+  const visit = (node: unknown, depth: number): void => {
+    if (found || depth > 6 || node === null || typeof node !== 'object') return;
+    if (!Array.isArray(node) && Object.keys(node as object).some((k) => k.startsWith('aguaCaida'))) {
+      found = node;
+      return;
+    }
+    Object.values(node as object).forEach((v) => visit(v, depth + 1));
+  };
+  visit(json, 0);
+  return redact(JSON.stringify(found ?? json).slice(0, 420), auth);
+}
+
+export interface SummaryFetch {
+  status: number;
+  daily: Map<ISODate, number>;
+  snippet?: string;
+}
+
+export async function fetchDailySummary(code: string, auth: DmcAuth): Promise<SummaryFetch> {
+  try {
+    const res = await fetch(`${SERVICES}/getEmaResumenDiario/${code}?${authQuery(auth)}`);
+    if (!res.ok) return { status: res.status, daily: new Map() };
+    const json = (await res.json()) as unknown;
+    const daily = parseDailySummary(json);
+    return { status: res.status, daily, snippet: daily.size ? undefined : summarySnippet(json, auth) };
+  } catch {
+    return { status: 0, daily: new Map() };
+  }
+}
+
+function mergeDaily(store: DmcStore, daily: Map<ISODate, number>, today: ISODate): DmcStore {
+  if (!daily.size) return store;
+  const keep = addDays(today, -10);
+  const merged = { ...(store.daily ?? {}), ...Object.fromEntries(daily) };
+  return { ...store, daily: Object.fromEntries(Object.entries(merged).filter(([d]) => d >= keep)) };
 }
 
 export interface RecentFetch {
@@ -260,25 +347,36 @@ export async function refreshDmcStore(
   maxAgeMs: number,
   force = false,
   auth?: DmcAuth,
-): Promise<{ store: DmcStore; fetched?: RecentFetch; rain?: RainField | null }> {
+): Promise<{ store: DmcStore; fetched?: RecentFetch; rain?: RainField | null; summary?: SummaryFetch }> {
   const current = store && store.code === code ? store : null;
   const wait = current?.ok ? maxAgeMs : RETRY_AFTER_FAILURE_MS;
   if (!force && current && now - current.attemptAt < wait) return { store: current };
   const fetched = await fetchRecent(code, auth);
   const rain = fetched.ok ? detectRainField(fetched.samples) : null;
-  if (!fetched.ok || !rain) {
-    const failed: DmcStore = { ...(current ?? { code, pts: [] }), attemptAt: now, ok: false };
-    return { store: failed, fetched, rain };
-  }
-  return { store: mergeStore(current, code, rain, rainPoints(fetched.samples, rain), now), fetched, rain };
+  let next: DmcStore =
+    fetched.ok && rain
+      ? mergeStore(current, code, rain, rainPoints(fetched.samples, rain), now)
+      : { ...(current ?? { code, pts: [] }), attemptAt: now, ok: false };
+  // Con token, el resumen diario oficial aporta el total de ayer aunque falten lecturas.
+  const summary = hasAuth(auth) ? await fetchDailySummary(code, auth) : undefined;
+  if (summary) next = mergeDaily(next, summary.daily, toISODate(new Date(now)));
+  return { store: next, fetched, rain, summary };
 }
 
-/** Días ya cerrados (antes de hoy, últimos 4) con al menos 20 h de lecturas → lluvia medida. */
+/** Días ya cerrados (antes de hoy, últimos 4): con ≥ 20 h de lecturas o, si no, según el resumen diario. */
 export function observedFromStore(store: DmcStore | null, code: string, today: ISODate, minHours = 20): Map<ISODate, number> {
   const out = new Map<ISODate, number>();
-  if (!store || store.code !== code || !store.kind || !store.pts.length) return out;
-  for (const [day, r] of dailyRainFromPoints(store.pts, store.kind)) {
-    if (day < today && day >= addDays(today, -4) && r.coveredHours >= minHours) out.set(day, r.mm);
+  if (!store || store.code !== code) return out;
+  const from = addDays(today, -4);
+  // 1) Días calendario armados con lecturas minuto a minuto (definición exacta del día).
+  if (store.kind && store.pts.length) {
+    for (const [day, r] of dailyRainFromPoints(store.pts, store.kind)) {
+      if (day < today && day >= from && r.coveredHours >= minHours) out.set(day, r.mm);
+    }
+  }
+  // 2) Lo que falte, desde el resumen diario oficial.
+  for (const [day, mm] of Object.entries(store.daily ?? {})) {
+    if (day < today && day >= from && !out.has(day)) out.set(day, mm);
   }
   return out;
 }
@@ -337,7 +435,7 @@ export async function diagnoseDmc(
   auth?: DmcAuth,
 ): Promise<{ ok: boolean; lines: string[]; store: DmcStore }> {
   const lines: string[] = [hasAuth(auth) ? 'Modo: servicio oficial con usuario y token.' : 'Modo: acceso público (sin token).'];
-  const { store: next, fetched, rain } = await refreshDmcStore(store, code, now, 0, true, auth);
+  const { store: next, fetched, rain, summary } = await refreshDmcStore(store, code, now, 0, true, auth);
   const f: RecentFetch = fetched ?? { ok: false, status: 0, samples: [], error: 'sin consulta' };
   if (!f.ok) {
     lines.push(`Datos recientes (${code}): ${f.status ? `HTTP ${f.status}` : `sin respuesta${f.error ? ` (${f.error})` : ''}`}.`);
@@ -352,7 +450,7 @@ export async function diagnoseDmc(
     const pts = rainPoints(f.samples, rain);
     if (pts.length) {
       lines.push(`✓ Datos recientes: ${pts.length} lecturas, de ${hhmm(pts[0][0])} a ${hhmm(pts[pts.length - 1][0])} · campo ${rain.field}.`);
-      lines.push(`Lluvia en ese periodo: ${fmtMm(totalRain(pts, rain.kind))} (compárala con "Últimas 24 Horas" en agrometeorologia.cl).`);
+      lines.push(`Lluvia en ese periodo: ${fmtMm(totalRain(pts, rain.kind))}.`);
     } else {
       lines.push(`Datos recientes: ${f.samples.length} lecturas, pero ninguna con valor de ${rain.field}.`);
     }
@@ -360,12 +458,18 @@ export async function diagnoseDmc(
   const days = observedFromStore(next, code, today);
   lines.push(
     days.size
-      ? `Días completos guardados: ${[...days].sort().map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(mm)}`).join(' · ')}.`
-      : 'Aún no hay días completos guardados: se completan solos con el uso (cada consulta trae ~24 h).',
+      ? `Lluvia medida que usará la app: ${[...days].sort().map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(mm)}`).join(' · ')}.`
+      : 'Aún no hay días completos guardados: se completan solos con el uso (cada consulta trae ~12 h).',
   );
-  // Detalles técnicos: otras fuentes oficiales, para saber qué usar si esta falla.
-  const daily = hasAuth(auth) ? `${SERVICES}/getEmaResumenDiario/${code}?${authQuery(auth)}` : `${BASE}/emaResumenDiario/${code}`;
-  lines.push(`Detalles técnicos · Resumen diario: ${await probe(daily, auth)}`);
+  if (summary) {
+    lines.push(
+      summary.daily.size
+        ? `✓ Resumen diario oficial: ${[...summary.daily].sort().map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(mm)}`).join(' · ')}.`
+        : `Resumen diario: ${summary.status ? `HTTP ${summary.status}` : 'sin respuesta'}${summary.snippet ? ` · no reconocí la lluvia en: ${summary.snippet}` : ''}`,
+    );
+  } else {
+    lines.push(`Detalles técnicos · Resumen diario (público): ${await probe(`${BASE}/emaResumenDiario/${code}`, auth)}`);
+  }
   lines.push(`Detalles técnicos · WIS2 DMC (público): ${await probe(`${WIS2}/collections?f=json`, auth, wis2Collections)}`);
   return { ok: f.ok && !!rain, lines: lines.map((l) => redact(l, auth)), store: next };
 }

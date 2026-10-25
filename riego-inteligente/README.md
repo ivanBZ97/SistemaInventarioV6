@@ -120,17 +120,19 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
   estima como el % de modelos que pronostican ≥ 1 mm.
 - **Lluvia observada sin clave (Dirección Meteorológica de Chile):** Ajustes → "Usar la estación más cercana"
   elige la estación automática (EMA) de la DMC más próxima (en Buin: El Milagro, código 330160) y lee el recurso
-  JSON público `climatologia.meteochile.gob.cl/application/productos/datosRecientesEma/<código>` (~24 h de lecturas).
+  JSON `…/datosRecientesEma/<código>` (últimas ~12 h, una lectura por minuto).
   La variante mensual (`…/<código>/<año>/<mes>`) hoy exige usuario y token (responde 404), por eso no se usa.
-  Como cada consulta cubre ~24 h, las lecturas se guardan en un almacén local (app: Preferences `dmcStore`;
-  worker: CapacitorKV, consulta cada 6 h) y con él se arman los días: `aguaCaida24Horas` es un acumulado que se
+  Como cada consulta cubre ~12 h, las lecturas se guardan en un almacén local (app: Preferences `dmcStore`;
+  worker: CapacitorKV, consulta cada 4 h) y con él se arman los días: `aguaCaida24Horas` es un acumulado que se
   reinicia a las 12:00 UTC, la lluvia diaria es la suma de incrementos y solo se usan días con ≥ 20 h cubiertas
   (sin contar huecos de más de 1 h). Tras un fallo se reintenta en 1 h. "Probar" muestra un diagnóstico (estado
   HTTP, lecturas, campo de lluvia, lluvia de las últimas 24 h y días completos) que se puede copiar.
   Los días ya contabilizados con lluvia del modelo se corrigen solos cuando llega la medida.
   En octubre de 2026 todo `…/productos/…` responde 404: con **usuario y token** (registro gratuito en el portal;
   Ajustes → Lluvia observada) se usa el servicio oficial documentado
-  `…/application/servicios/getDatosRecientesEma/<código>?usuario=…&token=…`. Las credenciales se guardan solo en el
+  `…/application/servicios/getDatosRecientesEma/<código>?usuario=…&token=…` (verificado en el teléfono: responde).
+  Con token también se lee el resumen diario oficial (`getEmaResumenDiario`, bloque `aguaCaidaDiaria`: fecha +
+  valor en mm), que completa los días que las lecturas no alcanzan a cubrir; las lecturas tienen prioridad. Las credenciales se guardan solo en el
   teléfono y el diagnóstico las oculta. "Probar" también informa el resumen diario oficial y el servicio público WIS2
   de la DMC (`wischile.meteochile.gob.cl/oapi`), para evaluar fuentes alternativas.
 - **Lluvia observada (opcional, INIA Agromet):** con una clave personal de la API (`https://agromet.inia.cl/api/v2/`),

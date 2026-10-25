@@ -172,3 +172,54 @@ test('con usuario y token se usa el servicio oficial, y el diagnóstico nunca mu
     globalThis.fetch = orig;
   }
 });
+
+test('fechas de la DMC', () => {
+  assert.equal(dmc.parseDmcDate('24-10-2026'), '2026-10-24');
+  assert.equal(dmc.parseDmcDate('24/10/2026 12:00'), '2026-10-24');
+  assert.equal(dmc.parseDmcDate('2026-10-24'), '2026-10-24');
+  assert.equal(dmc.parseDmcDate('ayer'), null);
+});
+
+test('resumen diario: lee aguaCaidaDiaria en sus variantes probables (y no aguaCaidaDiariaEstacion)', () => {
+  const base = { pais: 'Chile', timezone: 'UTC', producto: 'Resumen diario de la estación', datosEstacion: { codigoNacional: '330160' } };
+  // objeto único
+  let m = dmc.parseDailySummary({ ...base, datos: [{ aguaCaidaDiaria: { fecha: '24-10-2026', valor: '0.0 mm' }, aguaCaidaDiariaEstacion: { fecha: '24-10-2026', valor: '9.9' } }] });
+  assert.deepEqual([...m], [['2026-10-24', 0]]);
+  // arreglo de días
+  m = dmc.parseDailySummary({ ...base, datos: { aguaCaidaDiaria: [{ fecha: '23-10-2026', valor: '1.2' }, { fecha: '24-10-2026', valor: '0' }] } });
+  assert.deepEqual([...m].sort(), [['2026-10-23', 1.2], ['2026-10-24', 0]]);
+  // objeto por fecha
+  m = dmc.parseDailySummary({ ...base, datos: { aguaCaidaDiaria: { '23-10-2026': '1.2 mm', '24-10-2026': { valor: 0 } } } });
+  assert.deepEqual([...m].sort(), [['2026-10-23', 1.2], ['2026-10-24', 0]]);
+  // hoy / ayer anidados
+  m = dmc.parseDailySummary({ ...base, datos: [{ aguaCaidaDiaria: { hoy: { fecha: '25-10-2026', valor: '0.2' }, ayer: { fecha: '24-10-2026', valor: '0.0' } } }] });
+  assert.deepEqual([...m].sort(), [['2026-10-24', 0], ['2026-10-25', 0.2]]);
+  assert.equal(dmc.parseDailySummary({ ...base, datos: [{ temperaturaMaxima: '20 °C' }] }).size, 0);
+});
+
+test('las lecturas minuto a minuto mandan; el resumen diario completa los días que faltan', () => {
+  const store = { code: '330160', field: 'aguaCaida24Horas', kind: 'accumulated', attemptAt: 0, ok: true, pts: [], daily: { '2026-10-23': 1.2, '2026-10-24': 0, '2026-10-25': 0.2 } };
+  const obs = dmc.observedFromStore(store, '330160', '2026-10-25');
+  assert.deepEqual([...obs].sort(), [['2026-10-23', 1.2], ['2026-10-24', 0]]); // hoy (incompleto) no se usa
+});
+
+test('con token se pide también el resumen diario y queda guardado', async () => {
+  const orig = globalThis.fetch;
+  const auth = { user: 'u@example.com', token: 't0k' };
+  const samples = series('2026-10-25T02:00:00Z', 12, () => 0, 10);
+  try {
+    globalThis.fetch = async (u) => {
+      const url = String(u);
+      if (url.includes('getEmaResumenDiario')) return { ok: true, status: 200, json: async () => ({ datos: [{ aguaCaidaDiaria: { fecha: '24-10-2026', valor: '0.0' } }] }) };
+      return { ok: true, status: 200, json: async () => ({ datos: samples }) };
+    };
+    const r = await dmc.refreshDmcStore(null, '330160', Date.parse('2026-10-25T14:00:00Z'), 3_600_000, false, auth);
+    assert.equal(r.store.daily['2026-10-24'], 0);
+    assert.equal(dmc.observedFromStore(r.store, '330160', '2026-10-25').get('2026-10-24'), 0);
+    const d = await dmc.diagnoseDmc('330160', null, '2026-10-25', Date.parse('2026-10-25T14:00:00Z'), auth);
+    assert.ok(d.lines.some((l) => /✓ Resumen diario oficial: 24\/10 0 mm/.test(l)));
+    assert.ok(d.lines.some((l) => /Lluvia medida que usará la app: 24\/10 0 mm/.test(l)));
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
