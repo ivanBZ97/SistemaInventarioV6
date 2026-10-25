@@ -50,6 +50,8 @@ export interface WaterState {
   /** Última fecha para la que se programó la alerta matutina (anti-duplicados). */
   lastMorningScheduledFor?: ISODate;
   source: 'model' | 'manual' | 'sensor';
+  /** Último día en que el déficit se fijó por riego, ajuste manual o sensor: la lluvia anterior ya no influye. */
+  resetDate?: ISODate;
 }
 
 export interface DailyWeather {

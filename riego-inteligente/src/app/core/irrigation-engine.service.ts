@@ -8,6 +8,7 @@ import {
   addDays,
   applyRainOverrides,
   correctPastRain,
+  reconcileObservedRain,
   applyIrrigation,
   buildChart,
   deficitFromHumidity,
@@ -88,19 +89,27 @@ export class IrrigationEngineService {
     let stale = false;
     let elevationM: number | null = null;
     let rainSource: string | null = null;
+    let observedRain: Record<string, number> = {};
     let error: string | null = null;
     try {
-      ({ days, stale, elevationM, rainSource } = await this.weather.getForecast(settings, forceWeather));
+      ({ days, stale, elevationM, rainSource, observedRain } = await this.weather.getForecast(settings, forceWeather));
     } catch (e) {
       error = 'Sin conexión y sin datos en caché. Se muestra el último balance guardado.';
     }
     // La lluvia medida por el usuario manda sobre el modelo y la estación.
     days = applyRainOverrides(days, rainOverrides, today);
 
+    // 0) Días ya contabilizados con lluvia del modelo: se corrigen con la lluvia medida por la estación.
+    const rec = reconcileObservedRain(stored, history, observedRain, rainOverrides);
+    if (rec.changed) {
+      await this.storage.set('history', rec.history);
+      history.splice(0, history.length, ...rec.history);
+    }
+
     // 1) Avanzar el balance hasta hoy y guardar el historial de días cerrados.
-    let state = stored;
-    if (days.length && stored.asOf < today) {
-      const rolled = rollForward(stored, days, today);
+    let state = rec.state;
+    if (days.length && state.asOf < today) {
+      const rolled = rollForward(state, days, today);
       state = rolled.state;
       const merged = new Map(history.map((h) => [h.date, h]));
       rolled.days.forEach((d) => merged.set(d.date, d));
@@ -114,7 +123,7 @@ export class IrrigationEngineService {
     try {
       const reading = await this.sensor.read();
       if (reading && Date.now() - Date.parse(reading.takenAt) < SENSOR_MAX_AGE_MS) {
-        state = { ...state, deficitMm: deficitFromHumidity(reading.moisturePct), source: 'sensor' };
+        state = { ...state, deficitMm: deficitFromHumidity(reading.moisturePct), source: 'sensor', resetDate: today };
       }
     } catch {
       /* sensor caído: se mantiene el balance teórico */
@@ -176,14 +185,14 @@ export class IrrigationEngineService {
     const mm = state.deficitMm;
     const event: IrrigationEvent = { date: toISODate(new Date()), at: new Date().toISOString(), mm, source };
     await this.storage.set('irrigations', [...irrigations, event].slice(-200));
-    await this.storage.set('state', { ...applyIrrigation(state), snoozedDate: undefined });
+    await this.storage.set('state', { ...applyIrrigation(state), snoozedDate: undefined, resetDate: event.date });
     await this.refresh();
   }
 
   /** "Ajustar humedad manualmente": fija el déficit a un valor (0 = muy húmedo, 12+ = muy seco). */
   async setDeficit(mm: number): Promise<void> {
     const { state } = await this.loadAll();
-    await this.storage.set('state', { ...state, deficitMm: Math.max(0, mm), source: 'manual' });
+    await this.storage.set('state', { ...state, deficitMm: Math.max(0, mm), source: 'manual', resetDate: toISODate(new Date()) });
     await this.refresh();
   }
 
@@ -218,9 +227,9 @@ export class IrrigationEngineService {
   }
 
   /** Estado + ajustes que necesita el worker en segundo plano para evaluar sin la app abierta. */
-  async exportForRunner(): Promise<{ settings: Settings; state: WaterState; rainOverrides: RainOverrides }> {
-    const { settings, state, rainOverrides } = await this.loadAll();
-    return { settings, state, rainOverrides };
+  async exportForRunner(): Promise<{ settings: Settings; state: WaterState; rainOverrides: RainOverrides; history: DayRecord[] }> {
+    const { settings, state, rainOverrides, history } = await this.loadAll();
+    return { settings, state, rainOverrides, history };
   }
 
   isOverseedActive(state: WaterState): boolean {

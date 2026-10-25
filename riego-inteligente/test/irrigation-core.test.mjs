@@ -212,3 +212,30 @@ test('corregir lluvia de un día pasado recalcula el déficit', () => {
   const days = c.applyRainOverrides([wx('2026-10-24', { precipitationMm: 3 }), wx('2026-10-25', { precipitationMm: 3 })], { '2026-10-24': 0, '2026-10-25': 0 }, '2026-10-25');
   assert.deepEqual(days.map((d) => d.precipitationMm), [0, 3]); // hoy no se pisa
 });
+
+test('lluvia medida reconcilia días ya contados con la del modelo', () => {
+  const history = [
+    { date: '2026-10-23', etcMm: 3, effectiveRainMm: 4 }, // modelo: 5 mm → 4 útiles; estación: 1,2 → 0
+    { date: '2026-10-24', etcMm: 3, effectiveRainMm: 2.2 }, // modelo: 2,75 → 2,2; estación: 0
+  ];
+  const st = state({ asOf: '2026-10-25', deficitMm: 4.6 });
+  const r = c.reconcileObservedRain(st, history, { '2026-10-23': 1.2, '2026-10-24': 0 }, {});
+  assert.equal(r.changed, true);
+  assert.ok(Math.abs(r.state.deficitMm - (4.6 + 4 + 2.2)) < 1e-9);
+  // idempotente: una segunda pasada no cambia nada
+  const again = c.reconcileObservedRain(r.state, r.history, { '2026-10-23': 1.2, '2026-10-24': 0 }, {});
+  assert.equal(again.changed, false);
+  // la corrección manual del usuario manda
+  const manual = c.reconcileObservedRain(st, history, { '2026-10-24': 0 }, { '2026-10-24': 5 });
+  assert.equal(manual.changed, false);
+});
+
+test('tras un riego o ajuste manual, la lluvia de días anteriores ya no cambia el déficit', () => {
+  const history = [{ date: '2026-10-23', etcMm: 3, effectiveRainMm: 4 }];
+  const st = state({ asOf: '2026-10-25', deficitMm: 1, resetDate: '2026-10-24' }); // regó el 24
+  const r = c.reconcileObservedRain(st, history, { '2026-10-23': 0 }, {});
+  assert.equal(r.state.deficitMm, 1);           // no se toca el déficit
+  assert.equal(r.history[0].effectiveRainMm, 0); // pero el gráfico sí se corrige
+  const m = c.correctPastRain(st, history, '2026-10-23', 0);
+  assert.equal(m.state.deficitMm, 1);
+});

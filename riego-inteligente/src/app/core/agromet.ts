@@ -116,17 +116,20 @@ export async function applyObservedRain(
   days: DailyWeather[],
   cfg: AgrometConfig | undefined,
   today: ISODate,
-): Promise<{ days: DailyWeather[]; source: string | null }> {
-  if (!cfg?.apiKey || !cfg.stationId || !cfg.rainVariableId) return { days, source: null };
+): Promise<{ days: DailyWeather[]; source: string | null; observed: Map<ISODate, number> }> {
+  const none = new Map<ISODate, number>();
+  if (!cfg?.apiKey || !cfg.stationId || !cfg.rainVariableId) return { days, source: null, observed: none };
   try {
     const observed = await fetchObservedRain(cfg, addDays(today, -3), today);
     const used = [...observed.keys()].filter((d) => d < today);
-    if (!used.length) return { days, source: null };
+    if (!used.length) return { days, source: null, observed: none };
+    const past = new Map([...observed].filter(([d]) => d < today));
     return {
+      observed: past,
       days: mergeObservedRain(days, observed, today),
       source: `${cfg.stationName} (${cfg.distanceKm.toFixed(1).replace('.', ',')} km)`,
     };
   } catch {
-    return { days, source: null };
+    return { days, source: null, observed: none };
   }
 }

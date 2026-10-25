@@ -171,11 +171,35 @@ export function correctPastRain(
   const rec = history.find((h) => h.date === date);
   const oldEff = rec ? rec.effectiveRainMm : effectiveRain(modelPrecipMm);
   const newEff = effectiveRain(Math.max(0, observedMm));
-  const counted = date < state.asOf;
+  // Solo cuenta si el día ya entró al balance y es posterior al último riego/ajuste (antes, la lluvia ya no influye).
+  const counted = date < state.asOf && (!state.resetDate || date >= state.resetDate);
   return {
     state: counted ? { ...state, deficitMm: Math.max(0, state.deficitMm + oldEff - newEff) } : state,
     history: history.map((h) => (h.date === date ? { ...h, effectiveRainMm: newEff } : h)),
   };
+}
+
+/**
+ * Reconcilia los días YA contabilizados con la lluvia medida por una estación (DMC/INIA) cuando difiere de
+ * la que se usó (p. ej. el modelo). Las correcciones manuales del usuario mandan y no se tocan.
+ */
+export function reconcileObservedRain(
+  state: WaterState,
+  history: DayRecord[],
+  observed: Record<ISODate, number> | undefined,
+  overrides: RainOverrides | undefined,
+): { state: WaterState; history: DayRecord[]; changed: boolean } {
+  let s = state;
+  let h = history;
+  let changed = false;
+  for (const [date, mm] of Object.entries(observed ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+    if (overrides?.[date] !== undefined || date >= s.asOf) continue;
+    const rec = h.find((x) => x.date === date);
+    if (!rec || Math.abs(rec.effectiveRainMm - effectiveRain(mm)) < 0.05) continue;
+    ({ state: s, history: h } = correctPastRain(s, h, date, mm));
+    changed = true;
+  }
+  return { state: s, history: h, changed };
 }
 
 /** Riego aplicado: repone `mm` (por defecto todo el déficit → capacidad de campo). */
