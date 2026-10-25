@@ -212,12 +212,18 @@ export class DashboardPage implements OnInit {
     const bars = this.bars();
     if (!bars.length) return null;
     const d = bars[this.selected() ?? bars.length - 1].day;
+    const s = this.snap();
+    const corrected = s?.rainOverrides[d.date];
     return {
+      date: d.date,
       title: cap(new Date(`${d.date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })) +
         (d.estimated ? ' · estimado' : ''),
       loss: fmt(d.etcMm),
       gain: fmt(d.replenishedMm),
-      detail: `Lluvia ${fmt(d.rainMm)} mm · Riego ${fmt(d.irrigationMm)} mm`,
+      detail:
+        `Lluvia útil ${fmt(d.rainMm)} mm · Riego ${fmt(d.irrigationMm)} mm` +
+        (corrected !== undefined ? ` · lluvia medida: ${fmt(corrected)} mm` : ''),
+      canCorrect: !!s && d.date < s.today,
     };
   });
 
@@ -258,6 +264,30 @@ export class DashboardPage implements OnInit {
     this.hero()?.water();
     await this.engine.registerIrrigation('manual');
     await this.afterChange('Riego registrado. El déficit volvió a 0 mm.');
+  }
+
+  /** Corrige la lluvia de un día pasado con lo realmente medido (INIA, pluviómetro). */
+  async correctRain(date: string): Promise<void> {
+    const current = this.snap()?.rainOverrides[date];
+    const alert = await this.alerts.create({
+      header: 'Corregir lluvia',
+      subHeader: cap(new Date(`${date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })),
+      message: 'Ingresa los milímetros que realmente cayeron, por ejemplo los de agrometeorologia.cl o tu pluviómetro.',
+      inputs: [{ name: 'mm', type: 'number', min: 0, max: 200, placeholder: 'mm de lluvia', value: current ?? '' }],
+      buttons: [
+        { text: 'Cancelar', role: 'cancel' },
+        {
+          text: 'Guardar',
+          handler: (v: { mm: string }) => {
+            const mm = parseFloat(String(v.mm).replace(',', '.'));
+            if (!Number.isFinite(mm) || mm < 0) return false;
+            this.engine.correctRain(date, mm).then(() => this.afterChange(`Lluvia corregida a ${fmt(mm)} mm. Balance recalculado.`));
+            return true;
+          },
+        },
+      ],
+    });
+    await alert.present();
   }
 
   openAdjust(): void {

@@ -196,3 +196,19 @@ test('hora del aviso configurable, siempre dentro de 06:30–08:30', () => {
   assert.equal(after.morningFor, '2026-01-14');
   assert.deepEqual([after.notifications[0].at.getHours(), after.notifications[0].at.getMinutes()], [7, 45]);
 });
+
+test('corregir lluvia de un día pasado recalcula el déficit', () => {
+  const history = [{ date: '2026-10-24', etcMm: 3, effectiveRainMm: 2.2 }];
+  // ese día ya se contó (asOf = 25): el modelo dio 2,2 mm útiles, la estación midió 0
+  const r = c.correctPastRain(state({ asOf: '2026-10-25', deficitMm: 4.6 }), history, '2026-10-24', 0);
+  assert.ok(Math.abs(r.state.deficitMm - 6.8) < 1e-9);
+  assert.equal(r.history[0].effectiveRainMm, 0);
+  // si llovió más de lo que dijo el modelo, el déficit baja (sin pasar de 0)
+  const more = c.correctPastRain(state({ asOf: '2026-10-25', deficitMm: 1 }), history, '2026-10-24', 10);
+  assert.equal(more.state.deficitMm, 0);
+  // un día aún no contabilizado no toca el déficit (se aplicará al avanzar el balance)
+  const later = c.correctPastRain(state({ asOf: '2026-10-24', deficitMm: 4 }), [], '2026-10-24', 0, 5);
+  assert.equal(later.state.deficitMm, 4);
+  const days = c.applyRainOverrides([wx('2026-10-24', { precipitationMm: 3 }), wx('2026-10-25', { precipitationMm: 3 })], { '2026-10-24': 0, '2026-10-25': 0 }, '2026-10-25');
+  assert.deepEqual(days.map((d) => d.precipitationMm), [0, 3]); // hoy no se pisa
+});

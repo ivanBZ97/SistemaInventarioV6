@@ -6,6 +6,8 @@ import { SOIL_SENSOR_PROVIDER } from './soil-sensor.provider';
 import {
   DEFAULT_SETTINGS,
   addDays,
+  applyRainOverrides,
+  correctPastRain,
   applyIrrigation,
   buildChart,
   deficitFromHumidity,
@@ -18,7 +20,7 @@ import {
   startOverseed,
   toISODate,
 } from './irrigation-core';
-import type { NextIrrigation } from './irrigation-core';
+import type { NextIrrigation, RainOverrides } from './irrigation-core';
 import type {
   ChartDay,
   DailyWeather,
@@ -37,6 +39,8 @@ export interface Snapshot {
   evaluation: Evaluation | null;
   /** Próximo riego estimado con el pronóstico. */
   next: NextIrrigation | null;
+  /** Lluvia corregida por el usuario, por día. */
+  rainOverrides: RainOverrides;
   chart: ChartDay[];
   overseedDaysLeft: number;
   staleWeather: boolean;
@@ -70,14 +74,15 @@ export class IrrigationEngineService {
     });
     const history = await this.storage.get<DayRecord[]>('history', []);
     const irrigations = await this.storage.get<IrrigationEvent[]>('irrigations', []);
-    return { settings, state, history, irrigations };
+    const rainOverrides = await this.storage.get<RainOverrides>('rainOverrides', {});
+    return { settings, state, history, irrigations, rainOverrides };
   }
 
   /** Recalcula todo: avanza el balance hasta hoy, aplica sensor (si hay), evalúa y refresca el snapshot. */
   async refresh(forceWeather = false): Promise<Snapshot> {
     const now = new Date();
     const today = toISODate(now);
-    const { settings, state: stored, history, irrigations } = await this.loadAll();
+    const { settings, state: stored, history, irrigations, rainOverrides } = await this.loadAll();
 
     let days: DailyWeather[] = [];
     let stale = false;
@@ -89,6 +94,8 @@ export class IrrigationEngineService {
     } catch (e) {
       error = 'Sin conexión y sin datos en caché. Se muestra el último balance guardado.';
     }
+    // La lluvia medida por el usuario manda sobre el modelo y la estación.
+    days = applyRainOverrides(days, rainOverrides, today);
 
     // 1) Avanzar el balance hasta hoy y guardar el historial de días cerrados.
     let state = stored;
@@ -120,6 +127,7 @@ export class IrrigationEngineService {
       state,
       today,
       evaluation,
+      rainOverrides,
       next: days.length ? forecastNextIrrigation(state, days, settings, today) : null,
       chart: buildChart(today, history, days, irrigations),
       overseedDaysLeft: overseedDaysLeft(state, today),
@@ -132,10 +140,26 @@ export class IrrigationEngineService {
     return snap;
   }
 
+  /** "Corregir lluvia": mm realmente caídos un día pasado (INIA, pluviómetro…). Recalcula el balance. */
+  async correctRain(date: string, observedMm: number): Promise<void> {
+    const { settings, state, history, rainOverrides } = await this.loadAll();
+    let modelMm = 0;
+    try {
+      modelMm = (await this.weather.getForecast(settings)).days.find((d) => d.date === date)?.precipitationMm ?? 0;
+    } catch {
+      /* sin clima: se usa el historial */
+    }
+    const fixed = correctPastRain(state, history, date, observedMm, rainOverrides[date] ?? modelMm);
+    await this.storage.set('rainOverrides', { ...rainOverrides, [date]: Math.max(0, observedMm) });
+    await this.storage.set('history', fixed.history);
+    await this.storage.set('state', fixed.state);
+    await this.refresh();
+  }
+
   /** Notificaciones que deben quedar programadas según el estado y pronóstico actuales. */
   async plan(): Promise<PlannedNotification[]> {
-    const { settings, state } = await this.loadAll();
-    const { days } = await this.weather.getForecast(settings);
+    const { settings, state, rainOverrides } = await this.loadAll();
+    const days = applyRainOverrides((await this.weather.getForecast(settings)).days, rainOverrides, toISODate(new Date()));
     const { notifications, morningFor } = planNotifications({ state, weather: days, settings, now: new Date() });
     if (morningFor && morningFor !== state.lastMorningScheduledFor) {
       await this.storage.set('state', { ...state, lastMorningScheduledFor: morningFor });
@@ -194,9 +218,9 @@ export class IrrigationEngineService {
   }
 
   /** Estado + ajustes que necesita el worker en segundo plano para evaluar sin la app abierta. */
-  async exportForRunner(): Promise<{ settings: Settings; state: WaterState }> {
-    const { settings, state } = await this.loadAll();
-    return { settings, state };
+  async exportForRunner(): Promise<{ settings: Settings; state: WaterState; rainOverrides: RainOverrides }> {
+    const { settings, state, rainOverrides } = await this.loadAll();
+    return { settings, state, rainOverrides };
   }
 
   isOverseedActive(state: WaterState): boolean {

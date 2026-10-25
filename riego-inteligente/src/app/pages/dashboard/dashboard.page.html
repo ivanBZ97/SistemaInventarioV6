@@ -154,6 +154,11 @@
             <div><i class="dot gain"></i><span class="md-title-large">{{ d.gain }}</span><span class="md-body-small md-variant"> mm repuestos</span></div>
           </div>
           <span class="md-body-small md-variant">{{ d.detail }}</span>
+          @if (d.canCorrect) {
+            <ion-button fill="clear" size="small" class="fix-rain" (click)="correctRain(d.date)">
+              <ion-icon slot="start" name="rainy-outline" />Corregir lluvia de este día
+            </ion-button>
+          }
         </div>
       }
       <svg viewBox="0 0 320 152" class="chart" role="img" aria-label="Agua perdida por evapotranspiración frente a agua repuesta por riego y lluvia">

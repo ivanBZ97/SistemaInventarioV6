@@ -30,13 +30,23 @@ function seriesOf(daily: OpenMeteoResponse['daily'], name: string): Series[] {
   return Array.isArray(daily[name]) ? [daily[name] as Series] : [];
 }
 
+/** Mediana: con 3 modelos, un modelo que exagera la lluvia no arrastra al resto. */
+export function median(values: (number | null | undefined)[]): number | null {
+  const v = values.filter((x): x is number => typeof x === 'number' && Number.isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+}
+
 function mean(values: (number | null | undefined)[]): number | null {
   const v = values.filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 }
 
 /**
- * Convierte la respuesta en filas diarias promediando los modelos disponibles (los nulls no cuentan).
+ * Convierte la respuesta en filas diarias combinando los modelos disponibles (los nulls no cuentan):
+ * promedio para ET0, temperatura y viento; MEDIANA para la lluvia, porque el promedio "reparte" la
+ * lluvia de un solo modelo e inventa lloviznas que no ocurrieron.
  * La probabilidad de lluvia no existe en todos los modelos: si ninguno la entrega, se estima como el
  * porcentaje de modelos que pronostican ≥ 1 mm.
  */
@@ -54,7 +64,7 @@ export function parseForecast(json: OpenMeteoResponse): DailyWeather[] {
     return {
       date,
       et0Mm: mean(et0.map((s) => s[i])) ?? 0,
-      precipitationMm: mean(rains) ?? 0,
+      precipitationMm: median(rains) ?? 0,
       precipitationProbMax: mean(prob.map((s) => s[i])) ?? proxy,
       tempMaxC: mean(tmax.map((s) => s[i])) ?? 0,
       windMaxKmh: mean(wind.map((s) => s[i])) ?? 0,

@@ -60,3 +60,13 @@ test('Agromet: la lluvia observada pisa al modelo solo en días pasados con dato
   );
   assert.deepEqual(out.map((d) => d.precipitationMm), [5, 0.4, 7]); // hoy y días sin muestras no se tocan
 });
+
+test('lluvia multi-modelo: mediana, no promedio (un modelo exagerado no inventa lluvia)', () => {
+  const daily = { time: ['2026-10-24'] };
+  ['ecmwf_ifs025', 'gfs_seamless', 'icon_seamless'].forEach((m, i) => {
+    daily[`precipitation_sum_${m}`] = [[8.2, 0, 0][i]];
+    daily[`et0_fao_evapotranspiration_${m}`] = [3.8];
+  });
+  const [d] = parseForecast({ daily });
+  assert.equal(d.precipitationMm, 0); // el promedio habría dado 2,7 mm
+});

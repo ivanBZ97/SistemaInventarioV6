@@ -149,6 +149,35 @@ export function rollForward(
   return { state: { ...state, deficitMm: deficit, asOf: targetDate < state.asOf ? state.asOf : targetDate }, days };
 }
 
+/** Lluvia medida por el usuario (mm por día). Reemplaza al modelo/estación en días ya pasados. */
+export type RainOverrides = Record<ISODate, number>;
+
+export function applyRainOverrides(days: DailyWeather[], overrides: RainOverrides | undefined, today: ISODate): DailyWeather[] {
+  if (!overrides) return days;
+  return days.map((d) => (d.date < today && overrides[d.date] !== undefined ? { ...d, precipitationMm: overrides[d.date] } : d));
+}
+
+/**
+ * Corrige la lluvia de un día pasado. Si ese día ya se contabilizó en el balance, ajusta el déficit
+ * por la diferencia de lluvia efectiva (antes − ahora) y actualiza el historial.
+ */
+export function correctPastRain(
+  state: WaterState,
+  history: DayRecord[],
+  date: ISODate,
+  observedMm: number,
+  modelPrecipMm = 0,
+): { state: WaterState; history: DayRecord[] } {
+  const rec = history.find((h) => h.date === date);
+  const oldEff = rec ? rec.effectiveRainMm : effectiveRain(modelPrecipMm);
+  const newEff = effectiveRain(Math.max(0, observedMm));
+  const counted = date < state.asOf;
+  return {
+    state: counted ? { ...state, deficitMm: Math.max(0, state.deficitMm + oldEff - newEff) } : state,
+    history: history.map((h) => (h.date === date ? { ...h, effectiveRainMm: newEff } : h)),
+  };
+}
+
 /** Riego aplicado: repone `mm` (por defecto todo el déficit → capacidad de campo). */
 export function applyIrrigation(state: WaterState, mm?: number): WaterState {
   const left = mm === undefined ? 0 : Math.max(0, state.deficitMm - mm);

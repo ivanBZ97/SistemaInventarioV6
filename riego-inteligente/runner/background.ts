@@ -1,7 +1,7 @@
 // Worker en segundo plano (@capacitor/background-runner). Corre en un motor JS aislado, sin DOM:
 // solo dispone de fetch, CapacitorKV y CapacitorNotifications. Se empaqueta con esbuild en un único
 // archivo (runners/background.js) e incluye el mismo motor agronómico que usa la app.
-import { planNotifications, toISODate } from '../src/app/core/irrigation-core';
+import { applyRainOverrides, planNotifications, toISODate } from '../src/app/core/irrigation-core';
 import { fetchForecast } from '../src/app/core/open-meteo';
 import { applyObservedRain } from '../src/app/core/agromet';
 import type { Settings, WaterState } from '../src/app/core/models';
@@ -21,6 +21,7 @@ const KEY = 'snapshot';
 interface Snapshot {
   settings: Settings;
   state: WaterState;
+  rainOverrides?: Record<string, number>;
 }
 
 function load(): Snapshot | null {
@@ -31,7 +32,7 @@ function load(): Snapshot | null {
 /** La app envía aquí su estado cada vez que cambia (ver BackgroundService.sync). */
 addEventListener('syncState', (resolve, reject, args) => {
   try {
-    if (args?.settings && args?.state) CapacitorKV.set(KEY, JSON.stringify({ settings: args.settings, state: args.state }));
+    if (args?.settings && args?.state) CapacitorKV.set(KEY, JSON.stringify({ settings: args.settings, state: args.state, rainOverrides: args.rainOverrides ?? {} }));
     resolve();
   } catch (e) {
     reject(e);
@@ -48,8 +49,10 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
     const snap = load();
     if (!snap) return resolve(); // la app aún no ha sincronizado
     const forecast = await fetchForecast(snap.settings.latitude, snap.settings.longitude);
-    const { days: weather } = await applyObservedRain(forecast, snap.settings.agromet, toISODate(new Date()));
-    const { notifications, morningFor } = planNotifications({ ...snap, weather, now: new Date() });
+    const today = toISODate(new Date());
+    const observed = await applyObservedRain(forecast, snap.settings.agromet, today);
+    const weather = applyRainOverrides(observed.days, snap.rainOverrides, today);
+    const { notifications, morningFor } = planNotifications({ state: snap.state, settings: snap.settings, weather, now: new Date() });
     if (notifications.length) {
       CapacitorNotifications.schedule(
         notifications.map((n) => ({
