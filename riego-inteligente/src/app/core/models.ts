@@ -29,6 +29,10 @@ export interface DmcConfig {
   code: string;
   name: string;
   distanceKm: number;
+  /** Ubicación y altura de la estación (para la ET0 FAO-56). */
+  latitude?: number;
+  longitude?: number;
+  elevationM?: number;
 }
 
 export interface DmcAuth {

@@ -24,7 +24,7 @@ import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
 import { Place, searchPlaces } from '../../core/open-meteo';
 import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../core/agromet';
-import { type DmcStore, diagnoseDmc, listDmcStations, nearestDmcStation } from '../../core/dmc';
+import { type DmcStore, diagnoseDmc, listDmcStations, nearestDmcStation, stationMeta } from '../../core/dmc';
 import { StorageService } from '../../core/storage.service';
 import type { AgrometConfig, DmcAuth, DmcConfig } from '../../core/models';
 import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate } from '../../core/irrigation-core';
@@ -106,11 +106,11 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
         </div>
       </div>
 
-      <!-- Lluvia observada -->
-      <h2 class="section md-title-small">Lluvia observada</h2>
+      <!-- Estación meteorológica: lluvia y ET0 medidas -->
+      <h2 class="section md-title-small">Estación meteorológica</h2>
       <div class="card">
         <p class="md-body-medium md-variant intro">
-          Usa la lluvia medida por una estación real cerca de tu jardín en lugar de la del pronóstico.
+          Usa la lluvia y la evapotranspiración (ET0) medidas por una estación real cerca de tu jardín en lugar de las del pronóstico.
         </p>
         <div class="row">
           <div class="li-icon"><ion-icon name="radio-outline" /></div>
@@ -334,7 +334,14 @@ export class SettingsPage implements OnInit {
     this.dmcReport.set(null);
     const st = nearestDmcStation(await listDmcStations(), this.lat(), this.lon());
     if (!st) return this.toast('No se encontraron estaciones de la DMC');
-    this.dmc.set({ code: st.code, name: st.name, distanceKm: Math.round(st.distanceKm * 10) / 10 });
+    this.dmc.set({
+      code: st.code,
+      name: st.name,
+      distanceKm: Math.round(st.distanceKm * 10) / 10,
+      latitude: st.latitude,
+      longitude: st.longitude,
+      elevationM: st.elevationM ?? undefined,
+    });
     if (st.distanceKm > 25) {
       this.toast(`La estación más cercana está a ${st.distanceKm.toFixed(0)} km: puede no representar la lluvia de tu jardín.`);
     }
@@ -349,7 +356,8 @@ export class SettingsPage implements OnInit {
     let r: Awaited<ReturnType<typeof diagnoseDmc>>;
     try {
       const prev = await this.storage.get<DmcStore | null>('dmcStore', null);
-      r = await diagnoseDmc(cfg.code, prev, toISODate(new Date()), Date.now(), this.dmcAuth());
+      const meta = stationMeta(cfg, this.lat(), this.elevation());
+      r = await diagnoseDmc(cfg.code, prev, toISODate(new Date()), Date.now(), this.dmcAuth(), meta);
       await this.storage.set('dmcStore', r.store);
     } catch (e) {
       this.dmcReport.set({ lines: [`Error inesperado al probar la estación: ${e instanceof Error ? e.message : e}`], error: true });

@@ -239,3 +239,10 @@ test('tras un riego o ajuste manual, la lluvia de días anteriores ya no cambia 
   const m = c.correctPastRain(st, history, '2026-10-23', 0);
   assert.equal(m.state.deficitMm, 1);
 });
+
+test('el pasto no pide riego si la recomendación es no regar', () => {
+  const ok = lm.lawnMessages('thirsty', 'sun', { minutes: 13, rainForecastMm: 0, windMaxKmh: 0, status: 'ok' });
+  assert.ok(!ok.some((m) => m.includes('13 min')));
+  const irrigate = lm.lawnMessages('thirsty', 'sun', { minutes: 13, rainForecastMm: 0, windMaxKmh: 0, status: 'irrigate' });
+  assert.ok(irrigate[0].includes('13 min'));
+});

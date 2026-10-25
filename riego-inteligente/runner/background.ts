@@ -1,11 +1,26 @@
 // Worker en segundo plano (@capacitor/background-runner). Corre en un motor JS aislado, sin DOM:
 // solo dispone de fetch, CapacitorKV y CapacitorNotifications. Se empaqueta con esbuild en un único
 // archivo (runners/background.js) e incluye el mismo motor agronómico que usa la app.
-import { applyRainOverrides, planNotifications, reconcileObservedRain, toISODate } from '../src/app/core/irrigation-core';
+import {
+  applyRainOverrides,
+  planNotifications,
+  reconcileObservedEt0,
+  reconcileObservedRain,
+  toISODate,
+} from '../src/app/core/irrigation-core';
 import { fetchForecast } from '../src/app/core/open-meteo';
 import { applyObservedRain, mergeObservedRain } from '../src/app/core/agromet';
-import { type DmcStore, observedFromStore, refreshDmcStore } from '../src/app/core/dmc';
-import type { DayRecord, DmcAuth, Settings, WaterState } from '../src/app/core/models';
+import {
+  type DmcStore,
+  et0Correction,
+  observedFromStore,
+  recordEt0Pairs,
+  refreshDmcStore,
+  stationEt0,
+  stationMeta,
+  withStationEt0,
+} from '../src/app/core/dmc';
+import type { DailyWeather, DayRecord, DmcConfig, Settings, WaterState } from '../src/app/core/models';
 
 declare const CapacitorKV: {
   get(key: string): { value: string } | null;
@@ -34,13 +49,18 @@ function load(): Snapshot | null {
 const DMC_STORE = 'dmcStore';
 const DMC_MAX_AGE_MS = 4 * 3_600_000;
 
-/** Lluvia medida por la estación DMC: consulta cada 4 h (cada consulta trae las últimas horas) y acumula. */
-async function dmcRain(code: string, today: string, auth?: DmcAuth): Promise<Map<string, number>> {
+/**
+ * Datos medidos por la estación DMC: consulta cada 4 h (cada consulta trae ~12 h) y acumula. Devuelve la
+ * lluvia y la ET0 FAO-56 de los días cerrados, y la corrección del pronóstico de ET0.
+ */
+async function dmcData(cfg: DmcConfig, settings: Settings, today: string, modelDays: DailyWeather[]) {
   const raw = CapacitorKV.get(DMC_STORE)?.value;
   const prev = raw ? (JSON.parse(raw) as DmcStore) : null;
-  const { store } = await refreshDmcStore(prev, code, Date.now(), DMC_MAX_AGE_MS, false, auth);
-  CapacitorKV.set(DMC_STORE, JSON.stringify(store));
-  return observedFromStore(store, code, today);
+  const { store } = await refreshDmcStore(prev, cfg.code, Date.now(), DMC_MAX_AGE_MS, false, settings.dmcAuth);
+  const et0 = stationEt0(store.met ?? [], stationMeta(cfg, settings.latitude, null), today);
+  const saved = recordEt0Pairs(store, et0, modelDays, today);
+  CapacitorKV.set(DMC_STORE, JSON.stringify(saved));
+  return { rain: observedFromStore(saved, cfg.code, today), et0, correction: et0Correction(saved.et0Pairs, today) };
 }
 
 /** La app envía aquí su estado cada vez que cambia (ver BackgroundService.sync). */
@@ -69,19 +89,21 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
     const today = toISODate(new Date());
     let measured = forecast;
     let observed = new Map<string, number>();
-    const dmcCode = snap.settings.dmc?.code;
-    const dmcDaily = dmcCode ? await dmcRain(dmcCode, today, snap.settings.dmcAuth).catch(() => new Map<string, number>()) : new Map<string, number>();
-    if (dmcDaily.size) {
-      measured = mergeObservedRain(forecast, dmcDaily, today);
-      observed = dmcDaily;
+    const cfg = snap.settings.dmc;
+    const dmc = cfg ? await dmcData(cfg, snap.settings, today, forecast).catch(() => null) : null;
+    if (dmc?.rain.size) {
+      measured = mergeObservedRain(forecast, dmc.rain, today);
+      observed = dmc.rain;
     } else {
       const inia = await applyObservedRain(forecast, snap.settings.agromet, today);
       measured = inia.days;
       observed = inia.observed;
     }
-    const weather = applyRainOverrides(measured, snap.rainOverrides, today);
-    // Días ya contados con lluvia del modelo → se corrigen en memoria (la app lo guarda al abrirse).
-    const { state } = reconcileObservedRain(snap.state, snap.history ?? [], Object.fromEntries(observed), snap.rainOverrides);
+    let weather = applyRainOverrides(measured, snap.rainOverrides, today);
+    if (dmc) weather = withStationEt0(weather, dmc.et0, dmc.correction, today);
+    // Días ya contados con lluvia/ET0 del modelo → se corrigen en memoria (la app lo guarda al abrirse).
+    const rec = reconcileObservedRain(snap.state, snap.history ?? [], Object.fromEntries(observed), snap.rainOverrides);
+    const { state } = reconcileObservedEt0(rec.state, rec.history, Object.fromEntries(dmc?.et0 ?? []));
     const { notifications, morningFor } = planNotifications({ state, settings: snap.settings, weather, now: new Date() });
     if (notifications.length) {
       CapacitorNotifications.schedule(

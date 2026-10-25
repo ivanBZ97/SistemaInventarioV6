@@ -7,6 +7,7 @@
 // Funciones sin dependencias de Angular: las usan la app y el worker en segundo plano.
 import { addDays, distanceKm, toISODate } from './irrigation-core';
 import { DMC_STATIONS_FALLBACK } from './dmc-stations';
+import { type DailyMet, WIND_10M_TO_2M, et0PenmanMonteith, satVapourPressure } from './fao56';
 import type { DailyWeather, DmcAuth, DmcConfig, ISODate } from './models';
 
 const BASE = 'https://climatologia.meteochile.gob.cl/application/productos';
@@ -195,6 +196,182 @@ export function totalRain(points: RainPoint[], kind: RainKind): number {
   return Math.round(mm * 10) / 10;
 }
 
+const BUCKET_MS = 10 * 60_000;
+
+/** Deja la última lectura de cada bloque de 10 min (el acumulado no pierde información; ocupa ~10× menos). */
+export function downsampleAccumulated(points: RainPoint[]): RainPoint[] {
+  const byBucket = new Map<number, RainPoint>();
+  for (const p of [...points].sort((a, b) => a[0] - b[0])) byBucket.set(Math.floor(p[0] / BUCKET_MS), p);
+  return [...byBucket.values()];
+}
+
+// ───────────── Meteorología de la estación → ET0 (FAO-56) ─────────────
+
+export type WindUnit = 'kt' | 'km/h' | 'm/s';
+const WIND_TO_MS: Record<WindUnit, number> = { kt: 0.514444, 'km/h': 1 / 3.6, 'm/s': 1 };
+
+/** Campos de la estación necesarios para la ET0. */
+export interface MetFields {
+  temp: string;
+  rh: string;
+  rad: string;
+  wind: string;
+  windUnit: WindUnit;
+  /** true si la unidad del viento no venía en el dato y se supuso (nudos, estándar aeronáutico de la DMC). */
+  windUnitAssumed: boolean;
+}
+
+export function detectMetFields(samples: DmcSample[]): { fields: MetFields | null; missing: string[]; keys: string[] } {
+  const keys = [...new Set(samples.slice(0, 50).flatMap((s) => Object.keys(s)))];
+  const pick = (exact: string, re: RegExp) => (keys.includes(exact) ? exact : keys.find((k) => re.test(k)));
+  const temp = pick('temperatura', /^temperatura(Aire|DelAire)?$/i);
+  const rh = pick('humedadRelativa', /^humedad.*relativa$/i);
+  const rad = pick('radiacionGlobalInst', /radiacion.*global/i);
+  const wind = pick('fuerzaDelVientoPromedio10Minutos', /(fuerza|velocidad).*viento.*promedio/i) ?? keys.find((k) => /^(fuerza|velocidad)DelViento$/i.test(k));
+  const missing = [
+    !temp && 'temperatura',
+    !rh && 'humedad relativa',
+    !rad && 'radiación global',
+    !wind && 'viento',
+  ].filter((x): x is string => !!x);
+  if (!temp || !rh || !rad || !wind) return { fields: null, missing, keys };
+  const raw = samples.map((s) => s[wind]).find((v) => typeof v === 'string' && /[a-z]/i.test(v)) as string | undefined;
+  const windUnit: WindUnit = raw && /km/i.test(raw) ? 'km/h' : raw && /m\/s/i.test(raw) ? 'm/s' : 'kt';
+  return { fields: { temp, rh, rad, wind, windUnit, windUnitAssumed: !raw }, missing, keys };
+}
+
+/** [inicio del bloque (ms), n.º de lecturas, Tmín, Tmáx, ea media (kPa), radiación media (W/m²), viento medio (m/s, a 10 m)] */
+export type MetBucket = [number, number, number, number, number, number, number];
+
+export function metBuckets(samples: DmcSample[], f: MetFields): MetBucket[] {
+  const acc = new Map<number, { n: number; tmin: number; tmax: number; ea: number; rad: number; wind: number }>();
+  for (const s of samples) {
+    const t = parseMomento(String(s.momento));
+    const temp = unitNumber(s[f.temp]);
+    const rh = unitNumber(s[f.rh]);
+    const rad = unitNumber(s[f.rad]);
+    const wind = unitNumber(s[f.wind]);
+    if (!t || temp === null || rh === null || rad === null || wind === null) continue;
+    if (rh < 0 || rh > 100 || temp < -30 || temp > 50 || rad < 0 || rad > 1500 || wind < 0) continue;
+    const key = Math.floor(t.getTime() / BUCKET_MS) * BUCKET_MS;
+    const a = acc.get(key) ?? { n: 0, tmin: Infinity, tmax: -Infinity, ea: 0, rad: 0, wind: 0 };
+    a.n++;
+    a.tmin = Math.min(a.tmin, temp);
+    a.tmax = Math.max(a.tmax, temp);
+    a.ea += (satVapourPressure(temp) * rh) / 100;
+    a.rad += rad;
+    a.wind += wind * WIND_TO_MS[f.windUnit];
+    acc.set(key, a);
+  }
+  const r = (v: number, k: number) => Math.round(v * k) / k;
+  return [...acc]
+    .sort((a, b) => a[0] - b[0])
+    .map(([start, a]) => [start, a.n, r(a.tmin, 10), r(a.tmax, 10), r(a.ea / a.n, 1000), r(a.rad / a.n, 1), r(a.wind / a.n, 100)]);
+}
+
+/** Junta bloques de varias consultas: si un bloque viene en ambas, gana el que tiene más lecturas. */
+export function mergeMetBuckets(prev: MetBucket[], next: MetBucket[], now: number): MetBucket[] {
+  const map = new Map<number, MetBucket>(prev.map((b) => [b[0], b]));
+  for (const b of next) {
+    const old = map.get(b[0]);
+    if (!old || b[1] >= old[1]) map.set(b[0], b);
+  }
+  return [...map.values()].filter((b) => b[0] >= now - KEEP_MS).sort((a, b) => a[0] - b[0]);
+}
+
+/** Variables diarias (día local) a partir de los bloques; solo cuentan los bloques con ≥ 3 lecturas. */
+export function dailyMetFromBuckets(buckets: MetBucket[]): Map<ISODate, DailyMet & { coveredHours: number }> {
+  const days = new Map<ISODate, { n: number; tmin: number; tmax: number; ea: number; rad: number; wind: number }>();
+  for (const [start, n, tmin, tmax, ea, rad, wind] of buckets) {
+    if (n < 3) continue;
+    const day = toISODate(new Date(start + BUCKET_MS / 2));
+    const d = days.get(day) ?? { n: 0, tmin: Infinity, tmax: -Infinity, ea: 0, rad: 0, wind: 0 };
+    d.n++;
+    d.tmin = Math.min(d.tmin, tmin);
+    d.tmax = Math.max(d.tmax, tmax);
+    d.ea += ea;
+    d.rad += rad;
+    d.wind += wind;
+    days.set(day, d);
+  }
+  const out = new Map<ISODate, DailyMet & { coveredHours: number }>();
+  for (const [day, d] of days) {
+    out.set(day, {
+      tmaxC: d.tmax,
+      tminC: d.tmin,
+      eaKpa: d.ea / d.n,
+      rsMJ: (d.rad / d.n) * 0.0864, // W/m² medio del día → MJ/m²/día
+      u2: (d.wind / d.n) * WIND_10M_TO_2M, // anemómetro a 10 m (estándar de las EMA)
+      coveredHours: (d.n * BUCKET_MS) / 3_600_000,
+    });
+  }
+  return out;
+}
+
+export interface StationMeta {
+  latitude: number;
+  elevationM: number;
+}
+
+/** Latitud y altura de la estación (de la configuración o del catastro incluido). */
+export function stationMeta(cfg: DmcConfig, fallbackLat: number, fallbackElevation: number | null): StationMeta {
+  const known = DMC_STATIONS_FALLBACK.find(([code]) => code === cfg.code);
+  return {
+    latitude: cfg.latitude ?? known?.[2] ?? fallbackLat,
+    elevationM: cfg.elevationM ?? known?.[4] ?? fallbackElevation ?? 0,
+  };
+}
+
+/** ET0 medida (mm/día) de los días ya cerrados con ≥ 21 h de lecturas y valores plausibles. */
+export function stationEt0(buckets: MetBucket[], meta: StationMeta, today: ISODate, minHours = 21): Map<ISODate, number> {
+  const out = new Map<ISODate, number>();
+  for (const [day, m] of dailyMetFromBuckets(buckets)) {
+    if (day >= today || day < addDays(today, -4) || m.coveredHours < minHours) continue;
+    const plausible = m.tmaxC <= 48 && m.tminC >= -15 && m.tminC <= m.tmaxC && m.u2 <= 20 && m.eaKpa <= satVapourPressure(m.tmaxC) + 0.2;
+    if (!plausible) continue;
+    const et0 = et0PenmanMonteith(m, meta.latitude, meta.elevationM, day);
+    if (et0 >= 0 && et0 <= 12) out.set(day, Math.round(et0 * 10) / 10);
+  }
+  return out;
+}
+
+/** Guarda pares (ET0 estación, ET0 modelo) por día para medir el sesgo del modelo. */
+export function recordEt0Pairs(store: DmcStore, station: Map<ISODate, number>, modelDays: DailyWeather[], today: ISODate): DmcStore {
+  if (!station.size) return store;
+  const pairs: Record<ISODate, [number, number]> = { ...(store.et0Pairs ?? {}) };
+  for (const [day, et0] of station) {
+    const model = modelDays.find((d) => d.date === day)?.et0Mm;
+    if (model !== undefined && model > 0) pairs[day] = [et0, Math.round(model * 100) / 100];
+  }
+  const keep = addDays(today, -14);
+  return { ...store, et0Pairs: Object.fromEntries(Object.entries(pairs).filter(([d]) => d >= keep)) };
+}
+
+/** Corrección del pronóstico de ET0: estación ÷ modelo en los últimos 7 días (≥ 2 días), limitada a ±20 %. */
+export function et0Correction(pairs: Record<ISODate, [number, number]> | undefined, today: ISODate): { ratio: number; days: number } | null {
+  const recent = Object.entries(pairs ?? {}).filter(([d]) => d < today && d >= addDays(today, -7));
+  if (recent.length < 2) return null;
+  const st = recent.reduce((s, [, p]) => s + p[0], 0);
+  const mo = recent.reduce((s, [, p]) => s + p[1], 0);
+  if (mo <= 0) return null;
+  const ratio = Math.min(1.2, Math.max(0.8, st / mo));
+  return { ratio: Math.round(ratio * 100) / 100, days: recent.length };
+}
+
+/** Días pasados: ET0 medida. Hoy y días futuros: ET0 del modelo corregida por su sesgo reciente. */
+export function withStationEt0(
+  days: DailyWeather[],
+  station: Map<ISODate, number>,
+  correction: { ratio: number } | null,
+  today: ISODate,
+): DailyWeather[] {
+  return days.map((d) => {
+    if (d.date < today && station.has(d.date)) return { ...d, et0Mm: station.get(d.date)! };
+    if (d.date >= today && correction) return { ...d, et0Mm: Math.round(d.et0Mm * correction.ratio * 100) / 100 };
+    return d;
+  });
+}
+
 // ───────────── Almacén local de lecturas ─────────────
 
 export interface DmcStore {
@@ -207,6 +384,11 @@ export interface DmcStore {
   pts: RainPoint[];
   /** Lluvia diaria según el resumen diario oficial (con token): completa los días que las lecturas no cubren. */
   daily?: Record<ISODate, number>;
+  /** Bloques de 10 min de temperatura, humedad, radiación y viento (para la ET0). */
+  met?: MetBucket[];
+  metFields?: MetFields;
+  /** Pares (ET0 estación, ET0 modelo) por día: miden el sesgo del modelo. */
+  et0Pairs?: Record<ISODate, [number, number]>;
 }
 
 const KEEP_MS = 5 * 86_400_000;
@@ -216,8 +398,10 @@ export function mergeStore(prev: DmcStore | null, code: string, rf: RainField, p
   const same = prev && prev.code === code && prev.field === rf.field;
   const map = new Map<number, number>(same ? prev!.pts : []);
   pts.forEach(([t, v]) => map.set(t, v));
-  const merged = [...map].filter(([t]) => t >= now - KEEP_MS).sort((a, b) => a[0] - b[0]);
-  return { code, field: rf.field, kind: rf.kind, attemptAt: now, ok: true, pts: merged, daily: prev?.code === code ? prev.daily : undefined };
+  let merged: RainPoint[] = [...map].filter(([t]) => t >= now - KEEP_MS).sort((a, b) => a[0] - b[0]);
+  if (rf.kind === 'accumulated') merged = downsampleAccumulated(merged);
+  const keep = prev?.code === code ? { daily: prev.daily, met: prev.met, metFields: prev.metFields, et0Pairs: prev.et0Pairs } : {};
+  return { ...keep, code, field: rf.field, kind: rf.kind, attemptAt: now, ok: true, pts: merged };
 }
 
 // ───────────── Resumen diario oficial (con token) ─────────────
@@ -357,6 +541,11 @@ export async function refreshDmcStore(
     fetched.ok && rain
       ? mergeStore(current, code, rain, rainPoints(fetched.samples, rain), now)
       : { ...(current ?? { code, pts: [] }), attemptAt: now, ok: false };
+  // Temperatura, humedad, radiación y viento para la ET0 (bloques de 10 min).
+  if (fetched.ok) {
+    const { fields } = detectMetFields(fetched.samples);
+    if (fields) next = { ...next, metFields: fields, met: mergeMetBuckets(next.met ?? [], metBuckets(fetched.samples, fields), now) };
+  }
   // Con token, el resumen diario oficial aporta el total de ayer aunque falten lecturas.
   const summary = hasAuth(auth) ? await fetchDailySummary(code, auth) : undefined;
   if (summary) next = mergeDaily(next, summary.daily, toISODate(new Date(now)));
@@ -433,6 +622,7 @@ export async function diagnoseDmc(
   today: ISODate,
   now = Date.now(),
   auth?: DmcAuth,
+  meta?: StationMeta,
 ): Promise<{ ok: boolean; lines: string[]; store: DmcStore }> {
   const lines: string[] = [hasAuth(auth) ? 'Modo: servicio oficial con usuario y token.' : 'Modo: acceso público (sin token).'];
   const { store: next, fetched, rain, summary } = await refreshDmcStore(store, code, now, 0, true, auth);
@@ -461,6 +651,36 @@ export async function diagnoseDmc(
       ? `Lluvia medida que usará la app: ${[...days].sort().map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(mm)}`).join(' · ')}.`
       : 'Aún no hay días completos guardados: se completan solos con el uso (cada consulta trae ~12 h).',
   );
+  // ET0 con los datos de la estación
+  if (f.ok && f.samples.length) {
+    const met = detectMetFields(f.samples);
+    if (met.fields) {
+      const mf = met.fields;
+      const last = [...f.samples].reverse().find((s) => unitNumber(s[mf.temp]) !== null);
+      const n = (k: string) => (last ? unitNumber(last[k]) : null);
+      const c = (v: number | null) => (v === null ? '?' : String(v).replace('.', ','));
+      const wind = n(mf.wind);
+      lines.push(
+        `ET0 · campos: ${mf.temp}, ${mf.rh}, ${mf.rad}, ${mf.wind} (${mf.windUnit}${mf.windUnitAssumed ? ', supuesto' : ''}).` +
+          (last
+            ? ` Última lectura: ${c(n(mf.temp))} °C · ${c(n(mf.rh))} % HR · ${c(n(mf.rad))} W/m² · viento ${wind === null ? '?' : c(Math.round(wind * WIND_TO_MS[mf.windUnit] * 10) / 10)} m/s.`
+            : ''),
+      );
+    } else {
+      lines.push(`ET0 · faltan campos: ${met.missing.join(', ')}. Disponibles: ${met.keys.slice(0, 16).join(', ')}.`);
+    }
+  }
+  if (meta && next.met?.length) {
+    const st = stationEt0(next.met, meta, today);
+    const pairs = next.et0Pairs ?? {};
+    lines.push(
+      st.size
+        ? `✓ ET0 medida: ${[...st].sort().map(([d, v]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(v)}${pairs[d] ? ` (modelo ${fmtMm(pairs[d][1])})` : ''}`).join(' · ')}.`
+        : 'ET0 medida: aún no hay días completos (se necesitan ≥ 21 h de lecturas; se completan solos con el uso).',
+    );
+    const corr = et0Correction(pairs, today);
+    if (corr) lines.push(`Pronóstico de ET0 corregido ×${String(corr.ratio).replace('.', ',')} según ${corr.days} días medidos.`);
+  }
   if (summary) {
     lines.push(
       summary.daily.size

@@ -135,6 +135,14 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
   valor en mm), que completa los días que las lecturas no alcanzan a cubrir; las lecturas tienen prioridad. Las credenciales se guardan solo en el
   teléfono y el diagnóstico las oculta. "Probar" también informa el resumen diario oficial y el servicio público WIS2
   de la DMC (`wischile.meteochile.gob.cl/oapi`), para evaluar fuentes alternativas.
+- **ET0 medida con la estación (FAO-56 Penman-Monteith):** con las lecturas por minuto de la EMA
+  (`temperatura`, `humedadRelativa`, `radiacionGlobalInst`, `fuerzaDelVientoPromedio10Minutos` en nudos) se
+  arman bloques de 10 min y, por día local con ≥ 21 h medidas, Tmáx/Tmín, presión de vapor real media (desde
+  T y HR de cada bloque), radiación global (W/m² medio × 0,0864 = MJ/m²/día) y viento a 2 m (anemómetro a
+  10 m × 0,748). La ET0 resultante reemplaza a la del modelo en los días pasados (y corrige los ya
+  contabilizados). Para hoy y el pronóstico, la ET0 del modelo se multiplica por su sesgo reciente
+  (Σ estación ÷ Σ modelo de los últimos 7 días, mín. 2 días, limitado a ±20 %). Validado contra el Ejemplo 18 de
+  FAO-56 (3,9 mm/día). Latitud y altura: las de la estación (El Milagro: −33,754°, 460 m).
 - **Lluvia observada (opcional, INIA Agromet):** con una clave personal de la API (`https://agromet.inia.cl/api/v2/`),
   Ajustes → "Buscar estación cercana" elige la estación más próxima que mida precipitación (la variable se
   busca por nombre, porque los IDs numéricos no son consistentes). Esa lluvia medida reemplaza a la del modelo

@@ -202,6 +202,31 @@ export function reconcileObservedRain(
   return { state: s, history: h, changed };
 }
 
+/**
+ * Igual que con la lluvia, pero con la ET0: si la estación midió una ET0 distinta a la usada en un día ya
+ * contabilizado, se corrige el consumo (ETc) de ese día y el déficit por la diferencia.
+ */
+export function reconcileObservedEt0(
+  state: WaterState,
+  history: DayRecord[],
+  observed: Record<ISODate, number> | undefined,
+): { state: WaterState; history: DayRecord[]; changed: boolean } {
+  let s = state;
+  let h = history;
+  let changed = false;
+  for (const [date, et0] of Object.entries(observed ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+    if (date >= s.asOf) continue;
+    const rec = h.find((x) => x.date === date);
+    if (!rec) continue;
+    const newEtc = etc(et0, date);
+    if (Math.abs(rec.etcMm - newEtc) < 0.05) continue;
+    if (!s.resetDate || date >= s.resetDate) s = { ...s, deficitMm: Math.max(0, s.deficitMm + newEtc - rec.etcMm) };
+    h = h.map((x) => (x.date === date ? { ...x, etcMm: newEtc } : x));
+    changed = true;
+  }
+  return { state: s, history: h, changed };
+}
+
 /** Riego aplicado: repone `mm` (por defecto todo el déficit → capacidad de campo). */
 export function applyIrrigation(state: WaterState, mm?: number): WaterState {
   const left = mm === undefined ? 0 : Math.max(0, state.deficitMm - mm);

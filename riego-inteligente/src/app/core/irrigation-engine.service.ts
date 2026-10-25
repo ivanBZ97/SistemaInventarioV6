@@ -8,6 +8,7 @@ import {
   addDays,
   applyRainOverrides,
   correctPastRain,
+  reconcileObservedEt0,
   reconcileObservedRain,
   applyIrrigation,
   buildChart,
@@ -48,6 +49,9 @@ export interface Snapshot {
   elevationM: number | null;
   /** Estación INIA que aportó la lluvia observada, o null si se usa el modelo. */
   rainSource: string | null;
+  /** Estación que aportó la ET0 medida (días pasados) y la corrección aplicada al pronóstico de ET0. */
+  et0Source: string | null;
+  et0Ratio: number | null;
   error: string | null;
 }
 
@@ -90,9 +94,12 @@ export class IrrigationEngineService {
     let elevationM: number | null = null;
     let rainSource: string | null = null;
     let observedRain: Record<string, number> = {};
+    let observedEt0: Record<string, number> = {};
+    let et0Source: string | null = null;
+    let et0Ratio: number | null = null;
     let error: string | null = null;
     try {
-      ({ days, stale, elevationM, rainSource, observedRain } = await this.weather.getForecast(settings, forceWeather));
+      ({ days, stale, elevationM, rainSource, observedRain, observedEt0, et0Source, et0Ratio } = await this.weather.getForecast(settings, forceWeather));
     } catch (e) {
       error = 'Sin conexión y sin datos en caché. Se muestra el último balance guardado.';
     }
@@ -101,13 +108,14 @@ export class IrrigationEngineService {
 
     // 0) Días ya contabilizados con lluvia del modelo: se corrigen con la lluvia medida por la estación.
     const rec = reconcileObservedRain(stored, history, observedRain, rainOverrides);
-    if (rec.changed) {
-      await this.storage.set('history', rec.history);
-      history.splice(0, history.length, ...rec.history);
+    const recEt = reconcileObservedEt0(rec.state, rec.history, observedEt0);
+    if (rec.changed || recEt.changed) {
+      await this.storage.set('history', recEt.history);
+      history.splice(0, history.length, ...recEt.history);
     }
 
     // 1) Avanzar el balance hasta hoy y guardar el historial de días cerrados.
-    let state = rec.state;
+    let state = recEt.state;
     if (days.length && state.asOf < today) {
       const rolled = rollForward(state, days, today);
       state = rolled.state;
@@ -143,6 +151,8 @@ export class IrrigationEngineService {
       staleWeather: stale,
       elevationM,
       rainSource,
+      et0Source,
+      et0Ratio,
       error,
     };
     this.snapshot.set(snap);

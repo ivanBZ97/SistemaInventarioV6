@@ -22,16 +22,15 @@ export function lawnScene(ev: Pick<Evaluation, 'rainProbPct' | 'rainForecastMm' 
 export function lawnMessages(
   mood: Mood,
   scene: Scene,
-  ev: Pick<Evaluation, 'minutes' | 'rainForecastMm' | 'windMaxKmh'> | null,
+  ev: (Pick<Evaluation, 'minutes' | 'rainForecastMm' | 'windMaxKmh'> & { status?: IrrigationStatus }) | null,
 ): string[] {
   const base: Record<Mood, string[]> = {
     happy: ['¡Estoy feliz! 😄 Tengo toda el agua que necesito.', 'Hoy no me riegues, ¡estoy hidratado! 💚', 'Mis raíces están contentas 🌱'],
     content: ['Estoy bien 🙂 Todavía me queda reserva.', 'Aguanto unos días más sin riego 👍', 'Vigilo mi humedad por ti 🔍'],
-    thirsty: [
-      `Tengo sed 🥵 ¿Me das ${ev?.minutes ?? '?'} min de riego?`,
-      'Riégame temprano, entre 06:30 y 08:30 🌅',
-      'Gracias por cuidarme 💧',
-    ],
+    thirsty:
+      ev?.status === 'ok'
+        ? ['Me estoy secando 🌤️ Pronto me tocará riego.', 'Todavía aguanto, pero no por mucho 💧', 'Mira "Próximo riego" para saber cuándo 📅']
+        : [`Tengo sed 🥵 ¿Me das ${ev?.minutes ?? '?'} min de riego?`, 'Riégame temprano, entre 06:30 y 08:30 🌅', 'Gracias por cuidarme 💧'],
     wilted: ['Estoy muy seco… 😞 ¡Necesito agua pronto!', 'Mis hojas se están poniendo tristes 🥀', 'Un buen riego y me recupero 💪'],
   };
   const extra: string[] = [];
