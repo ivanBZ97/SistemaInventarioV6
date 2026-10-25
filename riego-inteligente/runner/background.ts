@@ -5,7 +5,7 @@ import { applyRainOverrides, planNotifications, reconcileObservedRain, toISODate
 import { fetchForecast } from '../src/app/core/open-meteo';
 import { applyObservedRain, mergeObservedRain } from '../src/app/core/agromet';
 import { type DmcStore, observedFromStore, refreshDmcStore } from '../src/app/core/dmc';
-import type { DayRecord, Settings, WaterState } from '../src/app/core/models';
+import type { DayRecord, DmcAuth, Settings, WaterState } from '../src/app/core/models';
 
 declare const CapacitorKV: {
   get(key: string): { value: string } | null;
@@ -32,13 +32,13 @@ function load(): Snapshot | null {
 }
 
 const DMC_STORE = 'dmcStore';
-const DMC_MAX_AGE_MS = 6 * 3_600_000;
+const DMC_MAX_AGE_MS = 4 * 3_600_000;
 
-/** Lluvia medida por la estación DMC: consulta cada 6 h (~24 h por consulta) y acumula las lecturas. */
-async function dmcRain(code: string, today: string): Promise<Map<string, number>> {
+/** Lluvia medida por la estación DMC: consulta cada 4 h (cada consulta trae las últimas horas) y acumula. */
+async function dmcRain(code: string, today: string, auth?: DmcAuth): Promise<Map<string, number>> {
   const raw = CapacitorKV.get(DMC_STORE)?.value;
   const prev = raw ? (JSON.parse(raw) as DmcStore) : null;
-  const { store } = await refreshDmcStore(prev, code, Date.now(), DMC_MAX_AGE_MS);
+  const { store } = await refreshDmcStore(prev, code, Date.now(), DMC_MAX_AGE_MS, false, auth);
   CapacitorKV.set(DMC_STORE, JSON.stringify(store));
   return observedFromStore(store, code, today);
 }
@@ -70,7 +70,7 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
     let measured = forecast;
     let observed = new Map<string, number>();
     const dmcCode = snap.settings.dmc?.code;
-    const dmcDaily = dmcCode ? await dmcRain(dmcCode, today).catch(() => new Map<string, number>()) : new Map<string, number>();
+    const dmcDaily = dmcCode ? await dmcRain(dmcCode, today, snap.settings.dmcAuth).catch(() => new Map<string, number>()) : new Map<string, number>();
     if (dmcDaily.size) {
       measured = mergeObservedRain(forecast, dmcDaily, today);
       observed = dmcDaily;

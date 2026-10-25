@@ -54,7 +54,7 @@ export class WeatherService {
       if (settings.dmc) {
         // Cada consulta trae ~24 h de lecturas: se acumulan en un almacén local para armar días completos.
         const prev = await this.storage.get<DmcStore | null>('dmcStore', null);
-        const { store } = await refreshDmcStore(prev, settings.dmc.code, Date.now(), 60 * 60_000);
+        const { store } = await refreshDmcStore(prev, settings.dmc.code, Date.now(), 60 * 60_000, false, settings.dmcAuth);
         await this.storage.set('dmcStore', store);
         dmc = withDmcRain(forecast.days, observedFromStore(store, settings.dmc.code, today), settings.dmc, today);
       }

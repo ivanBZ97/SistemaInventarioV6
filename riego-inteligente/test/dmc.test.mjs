@@ -116,13 +116,14 @@ test('el diagnóstico explica un 404 y un éxito', async () => {
     globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({}) });
     let d = await dmc.diagnoseDmc('330160', null, '2026-10-25', Date.parse('2026-10-25T13:00:00Z'));
     assert.equal(d.ok, false);
-    assert.match(d.lines[0], /HTTP 404/);
+    assert.match(d.lines[0], /acceso público/);
+    assert.match(d.lines[1], /HTTP 404/);
     const samples = series('2026-10-24T13:00:00Z', 24, (t) => (t.getUTCHours() === 20 && t.getUTCMinutes() === 0 ? 0.4 : 0), 10);
     globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ datos: samples }) });
     d = await dmc.diagnoseDmc('330160', null, '2026-10-25', Date.parse('2026-10-25T13:00:00Z'));
     assert.equal(d.ok, true);
-    assert.match(d.lines[0], /✓ Datos recientes: 145 lecturas/);
-    assert.match(d.lines[1], /0,4 mm/);
+    assert.match(d.lines[1], /✓ Datos recientes: 145 lecturas/);
+    assert.match(d.lines[2], /0,4 mm/);
   } finally {
     globalThis.fetch = orig;
   }
@@ -137,7 +138,36 @@ test('"Probar" consulta aunque la consulta automática haya fallado hace poco', 
     const justFailed = { code: '330160', attemptAt: t0 - 60_000, ok: false, pts: [] };
     const d = await dmc.diagnoseDmc('330160', justFailed, '2026-10-25', t0);
     assert.ok(calls >= 1);
-    assert.match(d.lines[0], /HTTP 404/);
+    assert.match(d.lines[1], /HTTP 404/);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test('con usuario y token se usa el servicio oficial, y el diagnóstico nunca muestra las credenciales', async () => {
+  const auth = { user: 'ivan@example.com', token: 'tok-SECRETO-123' };
+  assert.equal(dmc.recentUrl('330160'), 'https://climatologia.meteochile.gob.cl/application/productos/datosRecientesEma/330160');
+  assert.equal(
+    dmc.recentUrl('330160', auth),
+    'https://climatologia.meteochile.gob.cl/application/servicios/getDatosRecientesEma/330160?usuario=ivan%40example.com&token=tok-SECRETO-123',
+  );
+  const orig = globalThis.fetch;
+  const urls = [];
+  try {
+    globalThis.fetch = async (u) => {
+      urls.push(String(u));
+      if (String(u).includes('wischile')) return { ok: true, status: 200, json: async () => ({ collections: [{ id: 'urn:a' }, { id: 'urn:b' }] }) };
+      // servidor que devuelve un error que repite el usuario y el token
+      return { ok: true, status: 200, json: async () => ({ mensaje: 'token no válido para ivan@example.com / tok-SECRETO-123' }) };
+    };
+    const d = await dmc.diagnoseDmc('330160', null, '2026-10-25', Date.parse('2026-10-25T13:00:00Z'), auth);
+    const text = d.lines.join('\n');
+    assert.match(text, /servicio oficial con usuario y token/);
+    assert.match(text, /token no válido para \*\*\*/);
+    assert.match(text, /WIS2 DMC \(público\): OK · 2 colecciones: urn:a, urn:b/);
+    assert.ok(!text.includes('tok-SECRETO-123') && !text.includes('ivan@example.com'));
+    assert.ok(urls[0].includes('/servicios/getDatosRecientesEma/330160?usuario='));
+    assert.ok(urls.some((u) => u.includes('/servicios/getEmaResumenDiario/330160?usuario=')));
   } finally {
     globalThis.fetch = orig;
   }

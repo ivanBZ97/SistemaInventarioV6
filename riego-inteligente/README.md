@@ -128,6 +128,11 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
   (sin contar huecos de más de 1 h). Tras un fallo se reintenta en 1 h. "Probar" muestra un diagnóstico (estado
   HTTP, lecturas, campo de lluvia, lluvia de las últimas 24 h y días completos) que se puede copiar.
   Los días ya contabilizados con lluvia del modelo se corrigen solos cuando llega la medida.
+  En octubre de 2026 todo `…/productos/…` responde 404: con **usuario y token** (registro gratuito en el portal;
+  Ajustes → Lluvia observada) se usa el servicio oficial documentado
+  `…/application/servicios/getDatosRecientesEma/<código>?usuario=…&token=…`. Las credenciales se guardan solo en el
+  teléfono y el diagnóstico las oculta. "Probar" también informa el resumen diario oficial y el servicio público WIS2
+  de la DMC (`wischile.meteochile.gob.cl/oapi`), para evaluar fuentes alternativas.
 - **Lluvia observada (opcional, INIA Agromet):** con una clave personal de la API (`https://agromet.inia.cl/api/v2/`),
   Ajustes → "Buscar estación cercana" elige la estación más próxima que mida precipitación (la variable se
   busca por nombre, porque los IDs numéricos no son consistentes). Esa lluvia medida reemplaza a la del modelo

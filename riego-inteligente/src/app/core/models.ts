@@ -16,6 +16,8 @@ export interface Settings {
   placeName?: string;
   /** Estación automática de la Dirección Meteorológica de Chile (lluvia observada, sin clave). */
   dmc?: DmcConfig;
+  /** Credenciales del servicio oficial de la DMC (opcional; sin ellas se intenta el acceso público). */
+  dmcAuth?: DmcAuth;
   /** Estación agroclimática INIA (lluvia observada). Opcional. */
   agromet?: AgrometConfig;
   /** false hasta que el usuario elige ubicación (GPS o búsqueda): dispara el aviso de primer arranque. */
@@ -27,6 +29,13 @@ export interface DmcConfig {
   code: string;
   name: string;
   distanceKm: number;
+}
+
+export interface DmcAuth {
+  /** Correo con el que te registraste en el portal de servicios climáticos de la DMC. */
+  user: string;
+  /** Token personal que envía la DMC al confirmar la cuenta. Solo se guarda en el teléfono. */
+  token: string;
 }
 
 export interface AgrometConfig {

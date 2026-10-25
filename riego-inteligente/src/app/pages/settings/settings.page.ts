@@ -26,7 +26,7 @@ import { Place, searchPlaces } from '../../core/open-meteo';
 import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../core/agromet';
 import { type DmcStore, diagnoseDmc, listDmcStations, nearestDmcStation } from '../../core/dmc';
 import { StorageService } from '../../core/storage.service';
-import type { AgrometConfig, DmcConfig } from '../../core/models';
+import type { AgrometConfig, DmcAuth, DmcConfig } from '../../core/models';
 import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate } from '../../core/irrigation-core';
 
 @Component({
@@ -117,7 +117,7 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
           <div class="li-text">
             <span class="md-body-large">{{ dmc()?.name ?? 'Dirección Meteorológica de Chile' }}</span>
             <span class="md-body-medium md-variant">
-              {{ dmc() ? 'Estación DMC ' + dmc()!.code + ' · a ' + km(dmc()!.distanceKm) + ' km · sin clave' : 'Estaciones automáticas públicas · sin clave' }}
+              {{ dmc() ? 'Estación DMC ' + dmc()!.code + ' · a ' + km(dmc()!.distanceKm) + ' km · ' + (dmcUser().trim() && dmcToken().trim() ? 'con token' : 'sin clave') : 'Estaciones automáticas públicas · sin clave' }}
             </span>
           </div>
         </div>
@@ -127,6 +127,16 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
             <button class="chip" (click)="testDmc()"><ion-icon name="pulse-outline" />Probar</button>
             <button class="chip" (click)="dmc.set(undefined)"><ion-icon name="close-outline" />Quitar</button>
           }
+        </div>
+        <p class="md-body-small md-variant intro">
+          Credenciales del servicio oficial de la DMC (gratis): regístrate en climatologia.meteochile.gob.cl y te
+          enviarán un token al confirmar la cuenta. Se guardan solo en este teléfono.
+        </p>
+        <div class="field two">
+          <ion-input fill="outline" type="email" inputmode="email" autocomplete="email" label="Usuario (correo)" labelPlacement="floating"
+                     [value]="dmcUser()" (ionInput)="dmcUser.set($any($event).detail.value ?? '')" />
+          <ion-input fill="outline" type="password" label="Token" labelPlacement="floating"
+                     [value]="dmcToken()" (ionInput)="dmcToken.set($any($event).detail.value ?? '')" />
         </div>
         @if (dmcReport(); as r) {
           <div class="md-body-small report" [class.err]="r.error">
@@ -269,6 +279,8 @@ export class SettingsPage implements OnInit {
   agromet = signal<AgrometConfig | undefined>(undefined);
   dmc = signal<DmcConfig | undefined>(undefined);
   dmcReport = signal<{ lines: string[]; error: boolean } | null>(null);
+  dmcUser = signal('');
+  dmcToken = signal('');
   agrometKey = signal('');
   query = signal('');
   results = signal<Place[]>([]);
@@ -285,6 +297,8 @@ export class SettingsPage implements OnInit {
     this.morningTime.set(s.settings.morningTime ?? '06:30');
     this.agromet.set(s.settings.agromet);
     this.dmc.set(s.settings.dmc);
+    this.dmcUser.set(s.settings.dmcAuth?.user ?? '');
+    this.dmcToken.set(s.settings.dmcAuth?.token ?? '');
     this.agrometKey.set(s.settings.agromet?.apiKey ?? '');
   }
 
@@ -335,7 +349,7 @@ export class SettingsPage implements OnInit {
     let r: Awaited<ReturnType<typeof diagnoseDmc>>;
     try {
       const prev = await this.storage.get<DmcStore | null>('dmcStore', null);
-      r = await diagnoseDmc(cfg.code, prev, toISODate(new Date()));
+      r = await diagnoseDmc(cfg.code, prev, toISODate(new Date()), Date.now(), this.dmcAuth());
       await this.storage.set('dmcStore', r.store);
     } catch (e) {
       this.dmcReport.set({ lines: [`Error inesperado al probar la estación: ${e instanceof Error ? e.message : e}`], error: true });
@@ -345,6 +359,13 @@ export class SettingsPage implements OnInit {
       lines: r.ok ? [...r.lines, 'Pulsa Guardar cambios para usar esta estación.'] : [...r.lines, 'Mientras tanto, la app sigue usando el pronóstico.'],
       error: !r.ok,
     });
+  }
+
+  /** Credenciales escritas en pantalla (aunque aún no se hayan guardado). */
+  private dmcAuth(): DmcAuth | undefined {
+    const user = this.dmcUser().trim();
+    const token = this.dmcToken().trim();
+    return user && token ? { user, token } : undefined;
   }
 
   /** Copia el diagnóstico para enviarlo como texto. */
@@ -431,6 +452,7 @@ export class SettingsPage implements OnInit {
       longitude: clamp(this.lon(), -180, 180),
       placeName: this.placeName(),
       dmc: this.dmc(),
+      dmcAuth: this.dmcAuth(),
       agromet: this.agromet() ? { ...this.agromet()!, apiKey: this.agrometKey().trim() || this.agromet()!.apiKey } : undefined,
       useGps: this.auto(),
       locationSet: true,
