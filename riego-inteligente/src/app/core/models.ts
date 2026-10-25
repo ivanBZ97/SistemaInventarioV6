@@ -14,10 +14,19 @@ export interface Settings {
   useGps: boolean;
   /** Nombre legible del lugar (p. ej. "Pudahuel, Región Metropolitana"). */
   placeName?: string;
+  /** Estación automática de la Dirección Meteorológica de Chile (lluvia observada, sin clave). */
+  dmc?: DmcConfig;
   /** Estación agroclimática INIA (lluvia observada). Opcional. */
   agromet?: AgrometConfig;
   /** false hasta que el usuario elige ubicación (GPS o búsqueda): dispara el aviso de primer arranque. */
   locationSet: boolean;
+}
+
+export interface DmcConfig {
+  /** Código nacional de la estación (p. ej. 330160 = El Milagro, Buin). */
+  code: string;
+  name: string;
+  distanceKm: number;
 }
 
 export interface AgrometConfig {

@@ -124,7 +124,7 @@ export async function applyObservedRain(
     if (!used.length) return { days, source: null };
     return {
       days: mergeObservedRain(days, observed, today),
-      source: `${cfg.stationName} (${cfg.distanceKm.toFixed(1)} km)`,
+      source: `${cfg.stationName} (${cfg.distanceKm.toFixed(1).replace('.', ',')} km)`,
     };
   } catch {
     return { days, source: null };

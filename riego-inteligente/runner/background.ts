@@ -1,9 +1,10 @@
 // Worker en segundo plano (@capacitor/background-runner). Corre en un motor JS aislado, sin DOM:
 // solo dispone de fetch, CapacitorKV y CapacitorNotifications. Se empaqueta con esbuild en un único
 // archivo (runners/background.js) e incluye el mismo motor agronómico que usa la app.
-import { applyRainOverrides, planNotifications, toISODate } from '../src/app/core/irrigation-core';
+import { addDays, applyRainOverrides, planNotifications, toISODate } from '../src/app/core/irrigation-core';
 import { fetchForecast } from '../src/app/core/open-meteo';
-import { applyObservedRain } from '../src/app/core/agromet';
+import { applyObservedRain, mergeObservedRain } from '../src/app/core/agromet';
+import { fetchDmcDailyRain } from '../src/app/core/dmc';
 import type { Settings, WaterState } from '../src/app/core/models';
 
 declare const CapacitorKV: {
@@ -29,6 +30,19 @@ function load(): Snapshot | null {
   return raw ? (JSON.parse(raw) as Snapshot) : null;
 }
 
+const DMC_CACHE = 'dmcRain';
+const DMC_MAX_AGE_MS = 6 * 3_600_000;
+
+/** Lluvia medida por la estación DMC, con caché de 6 h (evita bajar el mes completo cada 15 min). */
+async function dmcRain(code: string, today: string): Promise<Map<string, number>> {
+  const raw = CapacitorKV.get(DMC_CACHE)?.value;
+  const cached = raw ? (JSON.parse(raw) as { code: string; at: number; daily: Record<string, number> }) : null;
+  if (cached && cached.code === code && Date.now() - cached.at < DMC_MAX_AGE_MS) return new Map(Object.entries(cached.daily));
+  const daily = await fetchDmcDailyRain(code, addDays(today, -3), addDays(today, -1));
+  CapacitorKV.set(DMC_CACHE, JSON.stringify({ code, at: Date.now(), daily: Object.fromEntries(daily) }));
+  return daily;
+}
+
 /** La app envía aquí su estado cada vez que cambia (ver BackgroundService.sync). */
 addEventListener('syncState', (resolve, reject, args) => {
   try {
@@ -50,8 +64,12 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
     if (!snap) return resolve(); // la app aún no ha sincronizado
     const forecast = await fetchForecast(snap.settings.latitude, snap.settings.longitude);
     const today = toISODate(new Date());
-    const observed = await applyObservedRain(forecast, snap.settings.agromet, today);
-    const weather = applyRainOverrides(observed.days, snap.rainOverrides, today);
+    let measured = forecast;
+    const dmcCode = snap.settings.dmc?.code;
+    const dmcDaily = dmcCode ? await dmcRain(dmcCode, today).catch(() => new Map<string, number>()) : new Map<string, number>();
+    if (dmcDaily.size) measured = mergeObservedRain(forecast, dmcDaily, today);
+    else measured = (await applyObservedRain(forecast, snap.settings.agromet, today)).days;
+    const weather = applyRainOverrides(measured, snap.rainOverrides, today);
     const { notifications, morningFor } = planNotifications({ state: snap.state, settings: snap.settings, weather, now: new Date() });
     if (notifications.length) {
       CapacitorNotifications.schedule(

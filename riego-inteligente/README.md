@@ -118,6 +118,13 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
 - **Open-Meteo multi-modelo:** pide ECMWF IFS, GFS e ICON en la misma consulta y promedia ET0, lluvia,
   temperatura y viento (los modelos sin dato no cuentan). Si ningún modelo entrega probabilidad de lluvia, se
   estima como el % de modelos que pronostican ≥ 1 mm.
+- **Lluvia observada sin clave (Dirección Meteorológica de Chile):** Ajustes → "Usar la estación más cercana"
+  elige la estación automática (EMA) de la DMC más próxima (en Buin: El Milagro, código 330160) usando los
+  recursos JSON públicos del Portal de Servicios Climáticos (`climatologia.meteochile.gob.cl/application/productos`).
+  `aguaCaida24Horas` es un acumulado que se reinicia a las 12:00 UTC: la lluvia diaria se obtiene sumando los
+  incrementos entre lecturas, y solo se usan días con ≥ 20 h de datos. Si la lista de estaciones no responde se usa
+  un catastro incluido en la app; si los datos no responden, se sigue con el pronóstico. El worker guarda la
+  lluvia leída 6 h para no descargar el mes completo cada 15 min. Formato tomado del paquete agrometR (MIT).
 - **Lluvia observada (opcional, INIA Agromet):** con una clave personal de la API (`https://agromet.inia.cl/api/v2/`),
   Ajustes → "Buscar estación cercana" elige la estación más próxima que mida precipitación (la variable se
   busca por nombre, porque los IDs numéricos no son consistentes). Esa lluvia medida reemplaza a la del modelo

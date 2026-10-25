@@ -24,7 +24,8 @@ import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
 import { Place, searchPlaces } from '../../core/open-meteo';
 import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../core/agromet';
-import type { AgrometConfig } from '../../core/models';
+import { fetchDmcDailyRain, listDmcStations, nearestDmcStation } from '../../core/dmc';
+import type { AgrometConfig, DmcConfig } from '../../core/models';
 import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate } from '../../core/irrigation-core';
 
 @Component({
@@ -104,13 +105,33 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
         </div>
       </div>
 
-      <!-- Agromet -->
-      <h2 class="section md-title-small">Lluvia observada · INIA Agromet</h2>
+      <!-- Lluvia observada -->
+      <h2 class="section md-title-small">Lluvia observada</h2>
       <div class="card">
         <p class="md-body-medium md-variant intro">
-          Opcional. Usa la lluvia medida por la estación agroclimática más cercana en lugar de la del modelo.
-          Requiere una clave personal de la API de INIA.
+          Usa la lluvia medida por una estación real cerca de tu jardín en lugar de la del pronóstico.
         </p>
+        <div class="row">
+          <div class="li-icon"><ion-icon name="radio-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">{{ dmc()?.name ?? 'Dirección Meteorológica de Chile' }}</span>
+            <span class="md-body-medium md-variant">
+              {{ dmc() ? 'Estación DMC ' + dmc()!.code + ' · a ' + km(dmc()!.distanceKm) + ' km · sin clave' : 'Estaciones automáticas públicas · sin clave' }}
+            </span>
+          </div>
+        </div>
+        <div class="chips">
+          <button class="chip" (click)="findDmc()"><ion-icon name="search-outline" />{{ dmc() ? 'Cambiar estación' : 'Usar la estación más cercana' }}</button>
+          @if (dmc()) {
+            <button class="chip" (click)="testDmc()"><ion-icon name="pulse-outline" />Probar</button>
+            <button class="chip" (click)="dmc.set(undefined)"><ion-icon name="close-outline" />Quitar</button>
+          }
+        </div>
+        @if (dmcReport(); as r) {
+          <p class="md-body-small report" [class.err]="r.error">{{ r.text }}</p>
+        }
+        <div class="divider"></div>
+        <p class="md-body-medium md-variant intro">INIA Agromet (opcional, requiere una clave personal de la API de INIA).</p>
         <div class="field">
           <ion-input fill="outline" type="password" label="Clave de API" labelPlacement="floating"
                      [value]="agrometKey()" (ionInput)="agrometKey.set($any($event).detail.value ?? '')" />
@@ -120,7 +141,7 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
             <div class="li-icon"><ion-icon name="radio-outline" /></div>
             <div class="li-text">
               <span class="md-body-large">{{ a.stationName }}</span>
-              <span class="md-body-medium md-variant">A {{ a.distanceKm.toFixed(1) }} km de tu jardín</span>
+              <span class="md-body-medium md-variant">A {{ km(a.distanceKm) }} km de tu jardín</span>
             </div>
           </div>
         }
@@ -202,6 +223,8 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
       font: 500 14px/20px var(--md-font); letter-spacing: .1px; cursor: pointer;
       ion-icon { font-size: 18px; color: var(--md-primary); } }
     .intro { margin: 8px 16px 0; }
+    .report { margin: 4px 16px 8px; padding: 8px 12px; border-radius: 8px; background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+    .report.err { background: var(--md-error-container); color: var(--md-on-error-container); }
     .divider { height: 1px; margin: 8px 0; background: var(--md-outline-variant); }
     .divider.inset { margin-left: 72px; }
     .bottom-space { height: 24px; }
@@ -224,6 +247,7 @@ export class SettingsPage implements OnInit {
   }
 
   readonly timeOptions = MORNING_TIME_OPTIONS;
+  readonly km = (v: number) => v.toFixed(1).replace('.', ',');
   morningTime = signal('06:30');
   readonly min = THRESHOLD_MIN_MM;
   readonly max = THRESHOLD_MAX_MM;
@@ -235,6 +259,8 @@ export class SettingsPage implements OnInit {
   elevation = signal<number | null>(null);
   auto = signal(false);
   agromet = signal<AgrometConfig | undefined>(undefined);
+  dmc = signal<DmcConfig | undefined>(undefined);
+  dmcReport = signal<{ text: string; error: boolean } | null>(null);
   agrometKey = signal('');
   query = signal('');
   results = signal<Place[]>([]);
@@ -250,6 +276,7 @@ export class SettingsPage implements OnInit {
     this.auto.set(s.settings.useGps);
     this.morningTime.set(s.settings.morningTime ?? '06:30');
     this.agromet.set(s.settings.agromet);
+    this.dmc.set(s.settings.dmc);
     this.agrometKey.set(s.settings.agromet?.apiKey ?? '');
   }
 
@@ -280,6 +307,40 @@ export class SettingsPage implements OnInit {
   }
 
   /** Busca la estación INIA más cercana que mida precipitación. */
+  /** Elige la estación automática de la DMC más cercana al jardín (lista pública, sin clave). */
+  async findDmc(): Promise<void> {
+    this.dmcReport.set(null);
+    const st = nearestDmcStation(await listDmcStations(), this.lat(), this.lon());
+    if (!st) return this.toast('No se encontraron estaciones de la DMC');
+    this.dmc.set({ code: st.code, name: st.name, distanceKm: Math.round(st.distanceKm * 10) / 10 });
+    if (st.distanceKm > 25) {
+      this.dmcReport.set({ text: `La estación más cercana está a ${st.distanceKm.toFixed(0)} km: puede no representar la lluvia de tu jardín.`, error: true });
+    }
+    await this.testDmc();
+  }
+
+  /** Lee la lluvia de los últimos días en la estación, para contrastarla con agrometeorologia.cl. */
+  async testDmc(): Promise<void> {
+    const cfg = this.dmc();
+    if (!cfg) return;
+    this.dmcReport.set({ text: 'Consultando la estación…', error: false });
+    try {
+      const today = toISODate(new Date());
+      const obs = await fetchDmcDailyRain(cfg.code, addDays(today, -3), addDays(today, -1));
+      if (!obs.size) {
+        this.dmcReport.set({ text: 'La estación respondió, pero sin días completos de datos. Se seguirá usando el pronóstico.', error: true });
+        return;
+      }
+      const txt = [...obs.entries()].sort().map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)}: ${String(round1(mm)).replace('.', ',')} mm`).join(' · ');
+      this.dmcReport.set({ text: `Lluvia medida → ${txt}. Pulsa Guardar cambios para usarla.`, error: false });
+    } catch (e) {
+      this.dmcReport.set({
+        text: `No se pudo leer la estación (${e instanceof Error ? e.message : 'sin respuesta'}). La app seguirá usando el pronóstico.`,
+        error: true,
+      });
+    }
+  }
+
   async findStation(): Promise<void> {
     const apiKey = this.agrometKey().trim();
     if (!apiKey) return this.toast('Ingresa tu clave de API de Agromet');
@@ -351,6 +412,7 @@ export class SettingsPage implements OnInit {
       latitude: clamp(this.lat(), -90, 90),
       longitude: clamp(this.lon(), -180, 180),
       placeName: this.placeName(),
+      dmc: this.dmc(),
       agromet: this.agromet() ? { ...this.agromet()!, apiKey: this.agrometKey().trim() || this.agromet()!.apiKey } : undefined,
       useGps: this.auto(),
       locationSet: true,

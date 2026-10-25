@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { StorageService } from './storage.service';
 import { fetchForecastWithMeta } from './open-meteo';
 import { applyObservedRain } from './agromet';
+import { applyDmcRain } from './dmc';
 import { toISODate } from './irrigation-core';
 import type { DailyWeather, Settings } from './models';
 
@@ -28,7 +29,12 @@ export class WeatherService {
       const forecast = await fetchForecastWithMeta(settings.latitude, settings.longitude);
       const { elevationM } = forecast;
       // Lluvia observada de la estación INIA (si hay) reemplaza la del modelo en días pasados.
-      const { days, source: rainSource } = await applyObservedRain(forecast.days, settings.agromet, toISODate(new Date()));
+      const today = toISODate(new Date());
+      // Lluvia medida: estación DMC (sin clave) y, si no hay, INIA Agromet (con clave).
+      const dmc = await applyDmcRain(forecast.days, settings.dmc, today);
+      const inia = dmc.source ? { days: dmc.days, source: null } : await applyObservedRain(forecast.days, settings.agromet, today);
+      const days = inia.days;
+      const rainSource = dmc.source ?? inia.source;
       await this.storage.set<WeatherCache>('weatherCache', {
         fetchedAt: new Date().toISOString(),
         lat: settings.latitude,
