@@ -248,3 +248,39 @@ test('si la estación no entrega lecturas, el almacén guarda el motivo (sin cre
     globalThis.fetch = orig;
   }
 });
+
+test('si la estación dejó de publicar, el diagnóstico lo dice y prueba las estaciones cercanas', async () => {
+  const orig = globalThis.fetch;
+  const now = Date.parse('2026-10-26T10:30:00Z'); // lunes 07:30
+  const old = series('2026-10-24T18:56:00Z', 4, () => 0, 1); // 5 lecturas del sábado 15:56–16:00, como en tu teléfono
+  const fresh = series('2026-10-25T22:30:00Z', 690, () => 0, 10); // Talagante, hasta las 07:00
+  try {
+    globalThis.fetch = async (u) => {
+      const url = String(u);
+      if (url.includes('/330160')) return { ok: true, status: 200, json: async () => ({ datos: old }) };
+      if (url.includes('/330071')) return { ok: true, status: 200, json: async () => ({ datos: fresh }) };
+      if (url.includes('/330113')) return { ok: false, status: 500, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    const alts = [{ code: '330071', name: 'Talagante', distanceKm: 10.3 }, { code: '330113', name: 'El Paico', distanceKm: 22.5 }];
+    const d = await dmc.diagnoseDmc('330160', null, '2026-10-26', now, undefined, undefined, alts);
+    const text = d.lines.join('\n');
+    assert.match(text, /✓ Datos recientes: 5 lecturas/);
+    assert.match(text, /⚠ La lectura más nueva es del 24\/10 16:00 \(hace 40 h\): la DMC no está recibiendo datos de esta estación\./);
+    assert.match(text, /Otras estaciones DMC cercanas · Talagante \(10 km\): última lectura 26\/10 07:00 \(hace 30 min\) · El Paico \(23 km\): HTTP 500\./);
+    // Con datos al día no se prueban las demás
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ datos: fresh }) });
+    const ok = await dmc.diagnoseDmc('330160', null, '2026-10-26', now, undefined, undefined, alts);
+    assert.ok(!ok.lines.some((l) => l.includes('Otras estaciones')));
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test('estaciones cercanas ordenadas por distancia', () => {
+  const st = [
+    { code: 'a', name: 'Lejos', latitude: -33.4, longitude: -70.6, elevationM: 0 },
+    { code: 'b', name: 'Cerca', latitude: -33.74, longitude: -70.76, elevationM: 0 },
+  ];
+  assert.deepEqual(dmc.nearbyDmcStations(st, -33.7313, -70.7663, 1).map((s) => s.code), ['b']);
+});

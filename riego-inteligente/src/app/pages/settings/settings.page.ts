@@ -1,5 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import {
+  AlertController,
   IonBackButton,
   IonButton,
   IonButtons,
@@ -24,7 +25,7 @@ import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
 import { Place, searchPlaces } from '../../core/open-meteo';
 import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../core/agromet';
-import { type DmcStore, diagnoseDmc, listDmcStations, nearestDmcStation, stationMeta } from '../../core/dmc';
+import { type DmcStore, diagnoseDmc, listDmcStations, nearbyDmcStations, nearestDmcStation, stationMeta } from '../../core/dmc';
 import { StorageService } from '../../core/storage.service';
 import type { AgrometConfig, DmcAuth, DmcConfig } from '../../core/models';
 import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate } from '../../core/irrigation-core';
@@ -255,6 +256,7 @@ export class SettingsPage implements OnInit {
   private background = inject(BackgroundService);
   private location = inject(LocationService);
   private toasts = inject(ToastController);
+  private alerts = inject(AlertController);
   private storage = inject(StorageService);
 
   constructor() {
@@ -332,8 +334,10 @@ export class SettingsPage implements OnInit {
   /** Elige la estación automática de la DMC más cercana al jardín (lista pública, sin clave). */
   async findDmc(): Promise<void> {
     this.dmcReport.set(null);
-    const st = nearestDmcStation(await listDmcStations(), this.lat(), this.lon());
-    if (!st) return this.toast('No se encontraron estaciones de la DMC');
+    const stations = await listDmcStations();
+    // La primera vez, la más cercana; después se puede elegir entre las 5 más cercanas.
+    const st = this.dmc() ? await this.pickDmc(nearbyDmcStations(stations, this.lat(), this.lon(), 5)) : nearestDmcStation(stations, this.lat(), this.lon());
+    if (!st) return this.dmc() ? undefined : this.toast('No se encontraron estaciones de la DMC');
     this.dmc.set({
       code: st.code,
       name: st.name,
@@ -348,6 +352,22 @@ export class SettingsPage implements OnInit {
     await this.testDmc();
   }
 
+  /** Lista de estaciones cercanas para elegir (con su distancia al jardín). */
+  private async pickDmc<T extends { code: string; name: string; distanceKm: number }>(options: T[]): Promise<T | null> {
+    const alert = await this.alerts.create({
+      header: 'Estación de la DMC',
+      message: 'Elige la estación. La más cercana representa mejor la lluvia de tu jardín.',
+      inputs: options.map((o) => ({ type: 'radio' as const, label: `${o.name} · ${this.km(Math.round(o.distanceKm * 10) / 10)} km`, value: o.code, checked: o.code === this.dmc()?.code })),
+      buttons: [
+        { text: 'Cancelar', role: 'cancel' },
+        { text: 'Elegir', role: 'confirm' },
+      ],
+    });
+    await alert.present();
+    const { role, data } = await alert.onDidDismiss<{ values?: string }>();
+    return role === 'confirm' ? (options.find((o) => o.code === data?.values) ?? null) : null;
+  }
+
   /** Prueba la estación y muestra qué entregó (para contrastar con agrometeorologia.cl o reportar un cambio). */
   async testDmc(): Promise<void> {
     const cfg = this.dmc();
@@ -357,14 +377,21 @@ export class SettingsPage implements OnInit {
     try {
       const prev = await this.storage.get<DmcStore | null>('dmcStore', null);
       const meta = stationMeta(cfg, this.lat(), this.elevation());
-      r = await diagnoseDmc(cfg.code, prev, toISODate(new Date()), Date.now(), this.dmcAuth(), meta);
+      // Si la estación no tiene datos nuevos, el diagnóstico prueba las dos más cercanas siguientes.
+      const others = nearbyDmcStations(await listDmcStations(), this.lat(), this.lon(), 3).filter((s) => s.code !== cfg.code).slice(0, 2);
+      r = await diagnoseDmc(cfg.code, prev, toISODate(new Date()), Date.now(), this.dmcAuth(), meta, others);
       await this.storage.set('dmcStore', r.store);
     } catch (e) {
       this.dmcReport.set({ lines: [`Error inesperado al probar la estación: ${e instanceof Error ? e.message : e}`], error: true });
       return;
     }
+    const saved = this.engine.snapshot()?.settings.dmc?.code === cfg.code;
     this.dmcReport.set({
-      lines: r.ok ? [...r.lines, 'Pulsa Guardar cambios para usar esta estación.'] : [...r.lines, 'Mientras tanto, la app sigue usando el pronóstico.'],
+      lines: !r.ok
+        ? [...r.lines, 'Mientras tanto, la app sigue usando el pronóstico.']
+        : saved
+          ? r.lines
+          : [...r.lines, 'Pulsa Guardar cambios para usar esta estación.'],
       error: !r.ok,
     });
   }

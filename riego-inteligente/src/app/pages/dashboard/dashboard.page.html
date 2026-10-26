@@ -92,7 +92,7 @@
           @if (l.hasToday) {
             Hasta {{ l.until }} ({{ l.ago }})@if (l.since) { · desde las {{ l.since }} }
           } @else {
-            Aún no hay lecturas de hoy · la última es de {{ l.until }}
+            Aún no hay lecturas de hoy · última lectura: {{ l.until }}
           }
         </p>
         @if (l.check) {

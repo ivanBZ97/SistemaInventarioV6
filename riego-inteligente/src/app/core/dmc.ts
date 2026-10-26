@@ -91,6 +91,14 @@ export async function listDmcStations(): Promise<DmcStation[]> {
   return DMC_STATIONS_FALLBACK.map(([code, name, latitude, longitude, elevationM]) => ({ code, name, latitude, longitude, elevationM }));
 }
 
+/** Las `n` estaciones más cercanas a un punto, de la más cercana a la más lejana. */
+export function nearbyDmcStations(stations: DmcStation[], lat: number, lon: number, n: number): (DmcStation & { distanceKm: number })[] {
+  return stations
+    .map((s) => ({ ...s, distanceKm: distanceKm(lat, lon, s.latitude, s.longitude) }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, n);
+}
+
 export function nearestDmcStation(stations: DmcStation[], lat: number, lon: number): (DmcStation & { distanceKm: number }) | null {
   let best: (DmcStation & { distanceKm: number }) | null = null;
   for (const s of stations) {
@@ -689,6 +697,22 @@ async function probe(url: string, auth?: DmcAuth, describe?: (json: unknown) => 
   }
 }
 
+/** "45 min", "5 h", "2 días" */
+const ageText = (ms: number) => {
+  const min = Math.round(ms / 60_000);
+  return min < 120 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.floor(min / 1440)} días`;
+};
+
+/** Una lectura de más de 3 h indica que la DMC no está recibiendo datos de la estación. */
+const STALE_STATION_MS = 3 * 3_600_000;
+
+/** Lectura más nueva (cualquier dato) que entrega la DMC para una estación. */
+async function newestReading(code: string, auth?: DmcAuth): Promise<{ f: RecentFetch; newest: number | null }> {
+  const f = await fetchRecent(code, auth);
+  const ts = f.samples.map((s) => parseMomento(String(s.momento))?.getTime() ?? 0).filter((t) => t > 0);
+  return { f, newest: ts.length ? Math.max(...ts) : null };
+}
+
 const wis2Collections = (json: unknown): string => {
   const cols = (json as { collections?: { id?: string }[] })?.collections ?? [];
   return `${cols.length} colecciones: ${cols.slice(0, 8).map((c) => c.id).join(', ')}`;
@@ -705,6 +729,7 @@ export async function diagnoseDmc(
   now = Date.now(),
   auth?: DmcAuth,
   meta?: StationMeta,
+  alternatives: { code: string; name: string; distanceKm: number }[] = [],
 ): Promise<{ ok: boolean; lines: string[]; store: DmcStore }> {
   const lines: string[] = [hasAuth(auth) ? 'Modo: servicio oficial con usuario y token.' : 'Modo: acceso público (sin token).'];
   const { store: next, fetched, rain, summary } = await refreshDmcStore(store, code, now, 0, true, auth);
@@ -733,6 +758,27 @@ export async function diagnoseDmc(
       }
     } else {
       lines.push(`Datos recientes: ${f.samples.length} lecturas, pero ninguna con valor de ${rain.field}.`);
+    }
+  }
+  // ¿La DMC no recibe datos de esta estación? Se prueban las más cercanas para saber si el problema es solo de esta.
+  const times = f.samples.map((s) => parseMomento(String(s.momento))?.getTime() ?? 0).filter((t) => t > 0);
+  const newest = times.length ? Math.max(...times) : null;
+  if (f.ok && (newest === null || now - newest > STALE_STATION_MS)) {
+    lines.push(
+      newest === null
+        ? '⚠ La DMC no está entregando lecturas de esta estación.'
+        : `⚠ La lectura más nueva es del ${hhmm(newest)} (hace ${ageText(now - newest)}): la DMC no está recibiendo datos de esta estación.`,
+    );
+    if (alternatives.length) {
+      const parts = await Promise.all(
+        alternatives.map(async (s) => {
+          const r = await newestReading(s.code, auth);
+          const label = `${s.name} (${Math.round(s.distanceKm)} km)`;
+          if (!r.f.ok) return `${label}: ${r.f.status ? `HTTP ${r.f.status}` : 'sin respuesta'}`;
+          return r.newest === null ? `${label}: sin lecturas` : `${label}: última lectura ${hhmm(r.newest)} (hace ${ageText(now - r.newest)})`;
+        }),
+      );
+      lines.push(`Otras estaciones DMC cercanas · ${parts.join(' · ')}.`);
     }
   }
   const days = observedFromStore(next, code, today);

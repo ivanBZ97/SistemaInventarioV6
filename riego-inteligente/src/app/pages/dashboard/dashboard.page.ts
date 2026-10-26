@@ -35,7 +35,7 @@ import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
-import { humidityPct, longDateEs, round1, weekdayEs } from '../../core/irrigation-core';
+import { humidityPct, longDateEs, round1, toISODate, weekdayEs } from '../../core/irrigation-core';
 import { LIVE_FRESH_MS } from '../../core/dmc';
 import type { OverseedArea } from '../../core/models';
 import { lawnMessages, lawnMood, lawnScene } from '../../core/lawn-mood';
@@ -171,12 +171,12 @@ export class DashboardPage implements OnInit, OnDestroy {
     const max = Math.max(1, ...r.hourly);
     const hourNow = new Date(now).getHours();
     const ev = s.evaluation;
-    /** "las 18:45", "ayer a las 16:00" o "el 24/10 a las 16:00" */
+    /** "las 18:45", "ayer a las 16:00" o "el sábado 24/10 a las 16:00" */
     const when = (t: number) => {
       if (t >= midnight) return `las ${clock(t)}`;
       if (t >= midnight - 86_400_000) return `ayer a las ${clock(t)}`;
       const d = new Date(t);
-      return `el ${d.getDate()}/${d.getMonth() + 1} a las ${clock(t)}`;
+      return `el ${weekdayEs(toISODate(d))} ${d.getDate()}/${d.getMonth() + 1} a las ${clock(t)}`;
     };
     const chip = r.rainingNow ? 'raining' : now - r.lastAtMs <= LIVE_FRESH_MS ? 'live' : 'stale';
     // Sin datos nuevos: se explica qué pasó en la última consulta (la estación no publica, error, sin red).
@@ -198,7 +198,7 @@ export class DashboardPage implements OnInit, OnDestroy {
       hasToday,
       anyRain: hasToday && r.mm > 0,
       until: when(r.lastAtMs),
-      ago: ago < 60 ? `hace ${ago} min` : `hace ${Math.floor(ago / 60)} h ${ago % 60} min`,
+      ago: ago < 60 ? `hace ${ago} min` : ago < 24 * 60 ? `hace ${Math.floor(ago / 60)} h ${ago % 60} min` : `hace ${Math.floor(ago / 1440)} ${ago < 2880 ? 'día' : 'días'}`,
       chip,
       check:
         chip === 'stale' && st && why
