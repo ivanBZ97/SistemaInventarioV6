@@ -391,6 +391,8 @@ export interface DmcStore {
   et0Pairs?: Record<ISODate, [number, number]>;
   /** Última consulta del resumen diario (cambia una vez al día: no hace falta pedirlo en cada consulta). */
   summaryAt?: number;
+  /** Por qué la última consulta no trajo lecturas (sin credenciales): se muestra en el panel. */
+  error?: string;
 }
 
 const KEEP_MS = 5 * 86_400_000;
@@ -542,10 +544,11 @@ export async function refreshDmcStore(
   if (!force && current && now - current.attemptAt < wait) return { store: current };
   const fetched = await fetchRecent(code, auth);
   const rain = fetched.ok ? detectRainField(fetched.samples) : null;
+  const error = !fetched.ok ? (fetched.status ? `HTTP ${fetched.status}` : 'sin conexión') : !fetched.samples.length ? 'sin lecturas' : 'sin campo de lluvia';
   let next: DmcStore =
     fetched.ok && rain
       ? mergeStore(current, code, rain, rainPoints(fetched.samples, rain), now)
-      : { ...(current ?? { code, pts: [] }), attemptAt: now, ok: false };
+      : { ...(current ?? { code, pts: [] }), attemptAt: now, ok: false, error };
   // Temperatura, humedad, radiación y viento para la ET0 (bloques de 10 min).
   if (fetched.ok) {
     const { fields } = detectMetFields(fetched.samples);
@@ -744,13 +747,14 @@ export async function diagnoseDmc(
     if (met.fields) {
       const mf = met.fields;
       const last = [...f.samples].reverse().find((s) => unitNumber(s[mf.temp]) !== null);
+      const lastAt = last ? parseMomento(String(last.momento)) : null;
       const n = (k: string) => (last ? unitNumber(last[k]) : null);
       const c = (v: number | null) => (v === null ? '?' : String(v).replace('.', ','));
       const wind = n(mf.wind);
       lines.push(
         `ET0 · campos: ${mf.temp}, ${mf.rh}, ${mf.rad}, ${mf.wind} (${mf.windUnit}${mf.windUnitAssumed ? ', supuesto' : ''}).` +
           (last
-            ? ` Última lectura: ${c(n(mf.temp))} °C · ${c(n(mf.rh))} % HR · ${c(n(mf.rad))} W/m² · viento ${wind === null ? '?' : c(Math.round(wind * WIND_TO_MS[mf.windUnit] * 10) / 10)} m/s.`
+            ? ` Última lectura${lastAt ? ` (${hhmm(lastAt.getTime())})` : ''}: ${c(n(mf.temp))} °C · ${c(n(mf.rh))} % HR · ${c(n(mf.rad))} W/m² · viento ${wind === null ? '?' : c(Math.round(wind * WIND_TO_MS[mf.windUnit] * 10) / 10)} m/s.`
             : ''),
       );
     } else {

@@ -90,11 +90,14 @@
         </div>
         <p class="md-body-medium md-variant live-sub">
           @if (l.hasToday) {
-            Hasta las {{ l.until }} ({{ l.ago }})@if (l.since) { · desde las {{ l.since }} }
+            Hasta {{ l.until }} ({{ l.ago }})@if (l.since) { · desde las {{ l.since }} }
           } @else {
-            Aún no hay lecturas de hoy · la última es de las {{ l.until }}
+            Aún no hay lecturas de hoy · la última es de {{ l.until }}
           }
         </p>
+        @if (l.check) {
+          <p class="md-body-small live-check">{{ l.check }}</p>
+        }
         @if (l.anyRain) {
           <div class="hours" role="list" aria-label="Lluvia por hora">
             @for (b of l.bars; track b.h) {
@@ -111,7 +114,7 @@
           }
         }
         <p class="md-body-small md-variant live-foot">
-          Última hora: {{ l.lastHour }} mm@if (l.forecast) { · Pronóstico para hoy: {{ l.forecast }} }
+          @if (l.lastHour) { Última hora: {{ l.lastHour }} mm · }@if (l.forecast) { Pronóstico para hoy: {{ l.forecast }} }
         </p>
       </div>
     }

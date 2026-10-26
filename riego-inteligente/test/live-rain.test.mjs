@@ -221,3 +221,30 @@ test('con la app abierta, un fallo de la estación se reintenta en la siguiente 
     globalThis.fetch = orig;
   }
 });
+
+test('si la estación no entrega lecturas, el almacén guarda el motivo (sin credenciales) y conserva lo anterior', async () => {
+  const orig = globalThis.fetch;
+  const auth = { user: 'u@example.com', token: 'SECRETO' };
+  try {
+    const t0 = Date.parse('2026-10-26T09:39:00Z');
+    const prev = { code: '330160', field: 'aguaCaida24Horas', kind: 'accumulated', attemptAt: t0 - 3_600_000, ok: true, pts: [[t0 - 14 * 3_600_000, 0]], summaryAt: t0 };
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ datosEstaciones: { datos: [] } }) });
+    let r = await dmc.refreshDmcStore(prev, '330160', t0, 4 * 60_000, false, auth);
+    assert.equal(r.store.ok, false);
+    assert.equal(r.store.error, 'sin lecturas');
+    assert.equal(r.store.pts.length, 1);
+    globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
+    r = await dmc.refreshDmcStore(r.store, '330160', t0 + 5 * 60_000, 4 * 60_000, false, auth);
+    assert.equal(r.store.error, 'HTTP 503');
+    globalThis.fetch = async () => { throw new Error('Unable to resolve host SECRETO'); };
+    r = await dmc.refreshDmcStore(r.store, '330160', t0 + 10 * 60_000, 4 * 60_000, false, auth);
+    assert.equal(r.store.error, 'sin conexión');
+    // Al volver los datos, el motivo desaparece
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ datos: series('2026-10-25T22:00:00Z', 600, () => 0, 10) }) });
+    r = await dmc.refreshDmcStore(r.store, '330160', t0 + 15 * 60_000, 4 * 60_000, false, auth);
+    assert.equal(r.store.ok, true);
+    assert.equal(r.store.error, undefined);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});

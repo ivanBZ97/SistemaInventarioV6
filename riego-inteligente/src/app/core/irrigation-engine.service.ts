@@ -31,6 +31,7 @@ import type {
   IrrigationEvent,
   LiveRain,
   OverseedArea,
+  StationStatus,
   PlannedNotification,
   Settings,
   WaterState,
@@ -56,6 +57,8 @@ export interface Snapshot {
   et0Ratio: number | null;
   /** Lluvia de hoy medida por la estación hasta su última lectura (se actualiza cada 5 min con la app abierta). */
   liveRain: LiveRain | null;
+  /** Última consulta a la estación: si no trae lecturas nuevas, el panel explica por qué. */
+  station: StationStatus | null;
   error: string | null;
 }
 
@@ -105,9 +108,10 @@ export class IrrigationEngineService {
     let et0Source: string | null = null;
     let et0Ratio: number | null = null;
     let liveRain: LiveRain | null = null;
+    let station: StationStatus | null = null;
     let error: string | null = null;
     try {
-      ({ days, stale, elevationM, rainSource, observedRain, observedEt0, et0Source, et0Ratio, liveRain } = await this.weather.getForecast(
+      ({ days, stale, elevationM, rainSource, observedRain, observedEt0, et0Source, et0Ratio, liveRain, station } = await this.weather.getForecast(
         settings,
         forceWeather,
         forceWeather ? 60_000 : STATION_LIVE_MAX_AGE_MS,
@@ -166,6 +170,7 @@ export class IrrigationEngineService {
       et0Source,
       et0Ratio,
       liveRain,
+      station,
       error,
     };
     this.snapshot.set(snap);

@@ -93,6 +93,13 @@ export interface LiveRain {
   steps: [number, number][];
 }
 
+/** Última consulta a la estación: cuándo, si trajo lecturas y, si no, por qué ("HTTP 503", "sin lecturas"…). */
+export interface StationStatus {
+  attemptAt: number;
+  ok: boolean;
+  error?: string;
+}
+
 export interface DailyWeather {
   date: ISODate;
   et0Mm: number;

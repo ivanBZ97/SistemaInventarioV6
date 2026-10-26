@@ -171,16 +171,42 @@ export class DashboardPage implements OnInit, OnDestroy {
     const max = Math.max(1, ...r.hourly);
     const hourNow = new Date(now).getHours();
     const ev = s.evaluation;
+    /** "las 18:45", "ayer a las 16:00" o "el 24/10 a las 16:00" */
+    const when = (t: number) => {
+      if (t >= midnight) return `las ${clock(t)}`;
+      if (t >= midnight - 86_400_000) return `ayer a las ${clock(t)}`;
+      const d = new Date(t);
+      return `el ${d.getDate()}/${d.getMonth() + 1} a las ${clock(t)}`;
+    };
+    const chip = r.rainingNow ? 'raining' : now - r.lastAtMs <= LIVE_FRESH_MS ? 'live' : 'stale';
+    // Sin datos nuevos: se explica qué pasó en la última consulta (la estación no publica, error, sin red).
+    const st = s.station;
+    const why = !st
+      ? null
+      : st.ok
+        ? 'la DMC no tiene lecturas más nuevas de la estación'
+        : st.error === 'sin lecturas'
+          ? 'la DMC no entregó lecturas de la estación'
+          : st.error === 'sin conexión'
+            ? 'no se pudo conectar con la DMC'
+            : st.error === 'sin campo de lluvia'
+              ? 'la respuesta no trae el dato de lluvia'
+              : `la DMC respondió con error (${st.error})`;
     return {
       station: s.settings.dmc.name,
       mm: fmt(hasToday ? r.mm : 0),
       hasToday,
       anyRain: hasToday && r.mm > 0,
-      until: (r.lastAtMs < midnight ? 'ayer ' : '') + clock(r.lastAtMs),
+      until: when(r.lastAtMs),
       ago: ago < 60 ? `hace ${ago} min` : `hace ${Math.floor(ago / 60)} h ${ago % 60} min`,
-      chip: r.rainingNow ? 'raining' : now - r.lastAtMs <= LIVE_FRESH_MS ? 'live' : 'stale',
+      chip,
+      check:
+        chip === 'stale' && st && why
+          ? `Última consulta ${st.attemptAt >= midnight ? `a las ${clock(st.attemptAt)}` : when(st.attemptAt)}: ${why}. Mientras tanto se usa el pronóstico.`
+          : null,
       since: r.sinceMs !== null && r.sinceMs > midnight + 10 * 60_000 ? clock(r.sinceMs) : null,
-      lastHour: fmt(r.lastHourMm),
+      // Con datos viejos, "la última hora" sería la de ayer: no se muestra.
+      lastHour: chip === 'stale' ? null : fmt(r.lastHourMm),
       forecast: ev ? `${fmt(ev.rainForecastMm)} mm (${Math.round(ev.rainProbPct)} %)` : null,
       bars: r.hourly.map((mm, h) => ({ h, mm, pct: mm > 0 ? Math.max(8, (mm / max) * 100) : 0, future: h > hourNow })),
     };

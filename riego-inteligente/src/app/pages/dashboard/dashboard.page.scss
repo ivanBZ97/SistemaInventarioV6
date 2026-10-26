@@ -90,6 +90,7 @@
 @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 @media (prefers-reduced-motion: reduce) { .live-chip .live-dot { animation: none; } }
 .live-sub { margin: 12px 0 0; }
+.live-check { margin: 8px 0 0; color: var(--md-on-surface-variant); }
 .hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; height: 56px; margin-top: 16px; }
 .hour {
   display: flex; align-items: flex-end; height: 100%; padding: 0; border: 0; border-radius: 3px; cursor: pointer;

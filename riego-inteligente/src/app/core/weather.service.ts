@@ -16,7 +16,7 @@ import {
   withStationEt0,
 } from './dmc';
 import { toISODate } from './irrigation-core';
-import type { DailyWeather, LiveRain, Settings } from './models';
+import type { DailyWeather, LiveRain, Settings, StationStatus } from './models';
 
 interface WeatherCache {
   fetchedAt: string;
@@ -49,6 +49,8 @@ export interface WeatherResult {
   et0Ratio: number | null;
   /** Lluvia de hoy medida por la estación hasta su última lectura. */
   liveRain: LiveRain | null;
+  /** Última consulta a la estación (para explicar en el panel si no llegan datos nuevos). */
+  station: StationStatus | null;
 }
 
 /** El pronóstico cambia poco: se pide cada 3 h. */
@@ -74,6 +76,7 @@ export class WeatherService {
       et0Source: cache.et0Source ?? null,
       et0Ratio: cache.et0Ratio ?? null,
       liveRain: null,
+      station: null,
     };
   }
 
@@ -106,6 +109,7 @@ export class WeatherService {
     let stEt0 = new Map<string, number>();
     let correction: { ratio: number; days: number } | null = null;
     let liveRain: LiveRain | null = null;
+    let station: StationStatus | null = null;
     if (settings.dmc) {
       // Cada consulta trae ~12 h de lecturas: se acumulan en un almacén local para armar días completos.
       const prev = await this.storage.get<DmcStore | null>('dmcStore', null);
@@ -117,6 +121,7 @@ export class WeatherService {
       correction = et0Correction(saved.et0Pairs, today);
       dmc = withDmcRain(model.days, observedFromStore(saved, settings.dmc.code, today), settings.dmc, today);
       liveRain = liveRainFromStore(saved, settings.dmc.code, today, now);
+      station = { attemptAt: saved.attemptAt, ok: saved.ok, error: saved.error };
     }
     // Lluvia medida en días pasados: estación DMC y, si no hay, INIA Agromet (con clave).
     let measured: { days: DailyWeather[]; source: string | null; observed: Record<string, number> } = { days: model.days, source: null, observed: {} };
@@ -144,6 +149,7 @@ export class WeatherService {
       et0Source: settings.dmc && (stEt0.size || correction) ? settings.dmc.name : null,
       et0Ratio: correction?.ratio ?? null,
       liveRain,
+      station,
     };
     await this.storage.set<WeatherCache>('weatherCache', {
       fetchedAt: model.fetchedAt,
