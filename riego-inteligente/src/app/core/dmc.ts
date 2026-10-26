@@ -99,6 +99,62 @@ export function nearbyDmcStations(stations: DmcStation[], lat: number, lon: numb
     .slice(0, n);
 }
 
+/** Estaciones a revisar al conectar: las `n` más cercanas dentro de `maxKm` (la más cercana siempre). */
+export function stationsToCheck(stations: DmcStation[], lat: number, lon: number, n = 6, maxKm = 40): (DmcStation & { distanceKm: number })[] {
+  return nearbyDmcStations(stations, lat, lon, n).filter((s, i) => i === 0 || s.distanceKm <= maxKm);
+}
+
+/** live: lectura de hace ≤ 90 min · late: de hace ≤ 24 h · stale: más vieja o sin lecturas · error: no respondió. */
+export type StationHealth = 'live' | 'late' | 'stale' | 'error';
+
+export interface StationCheck extends DmcStation {
+  distanceKm: number;
+  health: StationHealth;
+  /** Instante de la lectura más nueva que entrega la DMC (cualquier dato). */
+  newest: number | null;
+  readings: number;
+  /** Por qué no respondió ("HTTP 500", "sin conexión"). */
+  error?: string;
+  /** Inicio de la respuesta cuando no trae lecturas (sin credenciales): p. ej. un aviso de token inválido. */
+  snippet?: string;
+}
+
+/** Revisa si una estación está enviando datos: consulta sus lecturas recientes y mira la más nueva. */
+export async function checkStation(st: DmcStation & { distanceKm: number }, auth: DmcAuth | undefined, now: number): Promise<StationCheck> {
+  const { f, newest } = await newestReading(st.code, auth);
+  const base = { ...st, newest, readings: f.samples.length, snippet: f.snippet };
+  if (!f.ok) return { ...base, health: 'error', error: f.status ? `HTTP ${f.status}` : 'sin conexión' };
+  if (newest === null) return { ...base, health: 'stale' };
+  const age = now - newest;
+  return { ...base, health: age <= LIVE_FRESH_MS ? 'live' : age <= 24 * 3_600_000 ? 'late' : 'stale' };
+}
+
+/** Revisa varias estaciones, de a 3 a la vez, avisando cada resultado (para ir llenando la lista). */
+export async function checkStations(
+  stations: (DmcStation & { distanceKm: number })[],
+  auth: DmcAuth | undefined,
+  now: number,
+  onResult?: (c: StationCheck) => void,
+): Promise<StationCheck[]> {
+  const out: StationCheck[] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < stations.length) {
+      const c = await checkStation(stations[next++], auth, now);
+      out.push(c);
+      onResult?.(c);
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  return out.sort((a, b) => a.distanceKm - b.distanceKm);
+}
+
+/** La estación que conviene usar: la más cercana al día; si ninguna, la más cercana con datos de las últimas 24 h. */
+export function bestStation(checks: StationCheck[]): StationCheck | null {
+  const byDistance = [...checks].sort((a, b) => a.distanceKm - b.distanceKm);
+  return byDistance.find((c) => c.health === 'live') ?? byDistance.find((c) => c.health === 'late') ?? null;
+}
+
 export function nearestDmcStation(stations: DmcStation[], lat: number, lon: number): (DmcStation & { distanceKm: number }) | null {
   let best: (DmcStation & { distanceKm: number }) | null = null;
   for (const s of stations) {

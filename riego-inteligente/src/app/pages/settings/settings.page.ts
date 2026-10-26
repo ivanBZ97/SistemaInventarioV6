@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import {
   AlertController,
   IonBackButton,
@@ -17,7 +17,7 @@ import {
 import { addIcons } from 'ionicons';
 import {
   alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-  notificationsOutline, pulseOutline, radioOutline, searchOutline, timeOutline, waterOutline,
+  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline,
 } from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
@@ -25,10 +25,51 @@ import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
 import { Place, searchPlaces } from '../../core/open-meteo';
 import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../core/agromet';
-import { type DmcStore, diagnoseDmc, listDmcStations, nearbyDmcStations, nearestDmcStation, stationMeta } from '../../core/dmc';
+import {
+  type DmcStation,
+  type DmcStore,
+  type StationCheck,
+  type StationHealth,
+  bestStation,
+  checkStations,
+  diagnoseDmc,
+  listDmcStations,
+  nearbyDmcStations,
+  nearestDmcStation,
+  stationMeta,
+  stationsToCheck,
+} from '../../core/dmc';
 import { StorageService } from '../../core/storage.service';
 import type { AgrometConfig, DmcAuth, DmcConfig } from '../../core/models';
-import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate } from '../../core/irrigation-core';
+import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate, weekdayEs } from '../../core/irrigation-core';
+
+/** Fila de la lista de estaciones: revisada, o aún consultándose. */
+type StationRow = Omit<StationCheck, 'health'> & { health: StationHealth | 'checking' };
+
+const clock = (t: number) => {
+  const d = new Date(t);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/** "07:35", "ayer 23:00" o "24/10 16:00" (para la lista) */
+function shortWhen(t: number): string {
+  const day = toISODate(new Date(t));
+  const today = toISODate(new Date());
+  if (day === today) return clock(t);
+  if (day === addDays(today, -1)) return `ayer ${clock(t)}`;
+  const d = new Date(t);
+  return `${d.getDate()}/${d.getMonth() + 1} ${clock(t)}`;
+}
+
+/** "hoy a las 07:35", "ayer a las 23:00" o "el sábado 24/10 a las 16:00" */
+function whenOf(t: number): string {
+  const day = toISODate(new Date(t));
+  const today = toISODate(new Date());
+  if (day === today) return `hoy a las ${clock(t)}`;
+  if (day === addDays(today, -1)) return `ayer a las ${clock(t)}`;
+  const d = new Date(t);
+  return `el ${weekdayEs(day)} ${d.getDate()}/${d.getMonth() + 1} a las ${clock(t)}`;
+}
 
 @Component({
   selector: 'app-settings',
@@ -123,7 +164,7 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
           </div>
         </div>
         <div class="chips">
-          <button class="chip" (click)="findDmc()"><ion-icon name="search-outline" />{{ dmc() ? 'Cambiar estación' : 'Usar la estación más cercana' }}</button>
+          <button class="chip" (click)="changeDmc()"><ion-icon name="search-outline" />{{ dmc() ? 'Cambiar estación' : 'Usar la estación más cercana' }}</button>
           @if (dmc()) {
             <button class="chip" (click)="testDmc()"><ion-icon name="pulse-outline" />Probar</button>
             <button class="chip" (click)="dmc.set(undefined)"><ion-icon name="close-outline" />Quitar</button>
@@ -139,6 +180,32 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
           <ion-input fill="outline" type="password" label="Token" labelPlacement="floating"
                      [value]="dmcToken()" (ionInput)="dmcToken.set($any($event).detail.value ?? '')" />
         </div>
+        <div class="chips">
+          <button class="chip" (click)="connectDmc()" [disabled]="checking()">
+            <ion-icon name="sync-outline" />{{ checking() ? 'Revisando estaciones…' : checks() ? 'Volver a revisar' : 'Conectar y ver estaciones' }}
+          </button>
+        </div>
+        @if (checks(); as list) {
+          <p class="md-body-small md-variant intro">{{ checksSummary() }}</p>
+          <div class="stations" role="radiogroup" aria-label="Estaciones de la DMC cercanas">
+            @for (c of list; track c.code; let first = $first) {
+              <button class="row station" role="radio" [class.sel]="dmc()?.code === c.code" [attr.aria-checked]="dmc()?.code === c.code"
+                      [disabled]="c.health !== 'live' && c.health !== 'late'" (click)="selectStation(c)">
+                <i [class]="'dot ' + c.health"></i>
+                <div class="li-text">
+                  <span class="md-body-large">{{ c.name }}@if (first) {<span class="tag">Más cercana</span>}</span>
+                  <span class="md-body-medium md-variant">{{ km(c.distanceKm) }} km · {{ healthText(c) }}</span>
+                </div>
+                @if (dmc()?.code === c.code) { <ion-icon name="checkmark-outline" class="check" /> }
+              </button>
+            }
+          </div>
+        } @else {
+          <p class="md-body-small md-variant intro">
+            Con tu usuario y token, revisa las 6 estaciones más cercanas y muestra cuáles están enviando datos
+            (usa algunos MB de datos; mejor con Wi-Fi).
+          </p>
+        }
         @if (dmcReport(); as r) {
           <div class="md-body-small report" [class.err]="r.error">
             @for (l of r.lines; track $index) { <p>{{ l }}</p> }
@@ -237,6 +304,20 @@ import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN
       border: 1px solid var(--md-outline); background: transparent; color: var(--md-on-surface-variant);
       font: 500 14px/20px var(--md-font); letter-spacing: .1px; cursor: pointer;
       ion-icon { font-size: 18px; color: var(--md-primary); } }
+    .chip:disabled { opacity: .6; cursor: default; }
+    .stations { padding: 4px 0 8px; }
+    .row.station { cursor: pointer; min-height: 64px; }
+    .row.station:disabled { cursor: default; opacity: .6; }
+    .row.station.sel { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+    .row.station .check { font-size: 22px; color: var(--md-primary); }
+    .dot { width: 12px; height: 12px; flex: none; margin: 0 14px; border-radius: 50%; background: var(--md-outline); }
+    .dot.live { background: var(--md-primary); }
+    .dot.late { background: var(--md-warning); }
+    .dot.error { background: var(--md-error); }
+    .dot.checking { background: var(--md-outline-variant); animation: blink 1s ease-in-out infinite; }
+    @keyframes blink { 50% { opacity: .3; } }
+    .tag { margin-left: 8px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--md-outline-variant);
+      font: 500 11px/16px var(--md-font); color: var(--md-on-surface-variant); vertical-align: middle; }
     .intro { margin: 8px 16px 0; }
     .report { margin: 4px 16px 8px; padding: 8px 12px; border-radius: 8px; background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
     .report.err { background: var(--md-error-container); color: var(--md-on-error-container); }
@@ -262,7 +343,7 @@ export class SettingsPage implements OnInit {
   constructor() {
     addIcons({
       alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-      notificationsOutline, pulseOutline, radioOutline, searchOutline, timeOutline, waterOutline,
+      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline,
     });
   }
 
@@ -281,6 +362,20 @@ export class SettingsPage implements OnInit {
   agromet = signal<AgrometConfig | undefined>(undefined);
   dmc = signal<DmcConfig | undefined>(undefined);
   dmcReport = signal<{ lines: string[]; error: boolean } | null>(null);
+  /** Estaciones cercanas revisadas al conectar (por distancia); null hasta la primera revisión. */
+  checks = signal<StationRow[] | null>(null);
+  checking = signal(false);
+  checkedAt = signal<number | null>(null);
+  readonly checksSummary = computed(() => {
+    const list = this.checks();
+    if (!list) return '';
+    if (this.checking()) return `Revisando las ${list.length} estaciones más cercanas…`;
+    const live = list.filter((c) => c.health === 'live').length;
+    const at = this.checkedAt();
+    const sel = list.find((c) => c.code === this.dmc()?.code);
+    const warn = sel && sel.health !== 'live' && sel.health !== 'late' ? ` ${sel.name} no está enviando datos: elige otra.` : '';
+    return `${live} de ${list.length} estaciones están al día${at ? ` (revisado a las ${clock(at)})` : ''}. Toca una para usarla.${warn}`;
+  });
   dmcUser = signal('');
   dmcToken = signal('');
   agrometKey = signal('');
@@ -350,6 +445,80 @@ export class SettingsPage implements OnInit {
       this.toast(`La estación más cercana está a ${st.distanceKm.toFixed(0)} km: puede no representar la lluvia de tu jardín.`);
     }
     await this.testDmc();
+  }
+
+  /** Con usuario y token se revisa qué estaciones responden; sin ellos, se elige de la lista por distancia. */
+  changeDmc(): Promise<void> {
+    return this.dmcAuth() ? this.connectDmc() : this.findDmc();
+  }
+
+  /**
+   * Con usuario y token: revisa las estaciones más cercanas, muestra cuáles están enviando datos y, si aún no hay
+   * una elegida, toma la más cercana al día (si la más cercana no publica, la siguiente que sí).
+   */
+  async connectDmc(): Promise<void> {
+    const auth = this.dmcAuth();
+    if (!auth) return this.toast('Escribe tu usuario (correo) y tu token de la DMC');
+    if (this.checking()) return;
+    this.checking.set(true);
+    this.dmcReport.set(null);
+    try {
+      const near = stationsToCheck(await listDmcStations(), this.lat(), this.lon());
+      this.checks.set(near.map((s) => ({ ...s, health: 'checking' as const, newest: null, readings: 0 })));
+      const now = Date.now();
+      const done = await checkStations(near, auth, now, (c) => this.checks.update((list) => list?.map((r) => (r.code === c.code ? c : r)) ?? null));
+      this.checks.set(done);
+      this.checkedAt.set(now);
+      const best = bestStation(done);
+      if (!best) {
+        const said = done.find((c) => c.snippet)?.snippet;
+        return this.toast(said ? `Ninguna estación respondió. La DMC dice: ${said}` : 'Ninguna estación cercana está enviando datos ahora.');
+      }
+      if (!this.dmc()) {
+        this.useStation(best);
+        const nearest = done[0];
+        this.toast(
+          best.code === nearest.code
+            ? `Estación más cercana: ${best.name} (${this.km(best.distanceKm)} km), al día. Pulsa Guardar cambios.`
+            : `${nearest.name} (la más cercana) no está enviando datos: se eligió ${best.name}. Pulsa Guardar cambios.`,
+        );
+      }
+    } finally {
+      this.checking.set(false);
+    }
+  }
+
+  selectStation(c: StationRow): void {
+    if (c.health !== 'live' && c.health !== 'late') return;
+    this.useStation(c);
+    this.toast(`Estación: ${c.name} (${this.km(c.distanceKm)} km). Pulsa Guardar cambios.`);
+  }
+
+  private useStation(st: DmcStation & { distanceKm: number }): void {
+    this.dmcReport.set(null);
+    this.dmc.set({
+      code: st.code,
+      name: st.name,
+      distanceKm: Math.round(st.distanceKm * 10) / 10,
+      latitude: st.latitude,
+      longitude: st.longitude,
+      elevationM: st.elevationM ?? undefined,
+    });
+  }
+
+  healthText(c: StationRow): string {
+    switch (c.health) {
+      case 'checking':
+        return 'consultando…';
+      case 'live':
+        return `al día (${shortWhen(c.newest!)})`;
+      case 'late':
+        return `atrasada (${shortWhen(c.newest!)})`;
+      case 'stale':
+        return c.newest ? `sin datos desde ${whenOf(c.newest)}` : 'sin datos';
+      case 'error':
+        return `no responde (${c.error})`;
+    }
   }
 
   /** Lista de estaciones cercanas para elegir (con su distancia al jardín). */

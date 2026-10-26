@@ -284,3 +284,39 @@ test('estaciones cercanas ordenadas por distancia', () => {
   ];
   assert.deepEqual(dmc.nearbyDmcStations(st, -33.7313, -70.7663, 1).map((s) => s.code), ['b']);
 });
+
+// ───────────── Lista de estaciones al conectar ─────────────
+
+test('al conectar: revisa las estaciones cercanas, dice cuáles responden y elige la más cercana al día', async () => {
+  const orig = globalThis.fetch;
+  const now = Date.parse('2026-10-26T10:40:00Z'); // 07:40
+  const live = series('2026-10-25T22:40:00Z', 720, () => 0, 10); // hasta las 07:40
+  const late = series('2026-10-25T16:00:00Z', 600, () => 0, 10); // hasta las 23:00 de ayer
+  const old = series('2026-10-24T18:56:00Z', 4, () => 0, 1); // sábado 16:00
+  const byCode = { 330160: old, 330071: live, 330113: late };
+  try {
+    globalThis.fetch = async (u) => {
+      const code = /\/(\d{6})/.exec(String(u))?.[1];
+      if (code === '330122') return { ok: false, status: 500, json: async () => ({}) };
+      if (code === '330114') return { ok: true, status: 200, json: async () => ({ mensaje: 'usuario o token no válido' }) };
+      return { ok: true, status: 200, json: async () => ({ datos: byCode[code] ?? live }) };
+    };
+    const { DMC_STATIONS_FALLBACK } = await import('../src/app/core/dmc-stations.ts');
+    const all = DMC_STATIONS_FALLBACK.map(([code, name, latitude, longitude, elevationM]) => ({ code, name, latitude, longitude, elevationM }));
+    const near = dmc.stationsToCheck(all, -33.7313, -70.7663);
+    assert.deepEqual(near.map((s) => s.code), ['330160', '330071', '330113', '330122', '330114', '330020']); // 6 dentro de 40 km
+    const seen = [];
+    const checks = await dmc.checkStations(near, { user: 'u@example.com', token: 'tok-123' }, now, (c) => seen.push(c.code));
+    assert.equal(seen.length, 6);
+    const h = Object.fromEntries(checks.map((c) => [c.code, c.health]));
+    assert.deepEqual(h, { 330160: 'stale', 330071: 'live', 330113: 'late', 330122: 'error', 330114: 'stale', 330020: 'live' });
+    assert.equal(checks.find((c) => c.code === '330122').error, 'HTTP 500');
+    assert.match(checks.find((c) => c.code === '330114').snippet, /token no válido/);
+    assert.equal(checks[0].code, '330160'); // ordenadas por distancia
+    assert.equal(dmc.bestStation(checks).code, '330071'); // El Milagro no publica → Talagante
+    assert.equal(dmc.bestStation(checks.filter((c) => c.health !== 'live')).code, '330113'); // si no hay al día, la con datos de hoy
+    assert.equal(dmc.bestStation(checks.filter((c) => c.health === 'stale')), null);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});

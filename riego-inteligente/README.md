@@ -142,6 +142,12 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
   valor en mm), que completa los días que las lecturas no alcanzan a cubrir; las lecturas tienen prioridad. Las credenciales se guardan solo en el
   teléfono y el diagnóstico las oculta. "Probar" también informa el resumen diario oficial y el servicio público WIS2
   de la DMC (`wischile.meteochile.gob.cl/oapi`), para evaluar fuentes alternativas.
+- **Elegir estación:** con usuario y token, "Conectar y ver estaciones" revisa las 6 estaciones DMC más cercanas
+  (dentro de 40 km; la más cercana siempre) y muestra cuáles están al día (lectura de hace ≤ 90 min), atrasadas
+  (≤ 24 h), sin datos o sin respuesta. Si aún no hay estación elegida, toma la más cercana al día; si la más
+  cercana no publica, la siguiente que sí. Tocar una estación al día o atrasada la elige. Cada revisión trae las
+  últimas ~12 h de cada estación. "Probar" avisa si la estación elegida lleva más de 3 h sin datos y revisa las
+  dos siguientes más cercanas.
 - **Lluvia de hoy casi en tiempo real:** la EMA publica una lectura por minuto con ~25 min de atraso. Con la app
   abierta se consulta cada 5 min (deslizar hacia abajo fuerza la consulta) y la tarjeta "Lluvia en tu sector"
   muestra lo caído hoy hasta la última lectura ("hasta las 18:45"), la lluvia por hora y si está lloviendo
