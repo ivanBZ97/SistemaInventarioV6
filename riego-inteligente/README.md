@@ -42,6 +42,8 @@ riego-inteligente/
 | Balance | `Déficit_hoy = max(0, Déficit_ayer + ETc_ayer − Lluvia_efectiva_ayer − Riego_ayer)`; lluvia efectiva = 80 % si > 2 mm, si no 0 |
 | Umbral / minutos | `déficit ≥ 8 mm` (configurable 6–12) → `round(déficit / tasa)` min (tasa por defecto 0.6 mm/min) |
 | Bloqueo lluvia | prob. máx ≥ 50 % **o** ≥ 4 mm pronosticados ⇒ "Riego pausado por pronóstico de lluvia"; con estación, ≥ 4 mm ya medidos hoy ⇒ "Riego pausado por lluvia", y ≥ 0,5 mm en la última hora ⇒ "Riego pausado: está lloviendo" |
+| Espera la lluvia de mañana | si mañana la lluvia es muy probable (≥ 70 %) y abundante (mediana ≥ 5 mm), y tras sumar el consumo de hoy deja el déficit bajo la mitad del umbral, hoy no se riega ("🌧️ Hoy no riegues: mañana llueve"); solo si el déficit no pasa 3 mm sobre el umbral entretanto, y nunca con siembra de todo el jardín |
+| Litros | con la superficie del pasto (Ajustes), 1 mm en 1 m² = 1 litro; resumen de los últimos 30 días en el panel |
 | Lluvia de hoy (estación) | lo medido hoy hasta la última lectura baja el déficit actual (80 % si > 2 mm; tras un riego o ajuste de hoy solo cuenta lo caído después); para mañana cuenta el máximo entre lo medido y lo pronosticado |
 | Viento | > 25 km/h ⇒ aviso "riega temprano" en la alerta |
 | Sin riego nocturno | toda alerta de riego se fuerza a 06:30–08:30 (`clampToIrrigationWindow`) |
@@ -142,6 +144,10 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
   valor en mm), que completa los días que las lecturas no alcanzan a cubrir; las lecturas tienen prioridad. Las credenciales se guardan solo en el
   teléfono y el diagnóstico las oculta. "Probar" también informa el resumen diario oficial y el servicio público WIS2
   de la DMC (`wischile.meteochile.gob.cl/oapi`), para evaluar fuentes alternativas.
+- **Estación de respaldo:** si la estación elegida lleva más de 3 h sin publicar, la app y el worker consultan también
+  la siguiente más cercana dentro de 25 km (para El Milagro, Talagante) y usan su lluvia de hoy y los días cerrados
+  que falten (también después de que la elegida vuelva). El sesgo del pronóstico de ET0 se sigue midiendo solo con la
+  elegida. La tarjeta "Lluvia en tu sector" dice qué estación se está usando y por qué.
 - **Elegir estación:** con usuario y token, "Conectar y ver estaciones" revisa las 6 estaciones DMC más cercanas
   (dentro de 40 km; la más cercana siempre) y muestra cuáles están al día (lectura de hace ≤ 90 min), atrasadas
   (≤ 24 h), sin datos o sin respuesta. Si aún no hay estación elegida, toma la más cercana al día; si la más
@@ -171,6 +177,16 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
 
 Pendiente de validar con una clave real: formato exacto de `tiempo` (se asume hora local si no trae zona) y
 la cadencia de las muestras. Se activa `CapacitorHttp` para evitar bloqueos CORS desde el WebView.
+
+## Estado del sistema y actualizaciones
+
+Ajustes → **Estado del sistema** muestra si el worker en segundo plano se está ejecutando (cada ejecución queda
+registrada y la app la consulta con el evento `getStatus`), el próximo aviso, los permisos de notificaciones y
+alarmas exactas, y la versión del APK. "Probar aviso" envía una notificación de prueba a los 5 s.
+
+GitHub Actions escribe el commit y el número de build en `src/app/core/build-info.ts` y publica el release como
+"build N". La app revisa ese release como máximo cada 12 h (1 h si falló) y, si hay uno más nuevo, muestra un aviso
+con el enlace de descarga; el APK nuevo se instala encima porque usa la misma clave.
 
 ## Fase 2: sensor de suelo
 

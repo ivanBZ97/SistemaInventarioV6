@@ -136,3 +136,26 @@ test('resumen de 30 días: riegos, agua, lluvia útil y consumo', () => {
   const m = c.monthSummary('2026-10-27', history, irrigations, 40);
   assert.deepEqual(m, { days: 2, irrigations: 2, irrigationMm: 17.5, rainMm: 4, etcMm: 6.5, liters: 700 });
 });
+
+test('cuando la elegida vuelve a publicar, los días que le faltaron siguen con la lluvia de la de respaldo (sin consultarla)', async () => {
+  const orig = globalThis.fetch;
+  const urls = [];
+  const now = Date.parse('2026-10-27T12:40:00Z'); // 09:40
+  // El Milagro volvió hoy a las 06:00: el lunes 26 le falta. Talagante (guardado) tiene el lunes completo con 6 mm.
+  const backupPrev = dmc.mergeStore(null, '330071', { field: 'aguaCaida24Horas', kind: 'accumulated' },
+    dmc.rainPoints(series('2026-10-26T02:00:00Z', 1500, (t) => (t.toISOString().startsWith('2026-10-26T18:0') ? 6 : 0)), { field: 'aguaCaida24Horas', kind: 'accumulated' }), now - 3_600_000);
+  try {
+    globalThis.fetch = async (u) => {
+      urls.push(String(u));
+      return { ok: true, status: 200, json: async () => ({ datos: series('2026-10-27T09:00:00Z', 215, () => 0) }) };
+    };
+    const sd = await dmc.loadStationData({ ...base, now, backupPrev });
+    assert.equal(sd.backup, null); // la elegida está al día
+    assert.equal(sd.rain.get('2026-10-26'), 6); // el día de la caída, de Talagante
+    assert.equal(sd.live.sinceMs !== null, true);
+    assert.ok(!urls.some((u) => u.includes('/330071'))); // no se consultó la de respaldo
+    assert.equal(dmc.storeChanged(sd.backupStore, backupPrev), false); // ni se reescribe
+  } finally {
+    globalThis.fetch = orig;
+  }
+});

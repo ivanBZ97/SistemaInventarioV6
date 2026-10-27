@@ -18,7 +18,7 @@ test('avisa solo si el publicado es más nuevo que este APK', () => {
   assert.equal(updateAvailable({ sha: sha('b'), run: 23, publishedAt: null }, build), true);
   assert.equal(updateAvailable({ sha: sha('a'), run: 22, publishedAt: null }, build), false); // es este mismo
   assert.equal(updateAvailable({ sha: sha('c'), run: 21, publishedAt: null }, build), false); // más viejo
-  assert.equal(updateAvailable({ sha: sha('b'), run: null, publishedAt: null }, build), true); // distinto, sin número
+  assert.equal(updateAvailable({ sha: sha('b'), run: null, publishedAt: null }, build), false); // formato antiguo: más viejo
   assert.equal(updateAvailable({ sha: sha('b'), run: 30, publishedAt: null }, { sha: 'dev', run: 0 }), false); // desarrollo
   assert.equal(updateAvailable(null, build), false);
 });

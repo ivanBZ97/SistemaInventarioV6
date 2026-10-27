@@ -120,14 +120,16 @@ export function effectiveRain(precipitationMm: number): number {
 }
 
 /**
- * ¿Conviene no regar hoy porque mañana llueve lo suficiente? La lluvia de mañana tiene que ser muy probable y su
- * parte útil tiene que reponer todo el déficit de hoy; además, el pasto debe aguantar un día más sin pasar 3 mm
- * sobre el umbral (si la lluvia no llega, mañana se riega). Ahorra un riego antes de un día de lluvia.
+ * ¿Conviene no regar hoy porque mañana llueve lo suficiente? La lluvia de mañana tiene que ser muy probable y, tras
+ * sumar lo que el pasto gasta hoy, su parte útil debe dejar el déficit en menos de la mitad del umbral (suelo bien
+ * húmedo). Además, el pasto debe aguantar un día más sin pasar 3 mm sobre el umbral (si la lluvia no llega, mañana
+ * se riega). Ahorra un riego antes de un día de lluvia.
  */
 export function rainTomorrowCovers(deficitNow: number, etcToday: number, tomorrow: DailyWeather | undefined, thresholdMm: number): boolean {
   if (!tomorrow || tomorrow.precipitationProbMax < LOOKAHEAD_PROB_PCT || tomorrow.precipitationMm < LOOKAHEAD_MIN_MM) return false;
-  if (deficitNow + etcToday > thresholdMm + LOOKAHEAD_MAX_OVER_MM) return false;
-  return effectiveRain(tomorrow.precipitationMm) >= deficitNow;
+  const tomorrowStart = deficitNow + etcToday;
+  if (tomorrowStart > thresholdMm + LOOKAHEAD_MAX_OVER_MM) return false;
+  return tomorrowStart - effectiveRain(tomorrow.precipitationMm) <= thresholdMm / 2;
 }
 
 /** Lluvia del día: la ya medida hoy por la estación manda si supera a la pronosticada. */
@@ -697,9 +699,12 @@ export interface MonthSummary {
   liters: number | null;
 }
 
-/** Resumen de los últimos 30 días: cuántas veces se regó, cuánta agua se puso y cuánta aportó la lluvia. */
+/**
+ * Resumen de los últimos 30 días (de hace 29 días a hoy): cuántas veces se regó, cuánta agua se puso y cuánta aportó
+ * la lluvia. Lluvia y consumo vienen de los días ya cerrados; los riegos incluyen los de hoy.
+ */
 export function monthSummary(today: ISODate, history: DayRecord[], irrigations: IrrigationEvent[], areaM2?: number): MonthSummary {
-  const from = addDays(today, -30);
+  const from = addDays(today, -29);
   const days = history.filter((h) => h.date >= from && h.date < today);
   const irr = irrigations.filter((e) => e.date >= from && e.date <= today);
   const irrigationMm = irr.reduce((s, e) => s + e.mm, 0);

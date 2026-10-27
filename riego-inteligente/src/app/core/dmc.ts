@@ -702,13 +702,14 @@ export interface StationData {
   /** Última consulta a la estación elegida. */
   status: StationStatus;
   primary: DmcStore;
-  /** Almacén de la de respaldo, si se consultó (para guardarlo). */
+  /** Almacén de la de respaldo (consultado ahora o el guardado); se guarda solo si cambió. */
   backupStore: DmcStore | null;
 }
 
 /**
  * Consulta la estación elegida (si su almacén está viejo) y, si lleva más de 3 h sin publicar, la de respaldo.
  * Devuelve la lluvia y la ET0 de los días cerrados, la corrección del pronóstico de ET0 y la lluvia de hoy.
+ * Lo guardado de la de respaldo sigue completando los días que a la elegida le faltan aunque ya haya vuelto.
  */
 export async function loadStationData(o: {
   cfg: DmcConfig;
@@ -726,23 +727,30 @@ export async function loadStationData(o: {
   const { cfg, auth, today, now } = o;
   const { store } = await refreshDmcStore(o.primaryPrev, cfg.code, now, o.maxAgeMs, false, auth);
   const rain = observedFromStore(store, cfg.code, today);
-  const et0 = stationEt0(store.met ?? [], stationMeta(cfg, o.lat, o.elevationM), today);
+  const ownEt0 = stationEt0(store.met ?? [], stationMeta(cfg, o.lat, o.elevationM), today);
+  const et0 = new Map(ownEt0);
   let live = liveRainFromStore(store, cfg.code, today, now);
   let backup: StationSource | null = null;
   let backupStore: DmcStore | null = null;
-  const alt = storeIsStale(store, now) ? backupStationFor(cfg.code, o.lat, o.lon) : null;
-  if (alt) {
-    backupStore = (await refreshDmcStore(o.backupPrev?.code === alt.code ? o.backupPrev : null, alt.code, now, o.maxAgeMs, false, auth)).store;
+  const alt = backupStationFor(cfg.code, o.lat, o.lon);
+  const altPrev = alt && o.backupPrev?.code === alt.code ? o.backupPrev : null;
+  if (alt && storeIsStale(store, now)) {
+    backupStore = (await refreshDmcStore(altPrev, alt.code, now, o.maxAgeMs, false, auth)).store;
     if (!storeIsStale(backupStore, now)) {
       backup = { code: alt.code, name: alt.name, distanceKm: Math.round(alt.distanceKm * 10) / 10 };
       live = liveRainFromStore(backupStore, alt.code, today, now);
     }
-    // Días cerrados que a la elegida le faltan: los de la de respaldo.
+  } else {
+    backupStore = altPrev; // sin consultar: solo para los días que faltan
+  }
+  if (alt && backupStore) {
+    // Días cerrados que a la elegida le faltan (p. ej. los de una caída ya superada): los de la de respaldo.
     for (const [day, mm] of observedFromStore(backupStore, alt.code, today)) if (!rain.has(day)) rain.set(day, mm);
     const altMeta = stationMeta({ ...alt, elevationM: alt.elevationM ?? undefined }, o.lat, o.elevationM);
     for (const [day, v] of stationEt0(backupStore.met ?? [], altMeta, today)) if (!et0.has(day)) et0.set(day, v);
   }
-  const primary = recordEt0Pairs(store, et0, o.modelDays, today);
+  // El sesgo del pronóstico se mide solo con la estación elegida (no se mezclan estaciones).
+  const primary = recordEt0Pairs(store, ownEt0, o.modelDays, today);
   return {
     rain,
     et0,
@@ -857,7 +865,7 @@ async function probe(url: string, auth?: DmcAuth, describe?: (json: unknown) => 
 }
 
 /** "45 min", "5 h", "2 días" */
-const ageText = (ms: number) => {
+export const ageText = (ms: number) => {
   const min = Math.round(ms / 60_000);
   return min < 120 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.floor(min / 1440)} días`;
 };

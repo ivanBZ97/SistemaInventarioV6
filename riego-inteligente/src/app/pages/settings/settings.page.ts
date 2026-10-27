@@ -30,6 +30,7 @@ import {
   type DmcStore,
   type StationCheck,
   type StationHealth,
+  ageText,
   bestStation,
   checkStations,
   diagnoseDmc,
@@ -65,10 +66,7 @@ function shortWhen(t: number): string {
 }
 
 /** "hace 12 min", "hace 3 h" o "hace 2 días" */
-function agoText(ms: number): string {
-  const min = Math.max(0, Math.round(ms / 60_000));
-  return min < 90 ? `hace ${min} min` : min < 48 * 60 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.floor(min / 1440)} días`;
-}
+const agoText = (ms: number) => `hace ${ageText(Math.max(0, ms))}`;
 
 /** "hoy a las 07:35", "mañana a las 06:30", "ayer a las 23:00" o "el sábado 24/10 a las 16:00" */
 function whenOf(t: number): string {
@@ -460,7 +458,15 @@ export class SettingsPage implements OnInit {
     if (r.ok === false) return { level: 'error', text: `Falló ${agoText(age)}: ${r.error ?? 'error desconocido'}.` };
     if (age > 3 * 3_600_000)
       return { level: 'late', text: `Última revisión ${agoText(age)}: Android la está retrasando. Deja la app sin restricciones de batería (Ajustes de Android → Apps → Riego → Batería).` };
-    return { level: 'live', text: `Funcionando · última revisión ${agoText(age)}${r.backup ? ` · usando ${r.backup} (respaldo)` : ''}.` };
+    const next = (r.planned ?? []).filter((n) => n.at > this.statusAt()).sort((a, b) => a.at - b.at)[0];
+    return {
+      level: 'live',
+      text:
+        `Funcionando · última revisión ${agoText(age)}` +
+        (next ? ` · dejó programado el aviso de ${whenOf(next.at)}` : '') +
+        (r.backup ? ` · usando ${r.backup} (respaldo)` : '') +
+        '.',
+    };
   });
   readonly nextAlertText = computed(() => {
     const n = this.nextAlert();

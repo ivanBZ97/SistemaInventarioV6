@@ -22,8 +22,11 @@ export function parseRelease(json: unknown): ReleaseInfo | null {
   return { sha, run: run ? Number(run[1]) : null, publishedAt: typeof r.published_at === 'string' ? r.published_at : null };
 }
 
-/** ¿El APK publicado es más nuevo que este? En desarrollo (build 0) nunca se avisa. */
+/**
+ * ¿El APK publicado es más nuevo que este? En desarrollo (build 0) nunca se avisa. Un release sin número de build
+ * es del formato anterior, o sea más viejo que cualquier APK que ya trae su número.
+ */
 export function updateAvailable(release: ReleaseInfo | null, build: { sha: string; run: number } = BUILD_INFO): boolean {
-  if (!release || build.run === 0 || release.sha === build.sha) return false;
-  return release.run === null || release.run > build.run;
+  if (!release || build.run === 0 || release.sha === build.sha || release.run === null) return false;
+  return release.run > build.run;
 }

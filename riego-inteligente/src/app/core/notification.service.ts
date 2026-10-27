@@ -68,12 +68,20 @@ export class NotificationService {
     await this.ensurePermissions();
   }
 
-  /** Permisos actuales, sin pedirlos (para el panel de estado). null fuera del teléfono. */
+  /** Permisos actuales, sin pedirlos. null fuera del teléfono. */
   async checkStatus(): Promise<{ notifications: boolean; exactAlarms: boolean } | null> {
     if (!Capacitor.isNativePlatform()) return null;
     const perm = await LocalNotifications.checkPermissions();
-    const exact = await LocalNotifications.checkExactNotificationSetting();
-    return { notifications: perm.display === 'granted', exactAlarms: exact.exact_alarm === 'granted' };
+    return { notifications: perm.display === 'granted', exactAlarms: await this.exactAlarmsAllowed() };
+  }
+
+  /** Alarmas exactas permitidas. Si el sistema no permite consultarlo (Android antiguo), no hacen falta. */
+  private async exactAlarmsAllowed(): Promise<boolean> {
+    try {
+      return (await LocalNotifications.checkExactNotificationSetting()).exact_alarm === 'granted';
+    } catch {
+      return true;
+    }
   }
 
   /** Aviso de prueba en 5 s, por el mismo canal que el aviso de la mañana. */
@@ -93,10 +101,9 @@ export class NotificationService {
 
   async ensurePermissions(): Promise<{ notifications: boolean; exactAlarms: boolean }> {
     if (!Capacitor.isNativePlatform()) return { notifications: false, exactAlarms: false };
-    let perm = await LocalNotifications.checkPermissions();
-    if (perm.display !== 'granted') perm = await LocalNotifications.requestPermissions();
-    const exact = await LocalNotifications.checkExactNotificationSetting();
-    return { notifications: perm.display === 'granted', exactAlarms: exact.exact_alarm === 'granted' };
+    const perm = await LocalNotifications.checkPermissions();
+    if (perm.display !== 'granted') await LocalNotifications.requestPermissions();
+    return (await this.checkStatus())!;
   }
 
   /** Abre la pantalla del sistema "Alarmas y recordatorios" (Android 12+). */
