@@ -198,12 +198,15 @@ export class IrrigationEngineService {
     await this.refresh();
   }
 
-  /** Notificaciones que deben quedar programadas según el estado y pronóstico actuales. */
-  async plan(): Promise<PlannedNotification[]> {
+  /**
+   * Notificaciones que deben quedar programadas según el estado y pronóstico actuales. Con `preview` solo se
+   * consultan (panel de estado) sin anotar que se programó el aviso de la mañana.
+   */
+  async plan(preview = false): Promise<PlannedNotification[]> {
     const { settings, state, rainOverrides } = await this.loadAll();
     const days = applyRainOverrides((await this.weather.getForecast(settings)).days, rainOverrides, toISODate(new Date()));
     const { notifications, morningFor } = planNotifications({ state, weather: days, settings, now: new Date() });
-    if (morningFor && morningFor !== state.lastMorningScheduledFor) {
+    if (!preview && morningFor && morningFor !== state.lastMorningScheduledFor) {
       await this.storage.set('state', { ...state, lastMorningScheduledFor: morningFor });
     }
     return notifications;

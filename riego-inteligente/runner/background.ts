@@ -21,7 +21,7 @@ import {
   withLiveRain,
   withStationEt0,
 } from '../src/app/core/dmc';
-import type { DailyWeather, DayRecord, DmcConfig, Settings, WaterState } from '../src/app/core/models';
+import type { DailyWeather, DayRecord, DmcConfig, RunnerStatus, Settings, WaterState } from '../src/app/core/models';
 
 declare const CapacitorKV: {
   get(key: string): { value: string } | null;
@@ -34,6 +34,12 @@ declare function addEventListener(
 ): void;
 
 const KEY = 'snapshot';
+const STATUS = 'status';
+
+/** Registra cómo terminó la ejecución: la app lo muestra en Ajustes → Estado del sistema. */
+function saveStatus(status: Omit<RunnerStatus, 'lastRunAt'>): void {
+  CapacitorKV.set(STATUS, JSON.stringify({ lastRunAt: Date.now(), ...status }));
+}
 
 interface Snapshot {
   settings: Settings;
@@ -106,7 +112,10 @@ addEventListener('syncState', (resolve, reject, args) => {
 addEventListener('refreshIrrigation', async (resolve, reject) => {
   try {
     const snap = load();
-    if (!snap) return resolve(); // la app aún no ha sincronizado
+    if (!snap) {
+      saveStatus({ ok: false, error: 'la app aún no le ha entregado su estado (ábrela una vez)' });
+      return resolve();
+    }
     const forecast = await fetchForecast(snap.settings.latitude, snap.settings.longitude);
     const today = toISODate(new Date());
     let measured = forecast;
@@ -144,8 +153,20 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
       snap.state.lastMorningScheduledFor = morningFor;
       CapacitorKV.set(KEY, JSON.stringify(snap));
     }
+    saveStatus({ ok: true, planned: notifications.map((n) => ({ id: n.id, title: n.title, at: n.at.getTime() })), backup: dmc?.backup?.name ?? null });
     resolve();
   } catch (e) {
+    try {
+      saveStatus({ ok: false, error: e instanceof Error ? e.message : String(e) });
+    } catch {
+      /* sin almacenamiento: solo se informa el error */
+    }
     reject(e);
   }
+});
+
+/** La app pregunta cómo le fue a la última ejecución (Ajustes → Estado del sistema). */
+addEventListener('getStatus', (resolve) => {
+  const raw = CapacitorKV.get(STATUS)?.value;
+  resolve(raw ? JSON.parse(raw) : { lastRunAt: null });
 });

@@ -163,6 +163,18 @@ export interface Evaluation {
   humidityPct: number;
 }
 
+/** Lo que informa el worker en segundo plano de su última ejecución (para el panel "Estado del sistema"). */
+export interface RunnerStatus {
+  /** Instante de la última ejecución (null: nunca se ha ejecutado). */
+  lastRunAt: number | null;
+  ok?: boolean;
+  error?: string;
+  /** Avisos que dejó programados: id, título y hora (ms). */
+  planned?: { id: number; title: string; at: number }[];
+  /** Estación de respaldo que estaba usando, si la elegida no publicaba. */
+  backup?: string | null;
+}
+
 export interface PlannedNotification {
   id: number;
   channelId: 'riego-matutino' | 'riego-resiembra';

@@ -8,6 +8,7 @@ import { NOTIF_ID_MORNING, NOTIF_ID_OVERSEED } from './irrigation-core';
 export const ACTION_TYPE_ID = 'RIEGO_ACTIONS';
 export const ACTION_DONE = 'ya-regue';
 export const ACTION_SNOOZE = 'posponer';
+const NOTIF_ID_TEST = 1099;
 
 @Injectable({ providedIn: 'root' })
 export class NotificationService {
@@ -65,6 +66,29 @@ export class NotificationService {
     });
 
     await this.ensurePermissions();
+  }
+
+  /** Permisos actuales, sin pedirlos (para el panel de estado). null fuera del teléfono. */
+  async checkStatus(): Promise<{ notifications: boolean; exactAlarms: boolean } | null> {
+    if (!Capacitor.isNativePlatform()) return null;
+    const perm = await LocalNotifications.checkPermissions();
+    const exact = await LocalNotifications.checkExactNotificationSetting();
+    return { notifications: perm.display === 'granted', exactAlarms: exact.exact_alarm === 'granted' };
+  }
+
+  /** Aviso de prueba en 5 s, por el mismo canal que el aviso de la mañana. */
+  async sendTest(): Promise<boolean> {
+    if (!Capacitor.isNativePlatform()) return false;
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: NOTIF_ID_TEST,
+        title: '🧪 Prueba de aviso',
+        body: 'Si ves esto, los avisos de riego funcionan.',
+        channelId: 'riego-matutino',
+        schedule: { at: new Date(Date.now() + 5_000), allowWhileIdle: true },
+      }],
+    });
+    return true;
   }
 
   async ensurePermissions(): Promise<{ notifications: boolean; exactAlarms: boolean }> {

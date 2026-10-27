@@ -17,7 +17,7 @@ import {
 import { addIcons } from 'ionicons';
 import {
   alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline,
+  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline, downloadOutline, informationCircleOutline,
 } from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
@@ -40,7 +40,10 @@ import {
   stationsToCheck,
 } from '../../core/dmc';
 import { StorageService } from '../../core/storage.service';
-import type { AgrometConfig, DmcAuth, DmcConfig } from '../../core/models';
+import type { AgrometConfig, DmcAuth, DmcConfig, PlannedNotification, RunnerStatus } from '../../core/models';
+import { UpdateService } from '../../core/update.service';
+import { APK_URL } from '../../core/update';
+import { BUILD_INFO } from '../../core/build-info';
 import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate, weekdayEs } from '../../core/irrigation-core';
 
 /** Fila de la lista de estaciones: revisada, o aún consultándose. */
@@ -61,11 +64,18 @@ function shortWhen(t: number): string {
   return `${d.getDate()}/${d.getMonth() + 1} ${clock(t)}`;
 }
 
-/** "hoy a las 07:35", "ayer a las 23:00" o "el sábado 24/10 a las 16:00" */
+/** "hace 12 min", "hace 3 h" o "hace 2 días" */
+function agoText(ms: number): string {
+  const min = Math.max(0, Math.round(ms / 60_000));
+  return min < 90 ? `hace ${min} min` : min < 48 * 60 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.floor(min / 1440)} días`;
+}
+
+/** "hoy a las 07:35", "mañana a las 06:30", "ayer a las 23:00" o "el sábado 24/10 a las 16:00" */
 function whenOf(t: number): string {
   const day = toISODate(new Date(t));
   const today = toISODate(new Date());
   if (day === today) return `hoy a las ${clock(t)}`;
+  if (day === addDays(today, 1)) return `mañana a las ${clock(t)}`;
   if (day === addDays(today, -1)) return `ayer a las ${clock(t)}`;
   const d = new Date(t);
   return `el ${weekdayEs(day)} ${d.getDate()}/${d.getMonth() + 1} a las ${clock(t)}`;
@@ -273,6 +283,47 @@ function whenOf(t: number): string {
           <ion-icon name="chevron-forward-outline" class="md-variant" />
         </button>
       </div>
+      <!-- Estado del sistema: ¿está funcionando todo? -->
+      <h2 class="section md-title-small">Estado del sistema</h2>
+      <div class="card">
+        <div class="row">
+          <div class="li-icon"><ion-icon name="sync-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">Revisión automática</span>
+            <span class="md-body-medium md-variant">{{ runnerInfo().text }}</span>
+          </div>
+          <i [class]="'dot ' + runnerInfo().level"></i>
+        </div>
+        <div class="row">
+          <div class="li-icon"><ion-icon name="alarm-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">Próximo aviso</span>
+            <span class="md-body-medium md-variant">{{ nextAlertText() }}</span>
+          </div>
+        </div>
+        <div class="row">
+          <div class="li-icon"><ion-icon name="notifications-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">Permisos</span>
+            <span class="md-body-medium md-variant">{{ permInfo().text }}</span>
+          </div>
+          <i [class]="'dot ' + permInfo().level"></i>
+        </div>
+        <div class="row">
+          <div class="li-icon"><ion-icon name="information-circle-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">{{ versionText }}</span>
+            <span class="md-body-medium md-variant">{{ updateText() }}</span>
+          </div>
+        </div>
+        <div class="chips">
+          <button class="chip" (click)="testNotification()"><ion-icon name="notifications-outline" />Probar aviso</button>
+          <button class="chip" (click)="loadStatus(true)"><ion-icon name="sync-outline" />Actualizar</button>
+          @if (updates.available()) {
+            <a class="chip" [href]="apkUrl"><ion-icon name="download-outline" />Descargar la versión nueva</a>
+          }
+        </div>
+      </div>
       <div class="bottom-space"></div>
     </ion-content>
     <div class="save-bar">
@@ -316,6 +367,8 @@ function whenOf(t: number): string {
     .dot.error { background: var(--md-error); }
     .dot.checking { background: var(--md-outline-variant); animation: blink 1s ease-in-out infinite; }
     @keyframes blink { 50% { opacity: .3; } }
+    a.chip { text-decoration: none; }
+    .dot.stale { background: var(--md-outline); }
     .tag { margin-left: 8px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--md-outline-variant);
       font: 500 11px/16px var(--md-font); color: var(--md-on-surface-variant); vertical-align: middle; }
     .intro { margin: 8px 16px 0; }
@@ -343,7 +396,7 @@ export class SettingsPage implements OnInit {
   constructor() {
     addIcons({
       alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline,
+      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline, downloadOutline, informationCircleOutline,
     });
   }
 
@@ -379,6 +432,69 @@ export class SettingsPage implements OnInit {
   dmcUser = signal('');
   dmcToken = signal('');
   agrometKey = signal('');
+
+  // ───────────── Estado del sistema ─────────────
+  readonly updates = inject(UpdateService);
+  readonly apkUrl = APK_URL;
+  readonly versionText = BUILD_INFO.run ? `Versión: build ${BUILD_INFO.run} (${BUILD_INFO.sha.slice(0, 7)})` : 'Versión de desarrollo';
+  /** undefined: consultando · null: fuera del teléfono o el worker no respondió. */
+  runner = signal<RunnerStatus | null | undefined>(undefined);
+  perms = signal<{ notifications: boolean; exactAlarms: boolean } | null | undefined>(undefined);
+  nextAlert = signal<PlannedNotification | null | undefined>(undefined);
+  statusAt = signal(Date.now());
+  readonly runnerInfo = computed(() => {
+    const r = this.runner();
+    if (r === undefined) return { level: 'checking', text: 'Consultando…' };
+    if (r === null) return { level: 'stale', text: 'Solo se puede revisar en el teléfono.' };
+    if (!r.lastRunAt)
+      return { level: 'late', text: 'Aún no se ha ejecutado. Android la corre cada ~15 min; si en una hora sigue igual, deja la app sin restricciones de batería.' };
+    const age = this.statusAt() - r.lastRunAt;
+    if (r.ok === false) return { level: 'error', text: `Falló ${agoText(age)}: ${r.error ?? 'error desconocido'}.` };
+    if (age > 3 * 3_600_000)
+      return { level: 'late', text: `Última revisión ${agoText(age)}: Android la está retrasando. Deja la app sin restricciones de batería (Ajustes de Android → Apps → Riego → Batería).` };
+    return { level: 'live', text: `Funcionando · última revisión ${agoText(age)}${r.backup ? ` · usando ${r.backup} (respaldo)` : ''}.` };
+  });
+  readonly nextAlertText = computed(() => {
+    const n = this.nextAlert();
+    if (n === undefined) return 'Consultando…';
+    return n ? `${whenOf(n.at.getTime())} · ${n.title}` : 'Ninguno programado (pospusiste el de hoy o falta el pronóstico).';
+  });
+  readonly permInfo = computed(() => {
+    const p = this.perms();
+    if (p === undefined) return { level: 'checking', text: 'Consultando…' };
+    if (p === null) return { level: 'stale', text: 'Solo se puede revisar en el teléfono.' };
+    if (!p.notifications) return { level: 'error', text: 'Notificaciones bloqueadas: actívalas en «Permiso de notificaciones».' };
+    if (!p.exactAlarms) return { level: 'late', text: 'Notificaciones permitidas · alarmas exactas sin permiso: el aviso puede llegar tarde.' };
+    return { level: 'live', text: 'Notificaciones y alarmas exactas permitidas.' };
+  });
+  readonly updateText = computed(() => {
+    const c = this.updates.checked();
+    if (this.updates.available()) {
+      const run = this.updates.release()?.run;
+      return `Hay una versión nueva${run ? ` (build ${run})` : ''}: descárgala e instálala encima; conserva tus datos.`;
+    }
+    if (!c) return 'Revisando si hay una versión nueva…';
+    return c.ok ? 'Es la versión más reciente.' : 'No se pudo revisar si hay una versión nueva (sin conexión).';
+  });
+
+  /** Estado del worker, permisos, próximo aviso y versión. */
+  async loadStatus(force = false): Promise<void> {
+    const [runner, perms, plan] = await Promise.all([
+      this.background.status(),
+      this.notifications.checkStatus().catch(() => null),
+      this.engine.plan(true).catch(() => [] as PlannedNotification[]),
+      this.updates.check(force),
+    ]);
+    this.statusAt.set(Date.now());
+    this.runner.set(runner);
+    this.perms.set(perms);
+    this.nextAlert.set(plan.filter((n) => n.at.getTime() > Date.now() - 60_000).sort((a, b) => a.at.getTime() - b.at.getTime())[0] ?? null);
+  }
+
+  async testNotification(): Promise<void> {
+    const ok = await this.notifications.sendTest().catch(() => false);
+    this.toast(ok ? 'En 5 segundos llega un aviso de prueba (puedes salir de la app para verlo).' : 'Los avisos solo funcionan en el teléfono.');
+  }
   query = signal('');
   results = signal<Place[]>([]);
 
@@ -397,6 +513,7 @@ export class SettingsPage implements OnInit {
     this.dmcUser.set(s.settings.dmcAuth?.user ?? '');
     this.dmcToken.set(s.settings.dmcAuth?.token ?? '');
     this.agrometKey.set(s.settings.agromet?.apiKey ?? '');
+    void this.loadStatus();
   }
 
   private async toast(message: string): Promise<void> {

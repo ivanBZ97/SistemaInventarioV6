@@ -28,6 +28,10 @@ jobs:
           java-version: 21
       - run: npm ci
       - run: npm test
+      - name: Versión del APK (para el aviso de actualización)
+        run: |
+          printf "export const BUILD_INFO: { sha: string; run: number } = { sha: '%s', run: %s };\n" "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" > src/app/core/build-info.ts
+          cat src/app/core/build-info.ts
       - run: npm run build
       - run: npx cap sync android
       - run: chmod +x gradlew && ./gradlew assembleDebug
@@ -43,6 +47,6 @@ jobs:
           cp android/app/build/outputs/apk/debug/app-debug.apk riego-inteligente.apk
           gh release delete apk-latest --yes --cleanup-tag || true
           gh release create apk-latest riego-inteligente.apk \
-            --title "Riego Inteligente (APK de prueba)" \
-            --notes "APK debug compilado desde ${{ github.sha }}" \
+            --title "Riego Inteligente · build ${{ github.run_number }}" \
+            --notes "build ${{ github.run_number }} · ${{ github.sha }}" \
             --target ${{ github.sha }} --prerelease

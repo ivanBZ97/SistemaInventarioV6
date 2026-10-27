@@ -3,6 +3,7 @@ import { IonApp, IonRouterOutlet } from '@ionic/angular/standalone';
 import { IrrigationEngineService } from './core/irrigation-engine.service';
 import { NotificationService } from './core/notification.service';
 import { BackgroundService } from './core/background.service';
+import { UpdateService } from './core/update.service';
 
 @Component({
   selector: 'app-root',
@@ -14,6 +15,7 @@ export class AppComponent implements OnInit {
   private engine = inject(IrrigationEngineService);
   private notifications = inject(NotificationService);
   private background = inject(BackgroundService);
+  private updates = inject(UpdateService);
 
   async ngOnInit(): Promise<void> {
     await this.notifications.init();
@@ -21,5 +23,6 @@ export class AppComponent implements OnInit {
     await this.engine.refresh();
     await this.notifications.reschedule();
     await this.background.sync();
+    void this.updates.check();
   }
 }

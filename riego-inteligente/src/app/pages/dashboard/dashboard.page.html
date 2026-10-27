@@ -22,6 +22,12 @@
 <ion-content>
   <ion-refresher slot="fixed" (ionRefresh)="refresh($event)"><ion-refresher-content /></ion-refresher>
 
+  @if (updates.available()) {
+    <a class="md-banner update md-body-medium" [href]="apkUrl">
+      <ion-icon name="download-outline" />
+      <span>Hay una versión nueva de la app@if (updates.release()?.run) { (build {{ updates.release()?.run }})}. Toca para descargarla e instálala encima: conserva tus datos.</span>
+    </a>
+  }
   @if (snap(); as s) {
     @if (s.staleWeather || s.error) {
       <div class="md-banner md-body-medium">{{ s.error ?? 'Sin conexión. Se muestra el último pronóstico guardado.' }}</div>

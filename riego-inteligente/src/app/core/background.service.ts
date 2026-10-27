@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { BackgroundRunner } from '@capacitor/background-runner';
 import { IrrigationEngineService } from './irrigation-engine.service';
+import type { RunnerStatus } from './models';
 
 const RUNNER = { label: 'cl.riego.inteligente.check', event: 'syncState' };
 
@@ -14,6 +15,16 @@ const RUNNER = { label: 'cl.riego.inteligente.check', event: 'syncState' };
 @Injectable({ providedIn: 'root' })
 export class BackgroundService {
   private engine = inject(IrrigationEngineService);
+
+  /** Cómo le fue a la última revisión en segundo plano (null fuera del teléfono o si el worker no responde). */
+  async status(): Promise<RunnerStatus | null> {
+    if (!Capacitor.isNativePlatform()) return null;
+    try {
+      return await BackgroundRunner.dispatchEvent<RunnerStatus>({ label: RUNNER.label, event: 'getStatus', details: {} });
+    } catch {
+      return null;
+    }
+  }
 
   async sync(): Promise<void> {
     if (!Capacitor.isNativePlatform()) return;

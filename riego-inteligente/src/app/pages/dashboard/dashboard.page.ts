@@ -19,6 +19,7 @@ import { addIcons } from 'ionicons';
 import {
   calendarOutline,
   checkmarkOutline,
+  downloadOutline,
   flagOutline,
   flowerOutline,
   leafOutline,
@@ -40,6 +41,8 @@ import { LIVE_FRESH_MS } from '../../core/dmc';
 import type { OverseedArea } from '../../core/models';
 import { lawnMessages, lawnMood, lawnScene } from '../../core/lawn-mood';
 import { LawnHeroComponent } from '../../ui/lawn-hero/lawn-hero.component';
+import { UpdateService } from '../../core/update.service';
+import { APK_URL } from '../../core/update';
 
 const SLOT = 300 / 7;
 
@@ -79,13 +82,15 @@ export class DashboardPage implements OnInit, OnDestroy {
   private router = inject(Router);
 
   readonly snap = this.engine.snapshot;
+  readonly updates = inject(UpdateService);
+  readonly apkUrl = APK_URL;
   readonly hero = viewChild(LawnHeroComponent);
   readonly fmt = fmt;
 
   constructor() {
     addIcons({
       settingsOutline, waterOutline, locationOutline, leafOutline, umbrellaOutline, thermometerOutline,
-      rainyOutline, flagOutline, calendarOutline, trendingUpOutline, flowerOutline, optionsOutline, checkmarkOutline,
+      rainyOutline, flagOutline, calendarOutline, trendingUpOutline, flowerOutline, optionsOutline, checkmarkOutline, downloadOutline,
     });
   }
 

@@ -15,6 +15,11 @@
 .md-banner {
   margin: 8px 16px 0; padding: 12px 16px; border-radius: var(--md-shape-md);
   background: var(--md-warning-container); color: var(--md-on-warning-container);
+  &.update {
+    display: flex; align-items: center; gap: 12px; text-decoration: none;
+    background: var(--md-tertiary-container); color: var(--md-on-tertiary-container);
+    ion-icon { flex: none; font-size: 22px; }
+  }
 }
 
 /* Tarjeta principal */
