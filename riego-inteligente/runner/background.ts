@@ -14,11 +14,9 @@ import { applyObservedRain, mergeObservedRain } from '../src/app/core/agromet';
 import {
   type DmcStore,
   backgroundStationMaxAgeMs,
-  backupStationFor,
-  liveRainFromStore,
   loadStationData,
+  savedLiveRain,
   storeChanged,
-  storeIsStale,
   withLiveRain,
   withStationEt0,
 } from '../src/app/core/dmc';
@@ -71,10 +69,8 @@ async function dmcData(cfg: DmcConfig, settings: Settings, today: string, modelD
   const primaryPrev = readStore(DMC_STORE);
   const backupPrev = readStore(DMC_BACKUP_STORE);
   const now = Date.now();
-  // Para decidir cada cuánto consultar: la lluvia de la de respaldo solo si es la vigente y está al día.
-  const altCode = backupStationFor(cfg.code, settings.latitude, settings.longitude)?.code;
-  const useBackup = storeIsStale(primaryPrev, now) && backupPrev?.code === altCode && !storeIsStale(backupPrev, now);
-  const liveNow = useBackup && backupPrev ? liveRainFromStore(backupPrev, backupPrev.code, today, now) : liveRainFromStore(primaryPrev, cfg.code, today, now);
+  // Para decidir cada cuánto consultar: la lluvia de hoy según lo guardado (misma regla de respaldo).
+  const liveNow = savedLiveRain(cfg, settings.latitude, settings.longitude, primaryPrev, backupPrev, today, now);
   const maxAgeMs = backgroundStationMaxAgeMs(now, liveNow, modelDays.find((d) => d.date === today), morningTimeOf(settings));
   const sd = await loadStationData({
     cfg,
@@ -156,7 +152,7 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
       snap.state.lastMorningScheduledFor = morningFor;
       CapacitorKV.set(KEY, JSON.stringify(snap));
     }
-    saveStatus({ ok: true, planned: notifications.map((n) => ({ id: n.id, title: n.title, at: n.at.getTime() })), backup: dmc?.backup?.name ?? null });
+    saveStatus({ ok: true, backup: dmc?.backup?.name ?? null });
     resolve();
   } catch (e) {
     try {

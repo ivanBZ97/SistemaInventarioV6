@@ -75,11 +75,14 @@ export class WeatherService {
    * Clima de hoy y los próximos días: pronóstico de los modelos (cada 3 h) combinado con lo medido por la
    * estación (cada `stationMaxAgeMs`). Sin red usa el último pronóstico guardado (marcado como `stale`).
    */
-  async getForecast(settings: Settings, force = false, stationMaxAgeMs = STATION_LIVE_MAX_AGE_MS): Promise<WeatherResult> {
+  async getForecast(settings: Settings, force = false, stationMaxAgeMs = STATION_LIVE_MAX_AGE_MS, offline = false): Promise<WeatherResult> {
     const cache = await this.storage.get<WeatherCache | null>('weatherCache', null);
     const sameSpot = !!cache && cache.lat === settings.latitude && cache.lon === settings.longitude;
     const cachedModel = sameSpot && cache?.modelDays ? { days: cache.modelDays, elevationM: cache.elevationM ?? null, fetchedAt: cache.fetchedAt } : null;
-    let model = !force && cachedModel && Date.now() - Date.parse(cachedModel.fetchedAt) < MODEL_MAX_AGE_MS ? cachedModel : null;
+    // offline (vista previa): lo guardado, sin consultar nada ni escribir, salvo que no haya pronóstico guardado.
+    const reuse = offline || (!force && !!cachedModel && Date.now() - Date.parse(cachedModel.fetchedAt) < MODEL_MAX_AGE_MS);
+    let model = reuse ? cachedModel : null;
+    offline &&= !!cachedModel;
     let inia = model ? cache?.inia : undefined;
     let stale = false;
     if (!model) {
@@ -102,6 +105,7 @@ export class WeatherService {
     let liveRain: LiveRain | null = null;
     let station: StationStatus | null = null;
     let backup: StationSource | null = null;
+    let et0Helper: string | null = null;
     if (settings.dmc) {
       // Cada consulta trae ~12 h de lecturas: se acumulan en un almacén local para armar días completos.
       // Si la estación elegida lleva más de 3 h sin publicar, se usa la siguiente más cercana (respaldo).
@@ -119,27 +123,30 @@ export class WeatherService {
         maxAgeMs: stationMaxAgeMs,
         primaryPrev,
         backupPrev,
+        fetch: !offline,
       });
-      if (storeChanged(sd.primary, primaryPrev)) await this.storage.set('dmcStore', sd.primary);
-      if (storeChanged(sd.backupStore, backupPrev)) await this.storage.set('dmcStoreBackup', sd.backupStore);
+      if (!offline && storeChanged(sd.primary, primaryPrev)) await this.storage.set('dmcStore', sd.primary);
+      if (!offline && storeChanged(sd.backupStore, backupPrev)) await this.storage.set('dmcStoreBackup', sd.backupStore);
       stEt0 = sd.et0;
+      et0Helper = (backup ?? sd.filledFrom)?.name ?? null;
       correction = sd.correction;
       liveRain = sd.live;
       station = sd.status;
       backup = sd.backup;
       dmc = withDmcRain(model.days, sd.rain, settings.dmc, today);
-      if (dmc.source && backup) dmc = { ...dmc, source: `${dmc.source} · respaldo: ${backup.name}` };
+      const helper = backup ?? sd.filledFrom;
+      if (dmc.source && helper) dmc = { ...dmc, source: `${dmc.source} · respaldo: ${helper.name}` };
     }
     // Lluvia medida en días pasados: estación DMC y, si no hay, INIA Agromet (con clave).
     let measured: { days: DailyWeather[]; source: string | null; observed: Record<string, number> } = { days: model.days, source: null, observed: {} };
     if (dmc?.source) {
       measured = { days: dmc.days, source: dmc.source, observed: Object.fromEntries(dmc.observed) };
     } else if (settings.agromet) {
-      if (!inia) {
+      if (!inia && !offline) {
         const r = await applyObservedRain(model.days, settings.agromet, today);
         inia = { source: r.source, observed: Object.fromEntries(r.observed) };
       }
-      if (inia.source) {
+      if (inia?.source) {
         measured = { days: mergeObservedRain(model.days, new Map(Object.entries(inia.observed)), today), source: inia.source, observed: inia.observed };
       }
     }
@@ -153,12 +160,13 @@ export class WeatherService {
       rainSource: measured.source,
       observedRain: measured.observed,
       observedEt0: Object.fromEntries(stEt0),
-      et0Source: settings.dmc && (stEt0.size || correction) ? settings.dmc.name : null,
+      et0Source: settings.dmc && (stEt0.size || correction) ? settings.dmc.name + (et0Helper ? ` y ${et0Helper}` : '') : null,
       et0Ratio: correction?.ratio ?? null,
       liveRain,
       station,
       backup,
     };
+    if (offline) return result;
     await this.storage.set<WeatherCache>('weatherCache', {
       fetchedAt: model.fetchedAt,
       lat: settings.latitude,

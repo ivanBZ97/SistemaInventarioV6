@@ -208,8 +208,8 @@ export class IrrigationEngineService {
    */
   async plan(preview = false): Promise<PlannedNotification[]> {
     const { settings, state, rainOverrides } = await this.loadAll();
-    // La vista previa no vuelve a consultar la estación: usa lo ya guardado.
-    const forecast = await this.weather.getForecast(settings, false, preview ? Number.POSITIVE_INFINITY : STATION_LIVE_MAX_AGE_MS);
+    // La vista previa (panel de estado) no consulta nada ni escribe: usa el pronóstico y la estación ya guardados.
+    const forecast = await this.weather.getForecast(settings, false, STATION_LIVE_MAX_AGE_MS, preview);
     const days = applyRainOverrides(forecast.days, rainOverrides, toISODate(new Date()));
     const { notifications, morningFor } = planNotifications({ state, weather: days, settings, now: new Date() });
     if (!preview && morningFor && morningFor !== state.lastMorningScheduledFor) {

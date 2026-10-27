@@ -171,8 +171,6 @@ export interface RunnerStatus {
   lastRunAt: number | null;
   ok?: boolean;
   error?: string;
-  /** Avisos que dejó programados: id, título y hora (ms). */
-  planned?: { id: number; title: string; at: number }[];
   /** Estación de respaldo que estaba usando, si la elegida no publicaba. */
   backup?: string | null;
 }

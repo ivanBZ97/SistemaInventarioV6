@@ -69,18 +69,21 @@ export class NotificationService {
   }
 
   /** Permisos actuales, sin pedirlos. null fuera del teléfono. */
-  async checkStatus(): Promise<{ notifications: boolean; exactAlarms: boolean } | null> {
+  async checkStatus(): Promise<{ notifications: boolean; exactAlarms: boolean | null } | null> {
     if (!Capacitor.isNativePlatform()) return null;
     const perm = await LocalNotifications.checkPermissions();
     return { notifications: perm.display === 'granted', exactAlarms: await this.exactAlarmsAllowed() };
   }
 
-  /** Alarmas exactas permitidas. Si el sistema no permite consultarlo (Android antiguo), no hacen falta. */
-  private async exactAlarmsAllowed(): Promise<boolean> {
+  /**
+   * Alarmas exactas permitidas. Si la función no existe en este Android (anterior a 12, donde no hace falta el
+   * permiso) se da por permitida; ante otro error, null: no se pudo comprobar.
+   */
+  private async exactAlarmsAllowed(): Promise<boolean | null> {
     try {
       return (await LocalNotifications.checkExactNotificationSetting()).exact_alarm === 'granted';
-    } catch {
-      return true;
+    } catch (e) {
+      return (e as { code?: string })?.code === 'UNIMPLEMENTED' ? true : null;
     }
   }
 
@@ -99,11 +102,11 @@ export class NotificationService {
     return true;
   }
 
-  async ensurePermissions(): Promise<{ notifications: boolean; exactAlarms: boolean }> {
+  async ensurePermissions(): Promise<{ notifications: boolean; exactAlarms: boolean | null }> {
     if (!Capacitor.isNativePlatform()) return { notifications: false, exactAlarms: false };
-    const perm = await LocalNotifications.checkPermissions();
-    if (perm.display !== 'granted') await LocalNotifications.requestPermissions();
-    return (await this.checkStatus())!;
+    let perm = await LocalNotifications.checkPermissions();
+    if (perm.display !== 'granted') perm = await LocalNotifications.requestPermissions();
+    return { notifications: perm.display === 'granted', exactAlarms: await this.exactAlarmsAllowed() };
   }
 
   /** Abre la pantalla del sistema "Alarmas y recordatorios" (Android 12+). */

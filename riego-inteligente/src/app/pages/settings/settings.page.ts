@@ -444,7 +444,7 @@ export class SettingsPage implements OnInit {
   readonly versionText = BUILD_INFO.run ? `Versión: build ${BUILD_INFO.run} (${BUILD_INFO.sha.slice(0, 7)})` : 'Versión de desarrollo';
   /** undefined: consultando · null: fuera del teléfono o el worker no respondió. */
   runner = signal<RunnerStatus | null | undefined>(undefined);
-  perms = signal<{ notifications: boolean; exactAlarms: boolean } | null | undefined>(undefined);
+  perms = signal<{ notifications: boolean; exactAlarms: boolean | null } | null | undefined>(undefined);
   nextAlert = signal<PlannedNotification | null | undefined>(undefined);
   statusAt = signal(Date.now());
   readonly runnerInfo = computed(() => {
@@ -458,15 +458,7 @@ export class SettingsPage implements OnInit {
     if (r.ok === false) return { level: 'error', text: `Falló ${agoText(age)}: ${r.error ?? 'error desconocido'}.` };
     if (age > 3 * 3_600_000)
       return { level: 'late', text: `Última revisión ${agoText(age)}: Android la está retrasando. Deja la app sin restricciones de batería (Ajustes de Android → Apps → Riego → Batería).` };
-    const next = (r.planned ?? []).filter((n) => n.at > this.statusAt()).sort((a, b) => a.at - b.at)[0];
-    return {
-      level: 'live',
-      text:
-        `Funcionando · última revisión ${agoText(age)}` +
-        (next ? ` · dejó programado el aviso de ${whenOf(next.at)}` : '') +
-        (r.backup ? ` · usando ${r.backup} (respaldo)` : '') +
-        '.',
-    };
+    return { level: 'live', text: `Funcionando · última revisión ${agoText(age)}${r.backup ? ` · usando ${r.backup} (respaldo)` : ''}.` };
   });
   readonly nextAlertText = computed(() => {
     const n = this.nextAlert();
@@ -478,6 +470,7 @@ export class SettingsPage implements OnInit {
     if (p === undefined) return { level: 'checking', text: 'Consultando…' };
     if (p === null) return { level: 'stale', text: 'Solo se puede revisar en el teléfono.' };
     if (!p.notifications) return { level: 'error', text: 'Notificaciones bloqueadas: actívalas en «Permiso de notificaciones».' };
+    if (p.exactAlarms === null) return { level: 'late', text: 'Notificaciones permitidas · no se pudo comprobar el permiso de alarmas exactas.' };
     if (!p.exactAlarms) return { level: 'late', text: 'Notificaciones permitidas · alarmas exactas sin permiso: el aviso puede llegar tarde.' };
     return { level: 'live', text: 'Notificaciones y alarmas exactas permitidas.' };
   });
@@ -497,7 +490,7 @@ export class SettingsPage implements OnInit {
       this.background.status(),
       this.notifications.checkStatus().catch(() => null),
       this.engine.plan(true).catch(() => [] as PlannedNotification[]),
-      this.updates.check(force),
+      this.updates.check(force).catch(() => undefined),
     ]);
     this.statusAt.set(Date.now());
     this.runner.set(runner);
