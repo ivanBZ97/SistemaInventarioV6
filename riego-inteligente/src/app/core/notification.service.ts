@@ -30,6 +30,14 @@ export class NotificationService {
       lights: true,
     });
     await LocalNotifications.createChannel({
+      id: 'riego-info',
+      name: 'Días sin riego',
+      description: 'Aviso de la mañana cuando no hace falta regar (sin sonido)',
+      importance: 2,
+      visibility: 1,
+      vibration: false,
+    });
+    await LocalNotifications.createChannel({
       id: 'riego-resiembra',
       name: 'Modo Resiembra',
       description: 'Recordatorio de las 13:00 mientras dure la resiembra',

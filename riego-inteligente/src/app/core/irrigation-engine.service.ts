@@ -11,7 +11,6 @@ import {
   correctPastRain,
   reconcileObservedEt0,
   reconcileObservedRain,
-  applyIrrigation,
   buildChart,
   deficitFromHumidity,
   evaluate,
@@ -220,16 +219,45 @@ export class IrrigationEngineService {
 
   // ───────────── Acciones del usuario ─────────────
 
-  /** "Ya regué" / "Registrar riego ahora": déficit → 0 mm y se anota en el historial. */
-  async registerIrrigation(source: IrrigationEvent['source'] = 'manual'): Promise<void> {
+  /** Estado anterior al último riego registrado, para "Deshacer" (solo en esta sesión). */
+  private beforeIrrigation: { state: WaterState; irrigations: IrrigationEvent[] } | null = null;
+
+  /**
+   * "Ya regué" / "Registrar riego": sin `minutes` repone todo el déficit actual (lo recomendado); con `minutes`,
+   * minutos × tasa del aspersor (si fue menos, queda déficit). Se anota en el historial. Devuelve el déficit que queda.
+   */
+  async registerIrrigation(source: IrrigationEvent['source'] = 'manual', minutes?: number): Promise<number> {
     const snap = await this.refresh();
-    const { state, irrigations } = await this.loadAll();
+    const { settings, state, irrigations } = await this.loadAll();
     // Lo que faltaba reponer ahora: el déficit actual ya descuenta la lluvia caída hoy.
-    const mm = snap.evaluation?.deficitMm ?? state.deficitMm;
-    const event: IrrigationEvent = { date: toISODate(new Date()), at: new Date().toISOString(), mm, source };
+    const current = snap.evaluation?.deficitMm ?? state.deficitMm;
+    const mm = minutes === undefined ? current : Math.max(0, minutes) * settings.sprinklerRateMmMin;
+    const left = Math.max(0, current - mm);
+    const now = new Date();
+    const event: IrrigationEvent = { date: toISODate(now), at: now.toISOString(), mm: Math.round(mm * 10) / 10, source };
+    this.beforeIrrigation = { state, irrigations };
     await this.storage.set('irrigations', [...irrigations, event].slice(-200));
-    await this.storage.set('state', { ...applyIrrigation(state), snoozedDate: undefined, resetDate: event.date, resetAt: Date.parse(event.at) });
+    await this.storage.set('state', {
+      ...state,
+      deficitMm: left,
+      source: 'manual',
+      snoozedDate: undefined,
+      resetDate: event.date,
+      resetAt: now.getTime(),
+    });
     await this.refresh();
+    return left;
+  }
+
+  /** "Deshacer": vuelve al estado anterior al último riego registrado. */
+  async undoIrrigation(): Promise<boolean> {
+    const before = this.beforeIrrigation;
+    if (!before) return false;
+    this.beforeIrrigation = null;
+    await this.storage.set('irrigations', before.irrigations);
+    await this.storage.set('state', before.state);
+    await this.refresh();
+    return true;
   }
 
   /** "Ajustar humedad manualmente": fija el déficit a un valor (0 = muy húmedo, 12+ = muy seco). */

@@ -268,6 +268,13 @@ function whenOf(t: number): string {
             </button>
           }
         </div>
+        <div class="row">
+          <div class="li-text">
+            <span class="md-body-large">Sin sonido los días que no toca regar</span>
+            <span class="md-body-medium md-variant">El aviso de «Hoy no hace falta regar» llega en silencio</span>
+          </div>
+          <ion-toggle [checked]="quietOk()" (ionChange)="quietOk.set($any($event).detail.checked)" aria-label="Sin sonido los días que no toca regar" />
+        </div>
         <div class="divider inset"></div>
         <button class="row link" (click)="permissions()">
           <div class="li-icon"><ion-icon name="notifications-outline" /></div>
@@ -407,6 +414,7 @@ export class SettingsPage implements OnInit {
   readonly timeOptions = MORNING_TIME_OPTIONS;
   readonly km = (v: number) => v.toFixed(1).replace('.', ',');
   morningTime = signal('06:30');
+  quietOk = signal(false);
   readonly min = THRESHOLD_MIN_MM;
   readonly max = THRESHOLD_MAX_MM;
   threshold = signal(DEFAULT_SETTINGS.thresholdMm);
@@ -516,6 +524,7 @@ export class SettingsPage implements OnInit {
     this.elevation.set(s.elevationM !== null ? Math.round(s.elevationM) : null);
     this.auto.set(s.settings.useGps);
     this.morningTime.set(s.settings.morningTime ?? '06:30');
+    this.quietOk.set(!!s.settings.quietOkAlerts);
     this.agromet.set(s.settings.agromet);
     this.dmc.set(s.settings.dmc);
     this.dmcUser.set(s.settings.dmcAuth?.user ?? '');
@@ -787,6 +796,7 @@ export class SettingsPage implements OnInit {
       useGps: this.auto(),
       locationSet: true,
       morningTime: this.morningTime(),
+      quietOkAlerts: this.quietOk(),
     });
     await this.notifications.reschedule();
     await this.background.sync();

@@ -659,6 +659,8 @@ export function planNotifications({ state, weather, settings, now }: PlanInput):
     const ev = evaluate(state, weather, settings, targetDate);
     if (ev) {
       const n = morningNotification(ev, at);
+      // Días sin riego: si el usuario lo pidió, por un canal sin sonido (igual reemplaza cualquier aviso viejo).
+      if (ev.status === 'ok' && settings.quietOkAlerts) n.channelId = 'riego-info';
       if (ev.status === 'ok') {
         const next = forecastNextIrrigation(state, weather, settings, targetDate);
         if (next && next.daysAhead > 0) n.body += ` Próximo riego estimado: ${weekdayEs(next.date)}.`;

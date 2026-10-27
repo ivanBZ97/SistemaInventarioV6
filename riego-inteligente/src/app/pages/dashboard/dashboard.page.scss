@@ -62,8 +62,9 @@
   background: var(--rec-icon); color: var(--rec-bg); font-size: 24px;
 }
 .rec-text { display: flex; flex-direction: column; gap: 2px; .overline { text-transform: uppercase; opacity: .8; } }
+.rec-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .rec-action {
-  grid-column: 2; justify-self: start; margin: 8px 0 0;
+  margin: 0;
   --background: transparent; --color: var(--rec-fg); --border-color: currentColor; --border-style: solid; --border-width: 1px;
 }
 
@@ -175,6 +176,8 @@ ion-fab { margin: 0 8px 8px 0; }
 .sheet ion-range { padding: 0 4px; }
 .sheet-scale { display: flex; justify-content: space-between; }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 24px 0; }
+.chips-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.sheet p.sheet-left { margin: 16px 0 0; }
 
 /* Próximo riego */
 .next-card { margin: 0 16px; padding: 16px; border-radius: var(--md-shape-lg); background: var(--md-surface-container-low); }

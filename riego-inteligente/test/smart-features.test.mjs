@@ -188,3 +188,15 @@ test('la lluvia de hoy guardada (para decidir cada cuánto consultar) usa el res
   // Un respaldo viejo tampoco
   assert.equal(dmc.savedLiveRain(cfg, -33.7313, -70.7663, oldPrimary, wetBackup, '2026-10-27', now + 6 * 3_600_000).sinceMs, null);
 });
+
+test('avisos sin sonido los días que no toca regar (si se pidió); los de riego siguen sonando', () => {
+  const now = new Date(2026, 9, 27, 5, 0);
+  const w = [wx('2026-10-27'), wx('2026-10-28'), wx('2026-10-29')];
+  const quiet = { ...S, quietOkAlerts: true };
+  const ok = c.planNotifications({ state: st({ deficitMm: 2 }), weather: w, settings: quiet, now }).notifications[0];
+  assert.equal(ok.title, '✅ Hoy no hace falta regar');
+  assert.equal(ok.channelId, 'riego-info');
+  const water = c.planNotifications({ state: st({ deficitMm: 9.5 }), weather: w, settings: quiet, now }).notifications[0];
+  assert.equal(water.channelId, 'riego-matutino');
+  assert.equal(c.planNotifications({ state: st({ deficitMm: 2 }), weather: w, settings: S, now }).notifications[0].channelId, 'riego-matutino');
+});

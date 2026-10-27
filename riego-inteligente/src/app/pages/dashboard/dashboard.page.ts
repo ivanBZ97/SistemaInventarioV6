@@ -20,6 +20,7 @@ import {
   calendarOutline,
   checkmarkOutline,
   downloadOutline,
+  timeOutline,
   flagOutline,
   flowerOutline,
   leafOutline,
@@ -90,7 +91,7 @@ export class DashboardPage implements OnInit, OnDestroy {
   constructor() {
     addIcons({
       settingsOutline, waterOutline, locationOutline, leafOutline, umbrellaOutline, thermometerOutline,
-      rainyOutline, flagOutline, calendarOutline, trendingUpOutline, flowerOutline, optionsOutline, checkmarkOutline, downloadOutline,
+      rainyOutline, flagOutline, calendarOutline, trendingUpOutline, flowerOutline, optionsOutline, checkmarkOutline, downloadOutline, timeOutline,
     });
   }
 
@@ -419,11 +420,60 @@ export class DashboardPage implements OnInit, OnDestroy {
     await this.snackbar(msg);
   }
 
-  /** Riega: la ilustración muestra el aspersor mientras se guarda el registro. */
-  async registerIrrigation(): Promise<void> {
+  // ───────────── Registrar riego (hoja inferior) ─────────────
+  readonly irrigateOpen = signal(false);
+  readonly irrigateMinutes = signal(10);
+  /** Minutos recomendados hoy (los que repondrían todo el déficit). */
+  readonly recommendedMinutes = computed(() => Math.max(1, Math.min(40, this.snap()?.evaluation?.minutes ?? 10)));
+  readonly irrigateOptions = computed(() => {
+    const rec = this.recommendedMinutes();
+    const opts = [{ min: rec, label: `Lo recomendado (${rec} min)` }];
+    for (const m of [5, 10, 15, 20]) if (m !== rec) opts.push({ min: m, label: `${m} min` });
+    return opts;
+  });
+  readonly irrigatePreview = computed(() => {
+    const s = this.snap();
+    const rate = s?.settings.sprinklerRateMmMin ?? 0.6;
+    const mm = this.irrigateMinutes() * rate;
+    const liters = litersFor(mm, s?.settings.lawnAreaM2);
+    const left = Math.max(0, this.deficit() - mm);
+    return {
+      water: `≈ ${fmt(mm)} mm de agua${liters ? ` · ${fmt(liters, 0)} L` : ''}`,
+      left: left > 0 ? `El déficit queda en ${fmt(left)} mm.` : 'Repone todo el déficit: el suelo queda en capacidad de campo.',
+    };
+  });
+
+  openIrrigate(): void {
+    this.irrigateMinutes.set(this.recommendedMinutes());
+    this.irrigateOpen.set(true);
+  }
+
+  /** Riega: la ilustración muestra el aspersor mientras se guarda el registro; se puede deshacer. */
+  async applyIrrigate(): Promise<void> {
+    const minutes = this.irrigateMinutes();
+    this.irrigateOpen.set(false);
     this.hero()?.water();
-    await this.engine.registerIrrigation('manual');
-    await this.afterChange('Riego registrado. El déficit volvió a 0 mm.');
+    const left = await this.engine.registerIrrigation('manual', minutes);
+    await this.notifications.reschedule();
+    await this.background.sync();
+    const msg = left > 0 ? `Riego de ${minutes} min registrado. Quedan ${fmt(left)} mm de déficit.` : `Riego de ${minutes} min registrado. El suelo quedó húmedo.`;
+    (await this.toasts.create({
+      message: msg,
+      duration: 6000,
+      position: 'bottom',
+      cssClass: 'md-snackbar',
+      buttons: [{ text: 'Deshacer', handler: () => void this.undoIrrigation() }],
+    })).present();
+  }
+
+  private async undoIrrigation(): Promise<void> {
+    if (await this.engine.undoIrrigation()) await this.afterChange('Riego deshecho');
+  }
+
+  /** Hoy no se puede regar: se silencia el aviso de hoy y se recalcula para mañana. */
+  async snooze(): Promise<void> {
+    await this.engine.snoozeToday();
+    await this.afterChange('Riego pospuesto para mañana');
   }
 
   /** Corrige la lluvia de un día pasado con lo realmente medido (INIA, pluviómetro). */

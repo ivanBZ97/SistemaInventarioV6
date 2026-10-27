@@ -43,6 +43,9 @@ riego-inteligente/
 | Umbral / minutos | `déficit ≥ 8 mm` (configurable 6–12) → `round(déficit / tasa)` min (tasa por defecto 0.6 mm/min) |
 | Bloqueo lluvia | prob. máx ≥ 50 % **o** ≥ 4 mm pronosticados ⇒ "Riego pausado por pronóstico de lluvia"; con estación, ≥ 4 mm ya medidos hoy ⇒ "Riego pausado por lluvia", y ≥ 0,5 mm en la última hora ⇒ "Riego pausado: está lloviendo" |
 | Espera la lluvia de mañana | si mañana la lluvia es muy probable (≥ 70 %) y abundante (mediana ≥ 5 mm), y tras sumar el consumo de hoy deja el déficit bajo la mitad del umbral, hoy no se riega ("🌧️ Hoy no riegues: mañana llueve"); solo si el déficit no pasa 3 mm sobre el umbral entretanto, y nunca con siembra de todo el jardín |
+| Pronóstico con el pasto muy seco | si el déficit ya supera en más de 3 mm el umbral, un pronóstico de lluvia ya no pausa el riego (la lluvia medida o que está cayendo sí); así esperar una lluvia que no llega nunca seca el pasto de más |
+| Registrar riego | se indican los minutos regados (por defecto, los recomendados): repone minutos × tasa; si fue menos, queda déficit. Se puede deshacer |
+| Avisos sin sonido | opción en Ajustes: el aviso de "Hoy no hace falta regar" llega por un canal silencioso |
 | Litros | con la superficie del pasto (Ajustes), 1 mm en 1 m² = 1 litro; resumen de los últimos 30 días en el panel |
 | Lluvia de hoy (estación) | lo medido hoy hasta la última lectura baja el déficit actual (80 % si > 2 mm; tras un riego o ajuste de hoy solo cuenta lo caído después); para mañana cuenta el máximo entre lo medido y lo pronosticado |
 | Viento | > 25 km/h ⇒ aviso "riega temprano" en la alerta |

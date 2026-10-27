@@ -12,6 +12,8 @@ export interface Settings {
   longitude: number;
   /** Hora del aviso matutino "HH:MM" (se limita a la ventana 06:30–08:30). */
   morningTime?: string;
+  /** true: el aviso de los días en que no hace falta regar llega sin sonido (canal "riego-info"). */
+  quietOkAlerts?: boolean;
   /** true = la app actualiza sola la ubicación si te mueves (> 10 km). */
   useGps: boolean;
   /** Nombre legible del lugar (p. ej. "Pudahuel, Región Metropolitana"). */
@@ -177,7 +179,7 @@ export interface RunnerStatus {
 
 export interface PlannedNotification {
   id: number;
-  channelId: 'riego-matutino' | 'riego-resiembra';
+  channelId: 'riego-matutino' | 'riego-resiembra' | 'riego-info';
   title: string;
   body: string;
   at: Date;

@@ -75,9 +75,16 @@
         <span class="md-title-large">{{ status().title }}</span>
         <span class="md-body-medium">{{ status().detail }}</span>
       </div>
-      <ion-button class="md-tonal rec-action" size="small" (click)="openAdjust()">
-        <ion-icon slot="start" name="options-outline" />Ajustar humedad
-      </ion-button>
+      <div class="rec-actions">
+        <ion-button class="md-tonal rec-action" size="small" (click)="openAdjust()">
+          <ion-icon slot="start" name="options-outline" />Ajustar humedad
+        </ion-button>
+        @if (s.evaluation?.status === 'irrigate') {
+          <ion-button class="md-tonal rec-action" size="small" (click)="snooze()">
+            <ion-icon slot="start" name="time-outline" />Posponer a mañana
+          </ion-button>
+        }
+      </div>
     </section>
 
     <!-- Lluvia en tu sector: estación DMC, hasta su última lectura -->
@@ -263,11 +270,38 @@
   }
 
   <ion-fab slot="fixed" vertical="bottom" horizontal="end">
-    <button class="efab md-label-large" (click)="registerIrrigation()">
+    <button class="efab md-label-large" (click)="openIrrigate()">
       <ion-icon name="water-outline" />Registrar riego
     </button>
   </ion-fab>
 </ion-content>
+
+<!-- Hoja inferior: registrar cuánto se regó -->
+<ion-modal class="md-sheet" [isOpen]="irrigateOpen()" (didDismiss)="irrigateOpen.set(false)" [initialBreakpoint]="0.7" [breakpoints]="[0, 0.7]" [handle]="true">
+  <ng-template>
+    <ion-content class="sheet">
+      <h2 class="md-headline-small">Registrar riego</h2>
+      <p class="md-body-medium md-variant">¿Cuántos minutos regaste? Si fue lo recomendado, solo confirma.</p>
+      <div class="sheet-value">
+        <span class="md-display-small">{{ irrigateMinutes() }} min</span>
+        <span class="md-body-small md-variant">{{ irrigatePreview().water }}</span>
+      </div>
+      <ion-range class="m3-slider" [min]="1" [max]="40" [step]="1" [value]="irrigateMinutes()" aria-label="Minutos de riego"
+                 (ionInput)="irrigateMinutes.set(+$any($event).detail.value)" />
+      <div class="sheet-scale md-body-small md-variant"><span>1 min</span><span>40 min</span></div>
+      <div class="chips-row">
+        @for (m of irrigateOptions(); track m.min) {
+          <button class="chip" [class.on]="irrigateMinutes() === m.min" (click)="irrigateMinutes.set(m.min)">{{ m.label }}</button>
+        }
+      </div>
+      <p class="md-body-medium sheet-left">{{ irrigatePreview().left }}</p>
+      <div class="sheet-actions">
+        <ion-button fill="clear" (click)="irrigateOpen.set(false)">Cancelar</ion-button>
+        <ion-button (click)="applyIrrigate()">Registrar</ion-button>
+      </div>
+    </ion-content>
+  </ng-template>
+</ion-modal>
 
 <!-- Hoja inferior: ajuste manual con vista previa -->
 <ion-modal class="md-sheet" [isOpen]="adjustOpen()" (didDismiss)="adjustOpen.set(false)" [initialBreakpoint]="0.8" [breakpoints]="[0, 0.8]" [handle]="true">
