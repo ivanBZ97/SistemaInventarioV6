@@ -498,7 +498,7 @@ export class SettingsPage implements OnInit {
       this.background.status(),
       this.notifications.checkStatus().catch(() => null),
       this.engine.plan(true).catch(() => [] as PlannedNotification[]),
-      this.updates.check(force).catch(() => undefined),
+      this.updates.check(force), // nunca falla
     ]);
     this.statusAt.set(Date.now());
     this.runner.set(runner);

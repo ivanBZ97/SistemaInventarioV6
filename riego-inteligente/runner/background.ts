@@ -15,7 +15,6 @@ import {
   type DmcStore,
   backgroundStationMaxAgeMs,
   loadStationData,
-  savedLiveRain,
   storeChanged,
   withLiveRain,
   withStationEt0,
@@ -69,22 +68,11 @@ async function dmcData(cfg: DmcConfig, settings: Settings, today: string, modelD
   const primaryPrev = readStore(DMC_STORE);
   const backupPrev = readStore(DMC_BACKUP_STORE);
   const now = Date.now();
-  // Para decidir cada cuánto consultar: la lluvia de hoy según lo guardado (misma regla de respaldo).
-  const liveNow = savedLiveRain(cfg, settings.latitude, settings.longitude, primaryPrev, backupPrev, today, now);
+  const base = { cfg, auth: settings.dmcAuth, lat: settings.latitude, lon: settings.longitude, elevationM: null, modelDays, today, now, primaryPrev, backupPrev };
+  // Para decidir cada cuánto consultar: la lluvia de hoy según lo guardado, con la misma regla de respaldo.
+  const liveNow = (await loadStationData({ ...base, maxAgeMs: 0, fetch: false })).live;
   const maxAgeMs = backgroundStationMaxAgeMs(now, liveNow, modelDays.find((d) => d.date === today), morningTimeOf(settings));
-  const sd = await loadStationData({
-    cfg,
-    auth: settings.dmcAuth,
-    lat: settings.latitude,
-    lon: settings.longitude,
-    elevationM: null,
-    modelDays,
-    today,
-    now,
-    maxAgeMs,
-    primaryPrev,
-    backupPrev,
-  });
+  const sd = await loadStationData({ ...base, maxAgeMs });
   if (storeChanged(sd.primary, primaryPrev)) CapacitorKV.set(DMC_STORE, JSON.stringify(sd.primary));
   if (storeChanged(sd.backupStore, backupPrev)) CapacitorKV.set(DMC_BACKUP_STORE, JSON.stringify(sd.backupStore));
   return sd;

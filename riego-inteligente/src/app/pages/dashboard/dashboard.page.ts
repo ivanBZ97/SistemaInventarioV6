@@ -118,10 +118,17 @@ export class DashboardPage implements OnInit, OnDestroy {
   });
 
   // ───────────── Recomendación ─────────────
+  /** Hoy se pospuso el riego ("Posponer a mañana"). */
+  readonly snoozed = computed(() => !!this.snap() && this.snap()!.state.snoozedDate === this.snap()!.today);
   readonly status = computed(() => {
     const ev = this.snap()?.evaluation;
     const thr = this.threshold();
     if (!ev) return { cls: 'neutral', icon: 'umbrella-outline', title: 'Sin datos del clima', detail: this.snap()?.error ?? 'Cargando…' };
+    if (ev.status === 'irrigate' && this.snoozed())
+      return {
+        cls: 'neutral', icon: 'time-outline', title: 'Riego pospuesto para mañana',
+        detail: `Hoy no se riega. Mañana se recalcula con el déficit que haya (hoy ${fmt(ev.deficitMm)} mm).`,
+      };
     const patches = ev.overseed === 'patches' ? ' Rocía también los parches sembrados unos 30 s.' : '';
     if (ev.status === 'irrigate') {
       const wind = ev.windWarning ? ` Viento de ${Math.round(ev.windMaxKmh)} km/h: riega temprano.` : '';
@@ -423,18 +430,23 @@ export class DashboardPage implements OnInit, OnDestroy {
   // ───────────── Registrar riego (hoja inferior) ─────────────
   readonly irrigateOpen = signal(false);
   readonly irrigateMinutes = signal(10);
-  /** Minutos recomendados hoy (los que repondrían todo el déficit). */
-  readonly recommendedMinutes = computed(() => Math.max(1, Math.min(40, this.snap()?.evaluation?.minutes ?? 10)));
+  /** true: se registra "lo recomendado", que repone todo el déficit (no los minutos redondeados). */
+  readonly irrigateFull = signal(false);
+  /** Minutos recomendados hoy (los que reponen todo el déficit); null si no hay déficit que reponer. */
+  readonly recommendedMinutes = computed(() => {
+    const min = this.snap()?.evaluation?.minutes ?? 0;
+    return min > 0 ? min : null;
+  });
   readonly irrigateOptions = computed(() => {
     const rec = this.recommendedMinutes();
-    const opts = [{ min: rec, label: `Lo recomendado (${rec} min)` }];
-    for (const m of [5, 10, 15, 20]) if (m !== rec) opts.push({ min: m, label: `${m} min` });
+    const opts = rec ? [{ min: rec, label: `Lo recomendado (${rec} min)`, full: true }] : [];
+    for (const m of [5, 10, 15, 20]) if (m !== rec) opts.push({ min: m, label: `${m} min`, full: false });
     return opts;
   });
   readonly irrigatePreview = computed(() => {
     const s = this.snap();
     const rate = s?.settings.sprinklerRateMmMin ?? 0.6;
-    const mm = this.irrigateMinutes() * rate;
+    const mm = this.irrigateFull() ? this.deficit() : this.irrigateMinutes() * rate;
     const liters = litersFor(mm, s?.settings.lawnAreaM2);
     const left = Math.max(0, this.deficit() - mm);
     return {
@@ -444,16 +456,24 @@ export class DashboardPage implements OnInit, OnDestroy {
   });
 
   openIrrigate(): void {
-    this.irrigateMinutes.set(this.recommendedMinutes());
+    const rec = this.recommendedMinutes();
+    this.irrigateMinutes.set(Math.min(40, rec ?? 10));
+    this.irrigateFull.set(!!rec);
     this.irrigateOpen.set(true);
+  }
+
+  pickIrrigate(min: number, full: boolean): void {
+    this.irrigateMinutes.set(Math.min(40, min));
+    this.irrigateFull.set(full);
   }
 
   /** Riega: la ilustración muestra el aspersor mientras se guarda el registro; se puede deshacer. */
   async applyIrrigate(): Promise<void> {
-    const minutes = this.irrigateMinutes();
+    const full = this.irrigateFull();
+    const minutes = full ? (this.recommendedMinutes() ?? this.irrigateMinutes()) : this.irrigateMinutes();
     this.irrigateOpen.set(false);
     this.hero()?.water();
-    const left = await this.engine.registerIrrigation('manual', minutes);
+    const left = await this.engine.registerIrrigation('manual', full ? undefined : minutes);
     await this.notifications.reschedule();
     await this.background.sync();
     const msg = left > 0 ? `Riego de ${minutes} min registrado. Quedan ${fmt(left)} mm de déficit.` : `Riego de ${minutes} min registrado. El suelo quedó húmedo.`;

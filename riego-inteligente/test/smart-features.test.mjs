@@ -152,7 +152,7 @@ test('cuando la elegida vuelve a publicar, los días que le faltaron siguen con 
     const sd = await dmc.loadStationData({ ...base, now, backupPrev });
     assert.equal(sd.backup, null); // la elegida está al día
     assert.equal(sd.rain.get('2026-10-26'), 6); // el día de la caída, de Talagante…
-    assert.equal(sd.filledFrom?.name, 'Talagante'); // …y se informa de dónde vino
+    assert.equal(sd.rainFilledFrom?.name, 'Talagante'); // …y se informa de dónde vino
     assert.equal(sd.live.sinceMs !== null, true);
     assert.ok(!urls.some((u) => u.includes('/330071'))); // no se consultó la de respaldo
     assert.equal(dmc.storeChanged(sd.backupStore, backupPrev), false); // ni se reescribe
@@ -175,18 +175,28 @@ test('esperar la lluvia tiene límite: si no llega, al día siguiente el pronós
   assert.equal(c.forecastPauses(w[2], 12, 10), true);
 });
 
-test('la lluvia de hoy guardada (para decidir cada cuánto consultar) usa el respaldo solo si es el vigente y está al día', () => {
-  const now = Date.parse('2026-10-27T12:40:00Z');
-  const rf = { field: 'aguaCaida24Horas', kind: 'accumulated' };
-  const store = (code, from, minutes, rain) => dmc.mergeStore(null, code, rf, dmc.rainPoints(series(from, minutes, rain), rf), now);
-  const oldPrimary = store('330160', '2026-10-24T08:00:00Z', 600, () => 0);
-  const wetBackup = store('330071', '2026-10-27T03:00:00Z', 560, (t) => (t.toISOString().startsWith('2026-10-27T11:') ? 0.2 : 0));
-  assert.ok(dmc.savedLiveRain(cfg, -33.7313, -70.7663, oldPrimary, wetBackup, '2026-10-27', now).mm > 0);
-  // Un respaldo de otra estación (p. ej. tras mudarse) no se usa
-  const other = { ...wetBackup, code: '330113' };
-  assert.equal(dmc.savedLiveRain(cfg, -33.7313, -70.7663, oldPrimary, other, '2026-10-27', now).sinceMs, null);
-  // Un respaldo viejo tampoco
-  assert.equal(dmc.savedLiveRain(cfg, -33.7313, -70.7663, oldPrimary, wetBackup, '2026-10-27', now + 6 * 3_600_000).sinceMs, null);
+test('sin consultar (fetch: false): la lluvia de hoy guardada usa el respaldo solo si es el vigente y está al día', async () => {
+  const orig = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; throw new Error('no debería consultar'); };
+  try {
+    const now = Date.parse('2026-10-27T12:40:00Z');
+    const rf = { field: 'aguaCaida24Horas', kind: 'accumulated' };
+    const store = (code, from, minutes, rain) => dmc.mergeStore(null, code, rf, dmc.rainPoints(series(from, minutes, rain), rf), now);
+    const oldPrimary = store('330160', '2026-10-24T08:00:00Z', 600, () => 0);
+    const wetBackup = store('330071', '2026-10-27T03:00:00Z', 560, (t) => (t.toISOString().startsWith('2026-10-27T11:') ? 0.2 : 0));
+    const live = async (o) => (await dmc.loadStationData({ ...base, now, maxAgeMs: 0, fetch: false, primaryPrev: oldPrimary, backupPrev: wetBackup, ...o })).live;
+    assert.ok((await live({})).mm > 0);
+    // Un respaldo de otra estación (p. ej. tras mudarse) no se usa
+    assert.equal((await live({ backupPrev: { ...wetBackup, code: '330113' } })).sinceMs, null);
+    // Un respaldo viejo tampoco
+    assert.equal((await live({ now: now + 6 * 3_600_000 })).sinceMs, null);
+    // Si lo guardado es de otra estación (se cambió de estación), la elegida cuenta como sin datos: se usa el respaldo
+    assert.ok((await live({ primaryPrev: { ...oldPrimary, code: '330999' } })).mm > 0);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = orig;
+  }
 });
 
 test('avisos sin sonido los días que no toca regar (si se pidió); los de riego siguen sonando', () => {
@@ -199,4 +209,15 @@ test('avisos sin sonido los días que no toca regar (si se pidió); los de riego
   const water = c.planNotifications({ state: st({ deficitMm: 9.5 }), weather: w, settings: quiet, now }).notifications[0];
   assert.equal(water.channelId, 'riego-matutino');
   assert.equal(c.planNotifications({ state: st({ deficitMm: 2 }), weather: w, settings: S, now }).notifications[0].channelId, 'riego-matutino');
+});
+
+test('con el pasto muy seco, una lluvia casi segura y abundante hoy igual pausa; una dudosa no', () => {
+  // Umbral 8, déficit 11,5 (más de 8 + 3): hoy 95 % y 20 mm → 11,5 + 2,4 − 16 ≤ 4: no se riega antes del aguacero.
+  const heavy = wx('2026-10-27', { precipitationMm: 20, precipitationProbMax: 95 });
+  assert.equal(c.evaluate(st({ deficitMm: 11.5 }), [heavy], S, '2026-10-27').status, 'paused_rain');
+  // 60 % y 6 mm: no alcanza para seguir esperando con el pasto tan seco.
+  const doubtful = wx('2026-10-27', { precipitationMm: 6, precipitationProbMax: 60 });
+  assert.equal(c.evaluate(st({ deficitMm: 11.5 }), [doubtful], S, '2026-10-27').status, 'irrigate');
+  // Con el pasto apenas sobre el umbral, el pronóstico dudoso sí pausa (regla de siempre).
+  assert.equal(c.evaluate(st({ deficitMm: 9 }), [doubtful], S, '2026-10-27').status, 'paused_rain');
 });

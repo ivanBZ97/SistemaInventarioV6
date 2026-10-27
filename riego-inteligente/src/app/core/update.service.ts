@@ -58,7 +58,9 @@ export class UpdateService {
     }
     const at = Date.now();
     try {
-      const res = await withTimeout(fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } }), TIMEOUT_MS);
+      // AbortSignal.timeout cancela la conexión (si el WebView lo soporta); withTimeout asegura no quedar colgados.
+      const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(TIMEOUT_MS) : undefined;
+      const res = await withTimeout(fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' }, signal }), TIMEOUT_MS);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const release = parseRelease(await withTimeout(res.json(), TIMEOUT_MS));
       this.release.set(release);

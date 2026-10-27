@@ -11,6 +11,7 @@ import {
   correctPastRain,
   reconcileObservedEt0,
   reconcileObservedRain,
+  applyIrrigation,
   buildChart,
   deficitFromHumidity,
   evaluate,
@@ -219,8 +220,8 @@ export class IrrigationEngineService {
 
   // ───────────── Acciones del usuario ─────────────
 
-  /** Estado anterior al último riego registrado, para "Deshacer" (solo en esta sesión). */
-  private beforeIrrigation: { state: WaterState; irrigations: IrrigationEvent[] } | null = null;
+  /** Lo que cambió el último riego registrado, para "Deshacer" (solo en esta sesión). */
+  private beforeIrrigation: { state: WaterState; eventAt: string } | null = null;
 
   /**
    * "Ya regué" / "Registrar riego": sin `minutes` repone todo el déficit actual (lo recomendado); con `minutes`,
@@ -232,30 +233,28 @@ export class IrrigationEngineService {
     // Lo que faltaba reponer ahora: el déficit actual ya descuenta la lluvia caída hoy.
     const current = snap.evaluation?.deficitMm ?? state.deficitMm;
     const mm = minutes === undefined ? current : Math.max(0, minutes) * settings.sprinklerRateMmMin;
-    const left = Math.max(0, current - mm);
+    const watered = applyIrrigation({ ...state, deficitMm: current }, minutes === undefined ? undefined : mm);
     const now = new Date();
     const event: IrrigationEvent = { date: toISODate(now), at: now.toISOString(), mm: Math.round(mm * 10) / 10, source };
-    this.beforeIrrigation = { state, irrigations };
+    this.beforeIrrigation = { state, eventAt: event.at };
     await this.storage.set('irrigations', [...irrigations, event].slice(-200));
-    await this.storage.set('state', {
-      ...state,
-      deficitMm: left,
-      source: 'manual',
-      snoozedDate: undefined,
-      resetDate: event.date,
-      resetAt: now.getTime(),
-    });
+    await this.storage.set('state', { ...watered, snoozedDate: undefined, resetDate: event.date, resetAt: now.getTime() });
     await this.refresh();
-    return left;
+    return watered.deficitMm;
   }
 
-  /** "Deshacer": vuelve al estado anterior al último riego registrado. */
+  /**
+   * "Deshacer": quita el último riego registrado y devuelve el balance a como estaba. Solo revierte lo que cambió el
+   * riego (lo demás, p. ej. qué aviso ya se programó hoy, se conserva).
+   */
   async undoIrrigation(): Promise<boolean> {
     const before = this.beforeIrrigation;
     if (!before) return false;
     this.beforeIrrigation = null;
-    await this.storage.set('irrigations', before.irrigations);
-    await this.storage.set('state', before.state);
+    const { state, irrigations } = await this.loadAll();
+    const { deficitMm, source, snoozedDate, resetDate, resetAt } = before.state;
+    await this.storage.set('irrigations', irrigations.filter((e) => e.at !== before.eventAt));
+    await this.storage.set('state', { ...state, deficitMm, source, snoozedDate, resetDate, resetAt });
     await this.refresh();
     return true;
   }

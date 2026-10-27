@@ -79,7 +79,7 @@
         <ion-button class="md-tonal rec-action" size="small" (click)="openAdjust()">
           <ion-icon slot="start" name="options-outline" />Ajustar humedad
         </ion-button>
-        @if (s.evaluation?.status === 'irrigate') {
+        @if (s.evaluation?.status === 'irrigate' && !snoozed()) {
           <ion-button class="md-tonal rec-action" size="small" (click)="snooze()">
             <ion-icon slot="start" name="time-outline" />Posponer a mañana
           </ion-button>
@@ -287,11 +287,11 @@
         <span class="md-body-small md-variant">{{ irrigatePreview().water }}</span>
       </div>
       <ion-range class="m3-slider" [min]="1" [max]="40" [step]="1" [value]="irrigateMinutes()" aria-label="Minutos de riego"
-                 (ionInput)="irrigateMinutes.set(+$any($event).detail.value)" />
+                 (ionInput)="pickIrrigate(+$any($event).detail.value, false)" />
       <div class="sheet-scale md-body-small md-variant"><span>1 min</span><span>40 min</span></div>
       <div class="chips-row">
         @for (m of irrigateOptions(); track m.min) {
-          <button class="chip" [class.on]="irrigateMinutes() === m.min" (click)="irrigateMinutes.set(m.min)">{{ m.label }}</button>
+          <button class="chip" [class.on]="irrigateMinutes() === m.min && irrigateFull() === m.full" (click)="pickIrrigate(m.min, m.full)">{{ m.label }}</button>
         }
       </div>
       <p class="md-body-medium sheet-left">{{ irrigatePreview().left }}</p>

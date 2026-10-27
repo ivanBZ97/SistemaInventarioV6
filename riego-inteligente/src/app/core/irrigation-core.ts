@@ -126,19 +126,24 @@ export function effectiveRain(precipitationMm: number): number {
  * se riega). Ahorra un riego antes de un día de lluvia.
  */
 export function rainTomorrowCovers(deficitNow: number, etcToday: number, tomorrow: DailyWeather | undefined, thresholdMm: number): boolean {
-  if (!tomorrow || tomorrow.precipitationProbMax < LOOKAHEAD_PROB_PCT || tomorrow.precipitationMm < LOOKAHEAD_MIN_MM) return false;
   const tomorrowStart = deficitNow + etcToday;
   if (tomorrowStart > thresholdMm + LOOKAHEAD_MAX_OVER_MM) return false;
-  return tomorrowStart - effectiveRain(tomorrow.precipitationMm) <= thresholdMm / 2;
+  return rainWillCover(tomorrowStart, tomorrow, thresholdMm);
+}
+
+/** Lluvia casi segura (≥ 70 %), abundante (≥ 5 mm) y que deja el déficit `startMm` bajo la mitad del umbral. */
+function rainWillCover(startMm: number, w: DailyWeather | undefined, thresholdMm: number): boolean {
+  if (!w || w.precipitationProbMax < LOOKAHEAD_PROB_PCT || w.precipitationMm < LOOKAHEAD_MIN_MM) return false;
+  return startMm - effectiveRain(w.precipitationMm) <= thresholdMm / 2;
 }
 
 /**
- * ¿El pronóstico del día pausa el riego? (prob. ≥ 50 % o ≥ 4 mm). Salvo que el pasto ya esté más de 3 mm sobre el
- * umbral: entonces un pronóstico no alcanza para seguir esperando (si la lluvia no llega, el pasto se secaría de
- * más). La lluvia medida o que está cayendo pausa siempre.
+ * ¿El pronóstico del día pausa el riego? (prob. ≥ 50 % o ≥ 4 mm). Con el pasto más de 3 mm sobre el umbral ya no
+ * basta cualquier pronóstico (si la lluvia no llega, se secaría de más): solo pausa una lluvia casi segura y
+ * abundante que, sumando el consumo del día, deje el suelo bien húmedo. La lluvia medida o que cae pausa siempre.
  */
 export function forecastPauses(w: DailyWeather, deficitMm: number, thresholdMm: number): boolean {
-  if (deficitMm > thresholdMm + LOOKAHEAD_MAX_OVER_MM) return false;
+  if (deficitMm > thresholdMm + LOOKAHEAD_MAX_OVER_MM) return rainWillCover(deficitMm + etc(w.et0Mm, w.date), w, thresholdMm);
   return w.precipitationProbMax >= RAIN_PROB_BLOCK_PCT || w.precipitationMm >= RAIN_SUM_BLOCK_MM;
 }
 

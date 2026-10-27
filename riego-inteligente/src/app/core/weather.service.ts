@@ -79,10 +79,10 @@ export class WeatherService {
     const cache = await this.storage.get<WeatherCache | null>('weatherCache', null);
     const sameSpot = !!cache && cache.lat === settings.latitude && cache.lon === settings.longitude;
     const cachedModel = sameSpot && cache?.modelDays ? { days: cache.modelDays, elevationM: cache.elevationM ?? null, fetchedAt: cache.fetchedAt } : null;
-    // offline (vista previa): lo guardado, sin consultar nada ni escribir, salvo que no haya pronóstico guardado.
-    const reuse = offline || (!force && !!cachedModel && Date.now() - Date.parse(cachedModel.fetchedAt) < MODEL_MAX_AGE_MS);
+    // offline (vista previa): la estación no se consulta ni se guarda; el pronóstico se renueva igual que al
+    // programar los avisos (si tiene más de 3 h), para que la vista previa coincida con lo programado.
+    const reuse = !force && !!cachedModel && Date.now() - Date.parse(cachedModel.fetchedAt) < MODEL_MAX_AGE_MS;
     let model = reuse ? cachedModel : null;
-    offline &&= !!cachedModel;
     let inia = model ? cache?.inia : undefined;
     let stale = false;
     if (!model) {
@@ -128,13 +128,13 @@ export class WeatherService {
       if (!offline && storeChanged(sd.primary, primaryPrev)) await this.storage.set('dmcStore', sd.primary);
       if (!offline && storeChanged(sd.backupStore, backupPrev)) await this.storage.set('dmcStoreBackup', sd.backupStore);
       stEt0 = sd.et0;
-      et0Helper = (backup ?? sd.filledFrom)?.name ?? null;
+      et0Helper = sd.et0FilledFrom?.name ?? null;
       correction = sd.correction;
       liveRain = sd.live;
       station = sd.status;
       backup = sd.backup;
       dmc = withDmcRain(model.days, sd.rain, settings.dmc, today);
-      const helper = backup ?? sd.filledFrom;
+      const helper = backup ?? sd.rainFilledFrom;
       if (dmc.source && helper) dmc = { ...dmc, source: `${dmc.source} · respaldo: ${helper.name}` };
     }
     // Lluvia medida en días pasados: estación DMC y, si no hay, INIA Agromet (con clave).
@@ -166,7 +166,7 @@ export class WeatherService {
       station,
       backup,
     };
-    if (offline) return result;
+    if (offline && reuse) return result;
     await this.storage.set<WeatherCache>('weatherCache', {
       fetchedAt: model.fetchedAt,
       lat: settings.latitude,

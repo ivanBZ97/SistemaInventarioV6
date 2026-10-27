@@ -699,8 +699,10 @@ export interface StationData {
   live: LiveRain | null;
   /** Estación de respaldo en uso porque la elegida no publica (null si no hace falta o tampoco publica). */
   backup: StationSource | null;
-  /** Estación de respaldo que aportó lluvia o ET0 de días que a la elegida le faltan (aunque ya publique). */
-  filledFrom: StationSource | null;
+  /** Estación de respaldo que aportó lluvia de días que a la elegida le faltan (aunque ya publique). */
+  rainFilledFrom: StationSource | null;
+  /** Ídem para la ET0. */
+  et0FilledFrom: StationSource | null;
   /** Última consulta a la estación elegida. */
   status: StationStatus;
   primary: DmcStore;
@@ -749,13 +751,15 @@ export async function loadStationData(o: {
   } else {
     backupStore = altPrev; // sin consultar: solo para los días que faltan
   }
-  let filled = 0;
+  let rainFilled = 0;
+  let et0Filled = 0;
   if (alt && backupStore) {
     // Días cerrados que a la elegida le faltan (p. ej. los de una caída ya superada): los de la de respaldo.
-    for (const [day, mm] of observedFromStore(backupStore, alt.code, today)) if (!rain.has(day)) (rain.set(day, mm), filled++);
+    for (const [day, mm] of observedFromStore(backupStore, alt.code, today)) if (!rain.has(day)) (rain.set(day, mm), rainFilled++);
     const altMeta = stationMeta({ ...alt, elevationM: alt.elevationM ?? undefined }, o.lat, o.elevationM);
-    for (const [day, v] of stationEt0(backupStore.met ?? [], altMeta, today)) if (!et0.has(day)) (et0.set(day, v), filled++);
+    for (const [day, v] of stationEt0(backupStore.met ?? [], altMeta, today)) if (!et0.has(day)) (et0.set(day, v), et0Filled++);
   }
+  const altSource = alt ? { code: alt.code, name: alt.name, distanceKm: Math.round(alt.distanceKm * 10) / 10 } : null;
   // El sesgo del pronóstico se mide solo con la estación elegida (no se mezclan estaciones).
   const primary = recordEt0Pairs(store, ownEt0, o.modelDays, today);
   return {
@@ -764,26 +768,12 @@ export async function loadStationData(o: {
     correction: et0Correction(primary.et0Pairs, today),
     live,
     backup,
-    filledFrom: alt && filled ? { code: alt.code, name: alt.name, distanceKm: Math.round(alt.distanceKm * 10) / 10 } : null,
+    rainFilledFrom: rainFilled ? altSource : null,
+    et0FilledFrom: et0Filled ? altSource : null,
     status: { attemptAt: store.attemptAt, ok: store.ok, error: store.error },
     primary,
     backupStore,
   };
-}
-
-/** Lluvia de hoy según lo guardado (sin consultar): de la de respaldo solo si la elegida no publica y aquella sí. */
-export function savedLiveRain(
-  cfg: DmcConfig,
-  lat: number,
-  lon: number,
-  primaryPrev: DmcStore | null,
-  backupPrev: DmcStore | null,
-  today: ISODate,
-  now: number,
-): LiveRain | null {
-  const alt = backupStationFor(cfg.code, lat, lon);
-  const useBackup = storeIsStale(primaryPrev, now) && !!backupPrev && backupPrev.code === alt?.code && !storeIsStale(backupPrev, now);
-  return useBackup ? liveRainFromStore(backupPrev, backupPrev!.code, today, now) : liveRainFromStore(primaryPrev, cfg.code, today, now);
 }
 
 /** ¿Hay que guardar el almacén? Solo si hubo consulta nueva o cambiaron los pares de ET0 (evita escribir cada 5 min). */
