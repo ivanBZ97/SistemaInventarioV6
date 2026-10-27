@@ -147,9 +147,49 @@ export function forecastPauses(w: DailyWeather, deficitMm: number, thresholdMm: 
   return w.precipitationProbMax >= RAIN_PROB_BLOCK_PCT || w.precipitationMm >= RAIN_SUM_BLOCK_MM;
 }
 
-/** Lluvia del día: la ya medida hoy por la estación manda si supera a la pronosticada. */
+/** Hora local con fracción (13:30 → 13,5). */
+const hourOf = (ms: number) => {
+  const d = new Date(ms);
+  return d.getHours() + d.getMinutes() / 60;
+};
+
+/** Lluvia pronosticada entre dos horas locales del día (con fracción), según el pronóstico por hora. */
+function forecastBetween(hourly: number[], from: number, to: number): number {
+  let mm = 0;
+  for (let h = 0; h < 24; h++) mm += (hourly[h] ?? 0) * Math.max(0, Math.min(h + 1, to) - Math.max(h, from));
+  return mm;
+}
+
+/**
+ * Lo que falta de hoy según el pronóstico por hora, desde la última lectura de la estación (null si no hay
+ * lecturas de hoy o no hay pronóstico por hora). La probabilidad del día solo cuenta si aún se espera ≥ 1 mm.
+ */
+export function forecastLeft(w: DailyWeather): { mm: number; probPct: number } | null {
+  const live = w.live && w.live.date === w.date && w.live.sinceMs !== null ? w.live : null;
+  if (!live || !w.hourlyRainMm) return null;
+  const mm = Math.round(forecastBetween(w.hourlyRainMm, hourOf(live.lastAtMs), 24) * 10) / 10;
+  return { mm, probPct: mm >= 1 ? w.precipitationProbMax : 0 };
+}
+
+/**
+ * Lluvia del día. Hoy, con estación: lo medido hasta la última lectura + lo pronosticado para las horas que faltan
+ * (y para las de la madrugada sin lecturas, si las hay): así una lluvia pronosticada que no cayó deja de contar.
+ * Sin pronóstico por hora, la medida manda si supera a la pronosticada.
+ */
 export function dayRain(w: DailyWeather): number {
-  return w.live && w.live.date === w.date && w.live.sinceMs !== null ? Math.max(w.precipitationMm, w.live.mm) : w.precipitationMm;
+  const live = w.live && w.live.date === w.date && w.live.sinceMs !== null ? w.live : null;
+  if (!live) return w.precipitationMm;
+  if (!w.hourlyRainMm) return Math.max(w.precipitationMm, live.mm);
+  const midnight = new Date(live.sinceMs!);
+  midnight.setHours(0, 0, 0, 0);
+  const unmeasured = live.sinceMs! - midnight.getTime() > 10 * 60_000 ? forecastBetween(w.hourlyRainMm, 0, hourOf(live.sinceMs!)) : 0;
+  return Math.round((unmeasured + live.mm + forecastBetween(w.hourlyRainMm, hourOf(live.lastAtMs), 24)) * 10) / 10;
+}
+
+/** El pronóstico de hoy que sirve para decidir: con estación, solo lo que falta del día. */
+function forecastToday(w: DailyWeather): DailyWeather {
+  const left = forecastLeft(w);
+  return left ? { ...w, precipitationMm: left.mm, precipitationProbMax: left.probPct } : w;
 }
 
 /**
@@ -306,7 +346,8 @@ export function evaluate(
   // La lluvia que ya cayó hoy está en el suelo: baja el déficit actual y el riego que corresponde.
   const deficit = Math.max(0, rolled.deficitMm - effectiveRain(m.afterReset));
   const threshold = thresholdFor(state, settings, date);
-  const forecastBlock = forecastPauses(today, deficit, threshold);
+  const left = forecastLeft(today);
+  const forecastBlock = forecastPauses(forecastToday(today), deficit, threshold);
   const measuredBlock = (m.measured ?? 0) >= RAIN_SUM_BLOCK_MM;
   const needs = deficit >= threshold;
   const etcToday = etc(today.et0Mm, date);
@@ -328,6 +369,7 @@ export function evaluate(
     tempMaxC: today.tempMaxC,
     rainProbPct: today.precipitationProbMax,
     rainForecastMm: today.precipitationMm,
+    rainForecastLeftMm: left?.mm ?? null,
     rainMeasuredMm: m.measured,
     rainingNow: m.rainingNow,
     rainBlockReason: measuredBlock ? 'measured' : m.rainingNow ? 'raining' : forecastBlock ? 'forecast' : waitBlock ? 'tomorrow' : null,
@@ -416,7 +458,7 @@ export function forecastNextIrrigation(
     const rainMm = m ? Math.max(0, dayRain(w) - m.beforeReset) : w.precipitationMm;
     const current = m ? Math.max(0, deficit - effectiveRain(m.afterReset)) : deficit;
     const threshold = thresholdFor(state, settings, w.date);
-    let rainBlock = forecastPauses(w, current, threshold) || (!!m && ((m.measured ?? 0) >= RAIN_SUM_BLOCK_MM || m.rainingNow));
+    let rainBlock = forecastPauses(m ? forecastToday(w) : w, current, threshold) || (!!m && ((m.measured ?? 0) >= RAIN_SUM_BLOCK_MM || m.rainingNow));
     const etcMm = etc(w.et0Mm, w.date);
     const seedbed = overseedActive(state, w.date) && overseedArea(state) === 'full';
     const waitForRain = !rainBlock && !seedbed && current >= threshold && rainTomorrowCovers(current, etcMm, future[i + 1], threshold);

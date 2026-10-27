@@ -221,3 +221,46 @@ test('con el pasto muy seco, una lluvia casi segura y abundante hoy igual pausa;
   // Con el pasto apenas sobre el umbral, el pronóstico dudoso sí pausa (regla de siempre).
   assert.equal(c.evaluate(st({ deficitMm: 9 }), [doubtful], S, '2026-10-27').status, 'paused_rain');
 });
+
+// ───────────── Lluvia de hoy: medida + lo que falta según el pronóstico por hora ─────────────
+
+import { parseForecast } from '../src/app/core/open-meteo.ts';
+
+test('pronóstico por hora: cada valor es la lluvia de la hora anterior (mediana de los modelos)', () => {
+  const time = ['2026-10-26T00:00', '2026-10-26T14:00', '2026-10-26T15:00', '2026-10-27T00:00'];
+  const days = parseForecast({
+    daily: { time: ['2026-10-26'], precipitation_sum_ecmwf_ifs025: [3], precipitation_sum_gfs_seamless: [3], precipitation_sum_icon_seamless: [9] },
+    hourly: {
+      time,
+      precipitation_ecmwf_ifs025: [0.5, 1, 2, 0.4],
+      precipitation_gfs_seamless: [0.5, 1, 1, 0.4],
+      precipitation_icon_seamless: [9, 9, 9, 9],
+    },
+  });
+  const h = days[0].hourlyRainMm;
+  assert.equal(h[13], 1); // 14:00 → de 13 a 14
+  assert.equal(h[14], 2); // mediana de 2, 1, 9
+  assert.equal(h[23], 0.4); // 00:00 del 27 → de 23 a 24 del 26
+  assert.equal(h[0], 0); // 00:00 del 26 es del día 25
+});
+
+test('lluvia fantasma: pronóstico de 8,6 mm por la tarde, la estación midió 0 hasta las 22:15 → hoy cuenta ~0', () => {
+  const hourly = new Array(24).fill(0);
+  for (let h = 14; h < 20; h++) hourly[h] = 8.6 / 6;
+  const at = (h, m = 0) => new Date(2026, 9, 26, h, m).getTime();
+  const live = { date: '2026-10-26', mm: 0, sinceMs: at(0), lastAtMs: at(22, 15), lastHourMm: 0, rainingNow: false, hourly: [], steps: [] };
+  const today = wx('2026-10-26', { precipitationMm: 8.6, precipitationProbMax: 86, hourlyRainMm: hourly, live });
+  assert.equal(c.dayRain(today), 0);
+  const ev = c.evaluate(st({ deficitMm: 9, asOf: '2026-10-26' }), [today, wx('2026-10-27')], S, '2026-10-26');
+  assert.equal(ev.rainForecastLeftMm, 0);
+  assert.equal(ev.status, 'irrigate'); // ya no la frena una lluvia que no cayó
+  assert.ok(ev.projectedDeficitMm > 9); // y mañana el déficit sube en vez de "0 mm"
+  // A las 06:00, con la lluvia aún por venir, sí se espera
+  const morning = { ...today, live: { ...live, lastAtMs: at(6) } };
+  assert.ok(Math.abs(c.dayRain(morning) - 8.6) < 0.05);
+  assert.equal(c.evaluate(st({ deficitMm: 9, asOf: '2026-10-26' }), [morning, wx('2026-10-27')], S, '2026-10-26').status, 'paused_rain');
+  // Lecturas recién desde las 06:49: la lluvia pronosticada de madrugada (sin medir) sí cuenta
+  const early = hourly.slice(); early[3] = 2;
+  const late = { ...today, hourlyRainMm: early, live: { ...live, sinceMs: at(6, 49) } };
+  assert.equal(c.dayRain(late), 2);
+});

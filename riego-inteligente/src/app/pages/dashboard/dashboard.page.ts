@@ -60,8 +60,11 @@ const clock = (t: number) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-/** Con la app abierta: lluvia de la estación cada 5 min (publica cada minuto, con ~25 min de atraso). */
-const LIVE_REFRESH_MS = 5 * 60_000;
+/**
+ * Con la app abierta: lluvia de la estación cada 10 min. Publica con ~25–30 min de atraso y cada consulta pesa
+ * ~0,5 MB (12 h de lecturas), así que consultar más seguido gasta datos sin ganar mucho.
+ */
+const LIVE_REFRESH_MS = 10 * 60_000;
 
 @Component({
   selector: 'app-dashboard',
@@ -99,11 +102,17 @@ export class DashboardPage implements OnInit, OnDestroy {
   readonly deficit = computed(() => this.snap()?.evaluation?.deficitMm ?? this.snap()?.state.deficitMm ?? 0);
   readonly humidity = computed(() => Math.round(this.snap()?.evaluation?.humidityPct ?? 100));
   readonly mood = computed(() => lawnMood(this.humidity(), this.snap()?.evaluation?.status ?? 'ok'));
-  readonly scene = computed(() => {
+  /** La evaluación con el pronóstico de lluvia de lo que queda de hoy (si la estación ya midió parte del día). */
+  private readonly evNow = computed(() => {
     const ev = this.snap()?.evaluation;
+    if (!ev || ev.rainForecastLeftMm === null) return ev ?? null;
+    return { ...ev, rainForecastMm: ev.rainForecastLeftMm, rainProbPct: ev.rainForecastLeftMm >= 1 ? ev.rainProbPct : 0 };
+  });
+  readonly scene = computed(() => {
+    const ev = this.evNow();
     return ev ? lawnScene(ev) : 'sun';
   });
-  readonly messages = computed(() => lawnMessages(this.mood(), this.scene(), this.snap()?.evaluation ?? null));
+  readonly messages = computed(() => lawnMessages(this.mood(), this.scene(), this.evNow()));
   readonly level = computed(() => (this.humidity() >= 60 ? 'good' : this.humidity() >= 40 ? 'warn' : 'bad'));
   /** Umbral de hoy: el de Ajustes, o el de siembra (2 mm) si hay Resiembra de todo el jardín. */
   readonly threshold = computed(() => this.snap()?.evaluation?.thresholdMm ?? this.snap()?.settings.thresholdMm ?? 8);
@@ -164,7 +173,10 @@ export class DashboardPage implements OnInit, OnDestroy {
     if (ev.status === 'paused_rain')
       return {
         cls: 'neutral', icon: 'umbrella-outline', title: 'Riego en pausa por lluvia',
-        detail: `${Math.round(ev.rainProbPct)}% de probabilidad · ${fmt(ev.rainForecastMm)} mm previstos hoy.`,
+        detail:
+          ev.rainForecastLeftMm !== null
+            ? `${Math.round(ev.rainProbPct)}% de probabilidad · ${fmt(ev.rainForecastLeftMm)} mm previstos para lo que queda de hoy.`
+            : `${Math.round(ev.rainProbPct)}% de probabilidad · ${fmt(ev.rainForecastMm)} mm previstos hoy.`,
       };
     const fell = ev.rainMeasuredMm ?? 0;
     return {
@@ -230,7 +242,11 @@ export class DashboardPage implements OnInit, OnDestroy {
       since: r.sinceMs !== null && r.sinceMs > midnight + 10 * 60_000 ? clock(r.sinceMs) : null,
       // Con datos viejos, "la última hora" sería la de ayer: no se muestra.
       lastHour: chip === 'stale' ? null : fmt(r.lastHourMm),
-      forecast: ev ? `${fmt(ev.rainForecastMm)} mm (${Math.round(ev.rainProbPct)} %)` : null,
+      forecast: !ev
+        ? null
+        : ev.rainForecastLeftMm !== null
+          ? `Pronóstico para el resto del día: ${fmt(ev.rainForecastLeftMm)} mm`
+          : `Pronóstico para hoy: ${fmt(ev.rainForecastMm)} mm (${Math.round(ev.rainProbPct)} %)`,
       bars: r.hourly.map((mm, h) => ({ h, mm, pct: mm > 0 ? Math.max(8, (mm / max) * 100) : 0, future: h > hourNow })),
     };
   });
@@ -293,7 +309,9 @@ export class DashboardPage implements OnInit, OnDestroy {
     if (!ev) return [];
     return [
       { icon: 'thermometer-outline', label: 'Temp. máxima', value: `${Math.round(ev.tempMaxC)}°`, note: 'Hoy' },
-      { icon: 'rainy-outline', label: 'Lluvia prevista', value: `${fmt(ev.rainForecastMm)} mm`, note: `${Math.round(ev.rainProbPct)}% de prob.` },
+      ev.rainForecastLeftMm !== null
+        ? { icon: 'rainy-outline', label: 'Lluvia prevista', value: `${fmt(ev.rainForecastLeftMm)} mm`, note: `lo que falta de hoy (el día: ${fmt(ev.rainForecastMm)} mm)` }
+        : { icon: 'rainy-outline', label: 'Lluvia prevista', value: `${fmt(ev.rainForecastMm)} mm`, note: `${Math.round(ev.rainProbPct)}% de prob.` },
       {
         icon: 'flag-outline', label: 'Viento máx.', value: `${Math.round(ev.windMaxKmh)} km/h`,
         note: ev.windWarning ? 'Fuerte: riega temprano' : 'Normal', warn: ev.windWarning,

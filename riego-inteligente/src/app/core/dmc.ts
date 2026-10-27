@@ -835,8 +835,8 @@ export function withLiveRain(days: DailyWeather[], live: LiveRain | null, today:
 }
 
 /**
- * Cada cuánto consultar la estación en segundo plano (cada consulta trae ~12 h): cada 30 min si llueve, si se
- * pronostica lluvia o en la hora y media antes del aviso de la mañana; si no, cada 2 h.
+ * Cada cuánto consultar la estación en segundo plano (cada consulta trae ~12 h y pesa ~0,5 MB): cada 30 min si
+ * llueve, si se pronostica lluvia o en la hora y media antes del aviso de la mañana; si no, cada 3 h.
  */
 export function backgroundStationMaxAgeMs(
   now: number,
@@ -848,7 +848,7 @@ export function backgroundStationMaxAgeMs(
   const likely = !!today && (today.precipitationMm >= 1 || today.precipitationProbMax >= 30);
   const alertAt = atTime(toISODate(new Date(now)), morning).getTime();
   const beforeAlert = now >= alertAt - 90 * 60_000 && now < alertAt;
-  return wet || likely || beforeAlert ? 30 * 60_000 : 2 * 3_600_000;
+  return wet || likely || beforeAlert ? 30 * 60_000 : 3 * 3_600_000;
 }
 
 // ───────────── Diagnóstico ("Probar") ─────────────
@@ -981,6 +981,22 @@ export async function diagnoseDmc(
             ? ` Última lectura${lastAt ? ` (${hhmm(lastAt.getTime())})` : ''}: ${c(n(mf.temp))} °C · ${c(n(mf.rh))} % HR · ${c(n(mf.rad))} W/m² · viento ${wind === null ? '?' : c(Math.round(wind * WIND_TO_MS[mf.windUnit] * 10) / 10)} m/s.`
             : ''),
       );
+      // Campos presentes pero vacíos: la estación no está midiendo eso (sensor caído); la ET0 sale del pronóstico.
+      const empty = (
+        [
+          [mf.temp, 'temperatura'],
+          [mf.rh, 'humedad'],
+          [mf.rad, 'radiación'],
+          [mf.wind, 'viento'],
+        ] as const
+      ).filter(([k]) => !f.samples.some((s) => unitNumber(s[k]) !== null));
+      if (empty.length) {
+        const raw = JSON.stringify(f.samples[f.samples.length - 1]?.[empty[0][0]] ?? null).slice(0, 20);
+        lines.push(
+          `⚠ ET0 · ninguna de las ${f.samples.length} lecturas trae ${empty.map(([, name]) => name).join(', ')} (llega ${raw}): ` +
+            'la estación no lo está midiendo, así que por ahora la ET0 sale del pronóstico.',
+        );
+      }
     } else {
       lines.push(`ET0 · faltan campos: ${met.missing.join(', ')}. Disponibles: ${met.keys.slice(0, 16).join(', ')}.`);
     }

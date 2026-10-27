@@ -62,7 +62,7 @@ const readStore = (key: string): DmcStore | null => {
 /**
  * Datos medidos por la estación DMC (cada consulta trae ~12 h y se acumulan): lluvia y ET0 FAO-56 de los días
  * cerrados, corrección del pronóstico de ET0 y lluvia de hoy hasta la última lectura; si la elegida no publica,
- * de la de respaldo. Consulta cada 30 min si llueve, si se pronostica lluvia o antes del aviso; si no, cada 2 h.
+ * de la de respaldo. Consulta cada 30 min si llueve, si se pronostica lluvia o antes del aviso; si no, cada 3 h.
  */
 async function dmcData(cfg: DmcConfig, settings: Settings, today: string, modelDays: DailyWeather[]) {
   const primaryPrev = readStore(DMC_STORE);

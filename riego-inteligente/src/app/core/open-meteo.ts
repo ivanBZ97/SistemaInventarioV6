@@ -1,4 +1,5 @@
 import type { DailyWeather } from './models';
+import { addDays } from './irrigation-core';
 
 export const OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast';
 
@@ -10,7 +11,7 @@ export function forecastUrl(lat: number, lon: number): string {
     `${OPEN_METEO_URL}?latitude=${lat}&longitude=${lon}` +
     '&daily=et0_fao_evapotranspiration,precipitation_sum,precipitation_probability_max,' +
     'temperature_2m_max,wind_speed_10m_max' +
-    '&hourly=soil_moisture_0_to_7cm&timezone=auto&past_days=2' +
+    '&hourly=precipitation&timezone=auto&past_days=2' +
     `&models=${MODELS.join(',')}`
   );
 }
@@ -19,6 +20,8 @@ interface OpenMeteoResponse {
   elevation?: number;
   /** Con `models=` cada variable llega como `<variable>_<modelo>`; sin él, con su nombre simple. */
   daily: { time: string[]; [key: string]: unknown };
+  /** Horas locales ("2026-10-26T13:00", con timezone=auto). */
+  hourly?: { time: string[]; [key: string]: unknown };
 }
 
 type Series = (number | null)[];
@@ -53,6 +56,7 @@ function mean(values: (number | null | undefined)[]): number | null {
 export function parseForecast(json: OpenMeteoResponse): DailyWeather[] {
   const d = json.daily;
   if (!d?.time) throw new Error('Respuesta de Open-Meteo sin datos diarios');
+  const hourly = hourlyRainByDay(json.hourly);
   const et0 = seriesOf(d, 'et0_fao_evapotranspiration');
   const rain = seriesOf(d, 'precipitation_sum');
   const prob = seriesOf(d, 'precipitation_probability_max');
@@ -68,8 +72,33 @@ export function parseForecast(json: OpenMeteoResponse): DailyWeather[] {
       precipitationProbMax: mean(prob.map((s) => s[i])) ?? proxy,
       tempMaxC: mean(tmax.map((s) => s[i])) ?? 0,
       windMaxKmh: mean(wind.map((s) => s[i])) ?? 0,
+      ...(hourly.has(date) ? { hourlyRainMm: hourly.get(date) } : {}),
     };
   });
+}
+
+/**
+ * Lluvia por hora local de cada día (mediana de los modelos), 24 valores por día: el índice h es la lluvia entre
+ * las h y las h+1. Open-Meteo informa en cada hora lo caído en la hora ANTERIOR (13:00 = de 12:00 a 13:00).
+ */
+function hourlyRainByDay(h: OpenMeteoResponse['hourly']): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  if (!h?.time) return out;
+  const rain = seriesOf(h as OpenMeteoResponse['daily'], 'precipitation');
+  if (!rain.length) return out;
+  h.time.forEach((t, i) => {
+    let date = t.slice(0, 10);
+    let hour = Number(t.slice(11, 13)) - 1;
+    if (hour === -1) {
+      date = addDays(date, -1);
+      hour = 23;
+    }
+    if (!(hour >= 0 && hour < 24)) return;
+    const day = out.get(date) ?? new Array<number>(24).fill(0);
+    day[hour] += median(rain.map((s) => s[i])) ?? 0;
+    out.set(date, day);
+  });
+  return out;
 }
 
 /** Cliente sin dependencias: sirve en la app (fetch del WebView) y en el worker (fetch del runner). */

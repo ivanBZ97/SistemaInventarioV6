@@ -46,10 +46,10 @@ export interface WeatherResult {
 /** El pronóstico cambia poco: se pide cada 3 h. */
 const MODEL_MAX_AGE_MS = 3 * 3_600_000;
 /**
- * Con la app abierta la estación se vuelve a consultar si lo último tiene más de 4 min (el panel refresca cada
- * 5 min): publica una lectura por minuto, con ~25 min de atraso.
+ * Con la app abierta la estación se vuelve a consultar si lo último tiene más de 9 min (el panel refresca cada
+ * 10 min): publica una lectura por minuto, con ~25–30 min de atraso.
  */
-export const STATION_LIVE_MAX_AGE_MS = 4 * 60_000;
+export const STATION_LIVE_MAX_AGE_MS = 9 * 60_000;
 
 @Injectable({ providedIn: 'root' })
 export class WeatherService {

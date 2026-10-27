@@ -158,11 +158,11 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
   últimas ~12 h de cada estación. "Probar" avisa si la estación elegida lleva más de 3 h sin datos y revisa las
   dos siguientes más cercanas.
 - **Lluvia de hoy casi en tiempo real:** la EMA publica una lectura por minuto con ~25 min de atraso. Con la app
-  abierta se consulta cada 5 min (deslizar hacia abajo fuerza la consulta) y la tarjeta "Lluvia en tu sector"
+  abierta se consulta cada 10 min (deslizar hacia abajo fuerza la consulta; cada consulta pesa ~0,5 MB) y la tarjeta "Lluvia en tu sector"
   muestra lo caído hoy hasta la última lectura ("hasta las 18:45"), la lluvia por hora y si está lloviendo
   (≥ 0,5 mm en la última hora, con una lectura de menos de 90 min). En segundo plano el worker consulta cada
   30 min si llueve, si se pronostica lluvia (≥ 1 mm o ≥ 30 %) o en la hora y media antes del aviso de la
-  mañana; si no, cada 2 h. El resumen diario oficial se pide como máximo cada 3 h. "Probar" informa la lluvia
+  mañana; si no, cada 3 h. El resumen diario oficial se pide como máximo cada 3 h. "Probar" informa la lluvia
   de hoy, el atraso de la estación y el tamaño de cada consulta.
 - **ET0 medida con la estación (FAO-56 Penman-Monteith):** con las lecturas por minuto de la EMA
   (`temperatura`, `humedadRelativa`, `radiacionGlobalInst`, `fuerzaDelVientoPromedio10Minutos` en nudos) se

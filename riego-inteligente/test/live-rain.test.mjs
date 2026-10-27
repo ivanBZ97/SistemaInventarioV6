@@ -158,11 +158,11 @@ test('en segundo plano consulta cada 30 min si llueve o se pronostica lluvia, y 
   const morning = { hour: 7, minute: 0 };
   const noon = new Date(2026, 9, 25, 12, 0).getTime();
   const dry = wx('2026-10-25');
-  assert.equal(dmc.backgroundStationMaxAgeMs(noon, null, dry, morning), 2 * 3_600_000);
+  assert.equal(dmc.backgroundStationMaxAgeMs(noon, null, dry, morning), 3 * 3_600_000);
   assert.equal(dmc.backgroundStationMaxAgeMs(noon, null, { ...dry, precipitationProbMax: 40 }, morning), 30 * 60_000);
   assert.equal(dmc.backgroundStationMaxAgeMs(noon, null, { ...dry, precipitationMm: 2 }, morning), 30 * 60_000);
   assert.equal(dmc.backgroundStationMaxAgeMs(new Date(2026, 9, 25, 6, 0).getTime(), null, dry, morning), 30 * 60_000);
-  assert.equal(dmc.backgroundStationMaxAgeMs(new Date(2026, 9, 25, 7, 30).getTime(), null, dry, morning), 2 * 3_600_000);
+  assert.equal(dmc.backgroundStationMaxAgeMs(new Date(2026, 9, 25, 7, 30).getTime(), null, dry, morning), 3 * 3_600_000);
   const wet = { date: '2026-10-25', mm: 2, sinceMs: 0, lastAtMs: noon - 30 * 60_000, lastHourMm: 0, rainingNow: false, hourly: [], steps: [[noon - 2 * 3_600_000, 2]] };
   assert.equal(dmc.backgroundStationMaxAgeMs(noon, wet, dry, morning), 30 * 60_000);
 });
@@ -316,6 +316,20 @@ test('al conectar: revisa las estaciones cercanas, dice cuáles responden y elig
     assert.equal(dmc.bestStation(checks).code, '330071'); // El Milagro no publica → Talagante
     assert.equal(dmc.bestStation(checks.filter((c) => c.health !== 'live')).code, '330113'); // si no hay al día, la con datos de hoy
     assert.equal(dmc.bestStation(checks.filter((c) => c.health === 'stale')), null);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test('si la estación manda la lluvia pero no la temperatura, el diagnóstico lo explica', async () => {
+  const orig = globalThis.fetch;
+  try {
+    const rows = series('2026-10-26T13:41:00Z', 690, () => 0, 10).map((r) => ({
+      ...r, temperatura: null, humedadRelativa: null, radiacionGlobalInst: null, fuerzaDelVientoPromedio10Minutos: null,
+    }));
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ datos: rows }) });
+    const d = await dmc.diagnoseDmc('330160', null, '2026-10-26', Date.parse('2026-10-27T01:44:00Z'));
+    assert.ok(d.lines.some((l) => /⚠ ET0 · ninguna de las 70 lecturas trae temperatura, humedad, radiación, viento \(llega null\)/.test(l)), d.lines.join('\n'));
   } finally {
     globalThis.fetch = orig;
   }

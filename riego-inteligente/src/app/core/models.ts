@@ -112,8 +112,10 @@ export interface DailyWeather {
   precipitationProbMax: number;
   tempMaxC: number;
   windMaxKmh: number;
-  /** Solo hoy: lluvia ya medida por la estación (manda si supera al pronóstico, ver `dayRain`). */
+  /** Solo hoy: lluvia ya medida por la estación (ver `dayRain`). */
   live?: LiveRain;
+  /** Lluvia pronosticada por hora local (24 valores, mediana de los modelos): permite separar lo que falta del día. */
+  hourlyRainMm?: number[];
 }
 
 export interface DayRecord {
@@ -143,6 +145,8 @@ export interface Evaluation {
   tempMaxC: number;
   rainProbPct: number;
   rainForecastMm: number;
+  /** Lluvia pronosticada para lo que queda de hoy (después de la última lectura de la estación), o null. */
+  rainForecastLeftMm: number | null;
   /** Lluvia medida hoy por la estación hasta su última lectura, o null si no hay estación/lecturas. */
   rainMeasuredMm: number | null;
   /** La estación registra lluvia en la última hora. */
