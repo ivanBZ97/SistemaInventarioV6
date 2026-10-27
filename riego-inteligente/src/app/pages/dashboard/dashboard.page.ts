@@ -131,7 +131,12 @@ export class DashboardPage implements OnInit, OnDestroy {
         detail: `Entre 06:30 y 08:30. Déficit acumulado de ${fmt(ev.deficitMm)} mm.${wind}${patches}`,
       };
     }
-    const station = this.snap()?.settings.dmc?.name ?? 'la estación';
+    const station = this.snap()?.backup?.name ?? this.snap()?.settings.dmc?.name ?? 'la estación';
+    if (ev.status === 'paused_rain' && ev.rainBlockReason === 'tomorrow')
+      return {
+        cls: 'neutral', icon: 'umbrella-outline', title: 'Espera la lluvia de mañana',
+        detail: `Mañana se esperan ${fmt(ev.rainTomorrowMm)} mm (${Math.round(ev.rainTomorrowProbPct)} %): reponen el déficit de ${fmt(ev.deficitMm)} mm sin regar hoy. Si no llueve, se riega mañana.`,
+      };
     if (ev.status === 'paused_rain' && ev.rainBlockReason === 'raining')
       return {
         cls: 'neutral', icon: 'rainy-outline', title: 'Está lloviendo en tu sector',
@@ -193,7 +198,11 @@ export class DashboardPage implements OnInit, OnDestroy {
               ? 'la respuesta no trae el dato de lluvia'
               : `la DMC respondió con error (${st.error})`;
     return {
-      station: s.settings.dmc.name,
+      station: s.backup?.name ?? s.settings.dmc.name,
+      // La elegida no publica: se muestra la de respaldo y se explica por qué.
+      backupNote: s.backup
+        ? `${s.settings.dmc.name} no está publicando: se usa ${s.backup.name} (${fmt(s.backup.distanceKm)} km), la siguiente más cercana.`
+        : null,
       mm: fmt(hasToday ? r.mm : 0),
       hasToday,
       anyRain: hasToday && r.mm > 0,
@@ -252,7 +261,15 @@ export class DashboardPage implements OnInit, OnDestroy {
     const i = this.selectedForecast();
     if (i === null || !days[i]) return null;
     const d = days[i];
-    const what = d.irrigate ? 'Día de riego' : d.rainBlock ? 'Riego bloqueado por lluvia' : d.deficitMm >= this.threshold() ? 'Pospuesto' : 'Sin riego';
+    const what = d.irrigate
+      ? 'Día de riego'
+      : d.waitForRain
+        ? 'Sin riego: llueve al día siguiente'
+        : d.rainBlock
+          ? 'Riego bloqueado por lluvia'
+          : d.deficitMm >= this.threshold()
+            ? 'Pospuesto'
+            : 'Sin riego';
     return `${cap(longDateEs(d.date))} · ${what} · déficit ${fmt(d.deficitMm)} mm · lluvia ${fmt(d.rainMm)} mm (${Math.round(d.rainProbPct)}%)`;
   });
 

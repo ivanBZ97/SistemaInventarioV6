@@ -41,6 +41,11 @@ export const RAIN_PROB_BLOCK_PCT = 50;
 export const RAIN_SUM_BLOCK_MM = 4;
 /** Lluvia medida en la última hora desde la que "está lloviendo" (pausa el riego aunque el pronóstico no la vea). */
 export const RAINING_NOW_MM = 0.5;
+/** "Espera la lluvia de mañana": solo si es muy probable (≥ 70 %) y abundante (mediana de los modelos ≥ 5 mm)… */
+export const LOOKAHEAD_PROB_PCT = 70;
+export const LOOKAHEAD_MIN_MM = 5;
+/** …y el pasto aguanta un día más sin pasar 3 mm sobre el umbral. */
+export const LOOKAHEAD_MAX_OVER_MM = 3;
 export const WIND_WARN_KMH = 25;
 export const MIN_EFFECTIVE_RAIN_MM = 2;
 export const EFFECTIVE_RAIN_FACTOR = 0.8;
@@ -112,6 +117,17 @@ export function etc(et0Mm: number, date: ISODate): number {
 /** 80 % de la lluvia si supera 2 mm; lluvias menores se descuentan como 0. */
 export function effectiveRain(precipitationMm: number): number {
   return precipitationMm > MIN_EFFECTIVE_RAIN_MM ? precipitationMm * EFFECTIVE_RAIN_FACTOR : 0;
+}
+
+/**
+ * ¿Conviene no regar hoy porque mañana llueve lo suficiente? La lluvia de mañana tiene que ser muy probable y su
+ * parte útil tiene que reponer todo el déficit de hoy; además, el pasto debe aguantar un día más sin pasar 3 mm
+ * sobre el umbral (si la lluvia no llega, mañana se riega). Ahorra un riego antes de un día de lluvia.
+ */
+export function rainTomorrowCovers(deficitNow: number, etcToday: number, tomorrow: DailyWeather | undefined, thresholdMm: number): boolean {
+  if (!tomorrow || tomorrow.precipitationProbMax < LOOKAHEAD_PROB_PCT || tomorrow.precipitationMm < LOOKAHEAD_MIN_MM) return false;
+  if (deficitNow + etcToday > thresholdMm + LOOKAHEAD_MAX_OVER_MM) return false;
+  return effectiveRain(tomorrow.precipitationMm) >= deficitNow;
 }
 
 /** Lluvia del día: la ya medida hoy por la estación manda si supera a la pronosticada. */
@@ -275,10 +291,15 @@ export function evaluate(
   const forecastBlock =
     today.precipitationProbMax >= RAIN_PROB_BLOCK_PCT || today.precipitationMm >= RAIN_SUM_BLOCK_MM;
   const measuredBlock = (m.measured ?? 0) >= RAIN_SUM_BLOCK_MM;
-  const rainBlock = forecastBlock || measuredBlock || m.rainingNow;
   const threshold = thresholdFor(state, settings, date);
   const needs = deficit >= threshold;
   const etcToday = etc(today.et0Mm, date);
+  const tomorrow = weather.find((w) => w.date === addDays(date, 1));
+  // Mañana llueve lo suficiente: hoy no se riega (salvo siembra de todo el jardín: la semilla no puede secarse).
+  const seedbed = overseedActive(state, date) && overseedArea(state) === 'full';
+  const waitBlock =
+    needs && !forecastBlock && !measuredBlock && !m.rainingNow && !seedbed && rainTomorrowCovers(deficit, etcToday, tomorrow, threshold);
+  const rainBlock = forecastBlock || measuredBlock || m.rainingNow || waitBlock;
   // Para mañana cuenta la lluvia de todo el día, salvo la caída antes de un riego/ajuste de hoy.
   const rainToday = effectiveRain(Math.max(0, dayRain(today) - m.beforeReset));
   return {
@@ -293,7 +314,9 @@ export function evaluate(
     rainForecastMm: today.precipitationMm,
     rainMeasuredMm: m.measured,
     rainingNow: m.rainingNow,
-    rainBlockReason: measuredBlock ? 'measured' : m.rainingNow ? 'raining' : forecastBlock ? 'forecast' : null,
+    rainBlockReason: measuredBlock ? 'measured' : m.rainingNow ? 'raining' : forecastBlock ? 'forecast' : waitBlock ? 'tomorrow' : null,
+    rainTomorrowMm: tomorrow?.precipitationMm ?? 0,
+    rainTomorrowProbPct: tomorrow?.precipitationProbMax ?? 0,
     overseed: overseedActive(state, date) ? overseedArea(state) : null,
     thresholdMm: threshold,
     effectiveRainTodayMm: rainToday,
@@ -331,8 +354,10 @@ export interface ForecastDay {
   rainMm: number;
   effectiveRainMm: number;
   rainProbPct: number;
-  /** El riego se bloquearía ese día por lluvia pronosticada. */
+  /** El riego se bloquearía ese día por lluvia pronosticada (o porque al día siguiente llueve lo suficiente). */
   rainBlock: boolean;
+  /** No se riega porque la lluvia del día siguiente repone el déficit. */
+  waitForRain: boolean;
   /** Día en que tocaría regar. */
   irrigate: boolean;
 }
@@ -368,27 +393,33 @@ export function forecastNextIrrigation(
   let deficit = start;
   let found: ForecastDay | null = null;
   let delayedByRain: ISODate | null = null;
-  for (const w of future) {
+  for (const [i, w] of future.entries()) {
     // Hoy decide igual que la evaluación: déficit actual con la lluvia ya medida y pausa si llovió o llueve.
     const m = w.date === today ? measuredToday(state, w, today) : null;
-    const rainBlock =
+    let rainBlock =
       w.precipitationProbMax >= RAIN_PROB_BLOCK_PCT ||
       w.precipitationMm >= RAIN_SUM_BLOCK_MM ||
       (!!m && ((m.measured ?? 0) >= RAIN_SUM_BLOCK_MM || m.rainingNow));
     const snoozed = state.snoozedDate === w.date;
     const rainMm = m ? Math.max(0, dayRain(w) - m.beforeReset) : w.precipitationMm;
     const current = m ? Math.max(0, deficit - effectiveRain(m.afterReset)) : deficit;
+    const threshold = thresholdFor(state, settings, w.date);
+    const etcMm = etc(w.et0Mm, w.date);
+    const seedbed = overseedActive(state, w.date) && overseedArea(state) === 'full';
+    const waitForRain = !rainBlock && !seedbed && current >= threshold && rainTomorrowCovers(current, etcMm, future[i + 1], threshold);
+    rainBlock ||= waitForRain;
     const day: ForecastDay = {
       date: w.date,
       deficitMm: current,
-      etcMm: etc(w.et0Mm, w.date),
+      etcMm,
       rainMm,
       effectiveRainMm: effectiveRain(rainMm),
       rainProbPct: w.precipitationProbMax,
       rainBlock,
+      waitForRain,
       irrigate: false,
     };
-    if (!found && current >= thresholdFor(state, settings, w.date) && !rainBlock && !snoozed) {
+    if (!found && current >= threshold && !rainBlock && !snoozed) {
       day.irrigate = true;
       found = day;
     }
@@ -515,6 +546,16 @@ export function morningNotification(ev: Evaluation, at: Date): PlannedNotificati
       ...base,
       title: '🌧️ Riego pausado: está lloviendo',
       body: `Déficit de ${round1(ev.deficitMm)} mm, pero está lloviendo en tu sector${measured > 0 ? ` (${round1(measured)} mm hasta ahora)` : ''}.`,
+      actions: false,
+    };
+  }
+  if (ev.status === 'paused_rain' && ev.rainBlockReason === 'tomorrow') {
+    return {
+      ...base,
+      title: '🌧️ Hoy no riegues: mañana llueve',
+      body:
+        `Déficit de ${round1(ev.deficitMm)} mm, pero mañana se esperan ${round1(ev.rainTomorrowMm)} mm ` +
+        `(${Math.round(ev.rainTomorrowProbPct)}% de prob.), suficientes para reponerlo. Si no llueve, se riega mañana.`,
       actions: false,
     };
   }

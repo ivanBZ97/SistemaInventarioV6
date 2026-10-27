@@ -14,13 +14,10 @@ import { applyObservedRain, mergeObservedRain } from '../src/app/core/agromet';
 import {
   type DmcStore,
   backgroundStationMaxAgeMs,
-  et0Correction,
   liveRainFromStore,
-  observedFromStore,
-  recordEt0Pairs,
-  refreshDmcStore,
-  stationEt0,
-  stationMeta,
+  loadStationData,
+  storeChanged,
+  storeIsStale,
   withLiveRain,
   withStationEt0,
 } from '../src/app/core/dmc';
@@ -51,32 +48,41 @@ function load(): Snapshot | null {
 }
 
 const DMC_STORE = 'dmcStore';
+const DMC_BACKUP_STORE = 'dmcStoreBackup';
+
+const readStore = (key: string): DmcStore | null => {
+  const raw = CapacitorKV.get(key)?.value;
+  return raw ? (JSON.parse(raw) as DmcStore) : null;
+};
 
 /**
  * Datos medidos por la estación DMC (cada consulta trae ~12 h y se acumulan): lluvia y ET0 FAO-56 de los días
- * cerrados, corrección del pronóstico de ET0 y lluvia de hoy hasta la última lectura. Consulta cada 30 min si
- * llueve, si se pronostica lluvia o antes del aviso de la mañana; si no, cada 2 h.
+ * cerrados, corrección del pronóstico de ET0 y lluvia de hoy hasta la última lectura; si la elegida no publica,
+ * de la de respaldo. Consulta cada 30 min si llueve, si se pronostica lluvia o antes del aviso; si no, cada 2 h.
  */
 async function dmcData(cfg: DmcConfig, settings: Settings, today: string, modelDays: DailyWeather[]) {
-  const raw = CapacitorKV.get(DMC_STORE)?.value;
-  const prev = raw ? (JSON.parse(raw) as DmcStore) : null;
+  const primaryPrev = readStore(DMC_STORE);
+  const backupPrev = readStore(DMC_BACKUP_STORE);
   const now = Date.now();
-  const maxAge = backgroundStationMaxAgeMs(
+  const liveNow =
+    storeIsStale(primaryPrev, now) && backupPrev ? liveRainFromStore(backupPrev, backupPrev.code, today, now) : liveRainFromStore(primaryPrev, cfg.code, today, now);
+  const maxAgeMs = backgroundStationMaxAgeMs(now, liveNow, modelDays.find((d) => d.date === today), morningTimeOf(settings));
+  const sd = await loadStationData({
+    cfg,
+    auth: settings.dmcAuth,
+    lat: settings.latitude,
+    lon: settings.longitude,
+    elevationM: null,
+    modelDays,
+    today,
     now,
-    liveRainFromStore(prev, cfg.code, today, now),
-    modelDays.find((d) => d.date === today),
-    morningTimeOf(settings),
-  );
-  const { store } = await refreshDmcStore(prev, cfg.code, now, maxAge, false, settings.dmcAuth);
-  const et0 = stationEt0(store.met ?? [], stationMeta(cfg, settings.latitude, null), today);
-  const saved = recordEt0Pairs(store, et0, modelDays, today);
-  if (store !== prev || JSON.stringify(saved.et0Pairs) !== JSON.stringify(prev?.et0Pairs)) CapacitorKV.set(DMC_STORE, JSON.stringify(saved));
-  return {
-    rain: observedFromStore(saved, cfg.code, today),
-    et0,
-    correction: et0Correction(saved.et0Pairs, today),
-    live: liveRainFromStore(saved, cfg.code, today, now),
-  };
+    maxAgeMs,
+    primaryPrev,
+    backupPrev,
+  });
+  if (storeChanged(sd.primary, primaryPrev)) CapacitorKV.set(DMC_STORE, JSON.stringify(sd.primary));
+  if (storeChanged(sd.backupStore, backupPrev)) CapacitorKV.set(DMC_BACKUP_STORE, JSON.stringify(sd.backupStore));
+  return sd;
 }
 
 /** La app envía aquí su estado cada vez que cambia (ver BackgroundService.sync). */

@@ -8,7 +8,7 @@
 import { RAINING_NOW_MM, addDays, atTime, distanceKm, toISODate } from './irrigation-core';
 import { DMC_STATIONS_FALLBACK } from './dmc-stations';
 import { type DailyMet, WIND_10M_TO_2M, et0PenmanMonteith, satVapourPressure } from './fao56';
-import type { DailyWeather, DmcAuth, DmcConfig, ISODate, LiveRain } from './models';
+import type { DailyWeather, DmcAuth, DmcConfig, ISODate, LiveRain, StationStatus } from './models';
 
 const BASE = 'https://climatologia.meteochile.gob.cl/application/productos';
 const SERVICES = 'https://climatologia.meteochile.gob.cl/application/servicios';
@@ -658,6 +658,109 @@ export function withDmcRain(
   };
 }
 
+// ───────────── Estación elegida + estación de respaldo ─────────────
+
+/** Una lectura de más de 3 h indica que la DMC no está recibiendo datos de la estación. */
+export const STALE_STATION_MS = 3 * 3_600_000;
+/** Más lejos que esto, la lluvia de otra estación ya no representa la del jardín: no se usa de respaldo. */
+export const BACKUP_MAX_KM = 25;
+
+/** Estaciones del catastro incluido en la app (no necesita red). */
+export function catalogStations(): DmcStation[] {
+  return DMC_STATIONS_FALLBACK.map(([code, name, latitude, longitude, elevationM]) => ({ code, name, latitude, longitude, elevationM }));
+}
+
+/** Estación de respaldo: la más cercana al jardín después de la elegida, dentro de 25 km. */
+export function backupStationFor(code: string, lat: number, lon: number, stations = catalogStations()): (DmcStation & { distanceKm: number }) | null {
+  const [st] = nearbyDmcStations(stations.filter((s) => s.code !== code), lat, lon, 1);
+  return st && st.distanceKm <= BACKUP_MAX_KM ? st : null;
+}
+
+/** La estación no está publicando: su lectura de lluvia más nueva tiene más de 3 h (o no hay ninguna). */
+export function storeIsStale(store: DmcStore | null, now: number): boolean {
+  const last = store?.pts.length ? store.pts[store.pts.length - 1][0] : null;
+  return last === null || now - last > STALE_STATION_MS;
+}
+
+export interface StationSource {
+  code: string;
+  name: string;
+  distanceKm: number;
+}
+
+/** Lo medido por las estaciones, listo para el balance (lo usan la app y el worker, cada uno con su almacén). */
+export interface StationData {
+  /** Lluvia de días cerrados: de la estación elegida y, para los días que le falten, de la de respaldo. */
+  rain: Map<ISODate, number>;
+  /** ET0 FAO-56 de días cerrados (mismo criterio). */
+  et0: Map<ISODate, number>;
+  correction: { ratio: number; days: number } | null;
+  /** Lluvia de hoy: de la elegida o, si no publica, de la de respaldo. */
+  live: LiveRain | null;
+  /** Estación de respaldo en uso porque la elegida no publica (null si no hace falta o tampoco publica). */
+  backup: StationSource | null;
+  /** Última consulta a la estación elegida. */
+  status: StationStatus;
+  primary: DmcStore;
+  /** Almacén de la de respaldo, si se consultó (para guardarlo). */
+  backupStore: DmcStore | null;
+}
+
+/**
+ * Consulta la estación elegida (si su almacén está viejo) y, si lleva más de 3 h sin publicar, la de respaldo.
+ * Devuelve la lluvia y la ET0 de los días cerrados, la corrección del pronóstico de ET0 y la lluvia de hoy.
+ */
+export async function loadStationData(o: {
+  cfg: DmcConfig;
+  auth?: DmcAuth;
+  lat: number;
+  lon: number;
+  elevationM: number | null;
+  modelDays: DailyWeather[];
+  today: ISODate;
+  now: number;
+  maxAgeMs: number;
+  primaryPrev: DmcStore | null;
+  backupPrev: DmcStore | null;
+}): Promise<StationData> {
+  const { cfg, auth, today, now } = o;
+  const { store } = await refreshDmcStore(o.primaryPrev, cfg.code, now, o.maxAgeMs, false, auth);
+  const rain = observedFromStore(store, cfg.code, today);
+  const et0 = stationEt0(store.met ?? [], stationMeta(cfg, o.lat, o.elevationM), today);
+  let live = liveRainFromStore(store, cfg.code, today, now);
+  let backup: StationSource | null = null;
+  let backupStore: DmcStore | null = null;
+  const alt = storeIsStale(store, now) ? backupStationFor(cfg.code, o.lat, o.lon) : null;
+  if (alt) {
+    backupStore = (await refreshDmcStore(o.backupPrev?.code === alt.code ? o.backupPrev : null, alt.code, now, o.maxAgeMs, false, auth)).store;
+    if (!storeIsStale(backupStore, now)) {
+      backup = { code: alt.code, name: alt.name, distanceKm: Math.round(alt.distanceKm * 10) / 10 };
+      live = liveRainFromStore(backupStore, alt.code, today, now);
+    }
+    // Días cerrados que a la elegida le faltan: los de la de respaldo.
+    for (const [day, mm] of observedFromStore(backupStore, alt.code, today)) if (!rain.has(day)) rain.set(day, mm);
+    const altMeta = stationMeta({ ...alt, elevationM: alt.elevationM ?? undefined }, o.lat, o.elevationM);
+    for (const [day, v] of stationEt0(backupStore.met ?? [], altMeta, today)) if (!et0.has(day)) et0.set(day, v);
+  }
+  const primary = recordEt0Pairs(store, et0, o.modelDays, today);
+  return {
+    rain,
+    et0,
+    correction: et0Correction(primary.et0Pairs, today),
+    live,
+    backup,
+    status: { attemptAt: store.attemptAt, ok: store.ok, error: store.error },
+    primary,
+    backupStore,
+  };
+}
+
+/** ¿Hay que guardar el almacén? Solo si hubo consulta nueva o cambiaron los pares de ET0 (evita escribir cada 5 min). */
+export function storeChanged(next: DmcStore | null, prev: DmcStore | null): boolean {
+  if (!next) return false;
+  return !prev || next.attemptAt !== prev.attemptAt || next.code !== prev.code || JSON.stringify(next.et0Pairs) !== JSON.stringify(prev.et0Pairs);
+}
+
 // ───────────── Lluvia de hoy, casi en tiempo real ─────────────
 
 /** Una lectura más vieja que esto (la DMC publica con ~25 min de atraso) ya no dice si está lloviendo. */
@@ -759,8 +862,6 @@ const ageText = (ms: number) => {
   return min < 120 ? `${min} min` : min < 48 * 60 ? `${Math.round(min / 60)} h` : `${Math.floor(min / 1440)} días`;
 };
 
-/** Una lectura de más de 3 h indica que la DMC no está recibiendo datos de la estación. */
-const STALE_STATION_MS = 3 * 3_600_000;
 
 /** Lectura más nueva (cualquier dato) que entrega la DMC para una estación. */
 async function newestReading(code: string, auth?: DmcAuth): Promise<{ f: RecentFetch; newest: number | null }> {

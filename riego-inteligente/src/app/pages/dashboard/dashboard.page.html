@@ -95,6 +95,9 @@
             Aún no hay lecturas de hoy · última lectura: {{ l.until }}
           }
         </p>
+        @if (l.backupNote) {
+          <p class="md-body-small live-check">{{ l.backupNote }}</p>
+        }
         @if (l.check) {
           <p class="md-body-small live-check">{{ l.check }}</p>
         }

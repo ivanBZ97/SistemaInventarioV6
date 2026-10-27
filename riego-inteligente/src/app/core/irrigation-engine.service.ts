@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { StorageService } from './storage.service';
 import { STATION_LIVE_MAX_AGE_MS, WeatherService } from './weather.service';
+import type { StationSource } from './dmc';
 import { LocationService } from './location.service';
 import { SOIL_SENSOR_PROVIDER } from './soil-sensor.provider';
 import {
@@ -59,6 +60,8 @@ export interface Snapshot {
   liveRain: LiveRain | null;
   /** Última consulta a la estación: si no trae lecturas nuevas, el panel explica por qué. */
   station: StationStatus | null;
+  /** Estación de respaldo en uso porque la elegida lleva más de 3 h sin publicar. */
+  backup: StationSource | null;
   error: string | null;
 }
 
@@ -109,9 +112,10 @@ export class IrrigationEngineService {
     let et0Ratio: number | null = null;
     let liveRain: LiveRain | null = null;
     let station: StationStatus | null = null;
+    let backup: StationSource | null = null;
     let error: string | null = null;
     try {
-      ({ days, stale, elevationM, rainSource, observedRain, observedEt0, et0Source, et0Ratio, liveRain, station } = await this.weather.getForecast(
+      ({ days, stale, elevationM, rainSource, observedRain, observedEt0, et0Source, et0Ratio, liveRain, station, backup } = await this.weather.getForecast(
         settings,
         forceWeather,
         forceWeather ? 60_000 : STATION_LIVE_MAX_AGE_MS,
@@ -171,6 +175,7 @@ export class IrrigationEngineService {
       et0Ratio,
       liveRain,
       station,
+      backup,
       error,
     };
     this.snapshot.set(snap);

@@ -143,8 +143,11 @@ export interface Evaluation {
   rainMeasuredMm: number | null;
   /** La estación registra lluvia en la última hora. */
   rainingNow: boolean;
-  /** Motivo de la pausa: ya llovió lo suficiente, está lloviendo o lo dice el pronóstico. */
-  rainBlockReason: 'measured' | 'raining' | 'forecast' | null;
+  /** Motivo de la pausa: ya llovió lo suficiente, está lloviendo, lo dice el pronóstico de hoy o mañana llueve lo suficiente. */
+  rainBlockReason: 'measured' | 'raining' | 'forecast' | 'tomorrow' | null;
+  /** Pronóstico de mañana (para explicar "espera la lluvia de mañana"). */
+  rainTomorrowMm: number;
+  rainTomorrowProbPct: number;
   /** Modo Resiembra activo ese día y dónde se sembró (null si no está activo). */
   overseed: OverseedArea | null;
   /** Umbral de riego usado ese día (más bajo mientras germina una siembra de todo el jardín). */
