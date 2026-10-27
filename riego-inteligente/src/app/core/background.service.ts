@@ -16,13 +16,13 @@ const RUNNER = { label: 'cl.riego.inteligente.check', event: 'syncState' };
 export class BackgroundService {
   private engine = inject(IrrigationEngineService);
 
-  /** Cómo le fue a la última revisión en segundo plano (null fuera del teléfono o si el worker no responde). */
+  /** Cómo le fue a la última revisión en segundo plano (null fuera del teléfono). */
   async status(): Promise<RunnerStatus | null> {
     if (!Capacitor.isNativePlatform()) return null;
     try {
       return await BackgroundRunner.dispatchEvent<RunnerStatus>({ label: RUNNER.label, event: 'getStatus', details: {} });
-    } catch {
-      return null;
+    } catch (e) {
+      return { lastRunAt: null, ok: false, error: `el worker no respondió (${e instanceof Error ? e.message : e})` };
     }
   }
 

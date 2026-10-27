@@ -16,6 +16,7 @@ import {
   deficitFromHumidity,
   evaluate,
   forecastNextIrrigation,
+  monthSummary,
   overseedActive,
   overseedDaysLeft,
   planNotifications,
@@ -23,7 +24,7 @@ import {
   startOverseed,
   toISODate,
 } from './irrigation-core';
-import type { NextIrrigation, RainOverrides } from './irrigation-core';
+import type { MonthSummary, NextIrrigation, RainOverrides } from './irrigation-core';
 import type {
   ChartDay,
   DailyWeather,
@@ -48,6 +49,8 @@ export interface Snapshot {
   /** Lluvia corregida por el usuario, por día. */
   rainOverrides: RainOverrides;
   chart: ChartDay[];
+  /** Últimos 30 días: riegos, agua y lluvia. */
+  month: MonthSummary;
   overseedDaysLeft: number;
   staleWeather: boolean;
   elevationM: number | null;
@@ -167,6 +170,7 @@ export class IrrigationEngineService {
       rainOverrides,
       next: days.length ? forecastNextIrrigation(state, days, settings, today) : null,
       chart: buildChart(today, history, days, irrigations),
+      month: monthSummary(today, history, irrigations, settings.lawnAreaM2),
       overseedDaysLeft: overseedDaysLeft(state, today),
       staleWeather: stale,
       elevationM,

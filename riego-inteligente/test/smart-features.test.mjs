@@ -113,3 +113,26 @@ test('solo se guarda el almacén si hubo consulta nueva o cambiaron los pares de
   assert.equal(dmc.storeChanged(null, a), false);
   assert.equal(dmc.storeChanged(a, null), true);
 });
+
+// ───────────── Agua usada ─────────────
+
+test('litros: 1 mm en 1 m² es 1 litro; sin superficie no se calcula', () => {
+  assert.equal(c.litersFor(9, 30), 270);
+  assert.equal(c.litersFor(9, undefined), null);
+  assert.equal(c.litersFor(9, 0), null);
+});
+
+test('resumen de 30 días: riegos, agua, lluvia útil y consumo', () => {
+  const history = [
+    { date: '2026-09-20', etcMm: 9, effectiveRainMm: 9 }, // fuera del periodo
+    { date: '2026-10-20', etcMm: 3, effectiveRainMm: 0 },
+    { date: '2026-10-21', etcMm: 3.5, effectiveRainMm: 4 },
+  ];
+  const irrigations = [
+    { date: '2026-09-25', at: '', mm: 8, source: 'manual' },
+    { date: '2026-10-22', at: '', mm: 8.5, source: 'notification' },
+    { date: '2026-10-27', at: '', mm: 9, source: 'manual' },
+  ];
+  const m = c.monthSummary('2026-10-27', history, irrigations, 40);
+  assert.deepEqual(m, { days: 2, irrigations: 2, irrigationMm: 17.5, rainMm: 4, etcMm: 6.5, liters: 700 });
+});

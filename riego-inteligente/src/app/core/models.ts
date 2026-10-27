@@ -6,6 +6,8 @@ export interface Settings {
   thresholdMm: number;
   /** Tasa de precipitación del aspersor en mm/min. */
   sprinklerRateMmMin: number;
+  /** Superficie del pasto en m² (opcional): para expresar los riegos en litros. */
+  lawnAreaM2?: number;
   latitude: number;
   longitude: number;
   /** Hora del aviso matutino "HH:MM" (se limita a la ventana 06:30–08:30). */

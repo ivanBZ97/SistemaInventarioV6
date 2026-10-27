@@ -678,6 +678,41 @@ export function planNotifications({ state, weather, settings, now }: PlanInput):
   return { notifications, morningFor };
 }
 
+// ───────────────────────── Agua usada ─────────────────────────
+
+/** Litros de agua: 1 mm sobre 1 m² es 1 litro. null si no se indicó la superficie. */
+export function litersFor(mm: number, areaM2: number | undefined): number | null {
+  return areaM2 && areaM2 > 0 ? Math.round(mm * areaM2) : null;
+}
+
+export interface MonthSummary {
+  /** Días con balance registrado en el periodo (de los últimos 30). */
+  days: number;
+  irrigations: number;
+  irrigationMm: number;
+  /** Lluvia útil (80 % de la que supera 2 mm). */
+  rainMm: number;
+  /** Lo que consumió el pasto (ETc). */
+  etcMm: number;
+  liters: number | null;
+}
+
+/** Resumen de los últimos 30 días: cuántas veces se regó, cuánta agua se puso y cuánta aportó la lluvia. */
+export function monthSummary(today: ISODate, history: DayRecord[], irrigations: IrrigationEvent[], areaM2?: number): MonthSummary {
+  const from = addDays(today, -30);
+  const days = history.filter((h) => h.date >= from && h.date < today);
+  const irr = irrigations.filter((e) => e.date >= from && e.date <= today);
+  const irrigationMm = irr.reduce((s, e) => s + e.mm, 0);
+  return {
+    days: days.length,
+    irrigations: irr.length,
+    irrigationMm,
+    rainMm: days.reduce((s, d) => s + d.effectiveRainMm, 0),
+    etcMm: days.reduce((s, d) => s + d.etcMm, 0),
+    liters: litersFor(irrigationMm, areaM2),
+  };
+}
+
 // ───────────────────────── Gráfico de 7 días ─────────────────────────
 
 export function buildChart(

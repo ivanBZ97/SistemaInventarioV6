@@ -115,6 +115,12 @@ function whenOf(t: number): string {
             <span slot="end" class="md-body-medium md-variant">mm/min</span>
           </ion-input>
         </div>
+        <div class="field">
+          <ion-input fill="outline" type="number" inputmode="decimal" label="Superficie del pasto (opcional)" labelPlacement="floating"
+                     helperText="Para ver cada riego en litros (1 mm en 1 m² = 1 litro)." [value]="area()" (ionInput)="area.set(+$any($event).detail.value || null)">
+            <span slot="end" class="md-body-medium md-variant">m²</span>
+          </ion-input>
+        </div>
       </div>
 
       <!-- Ubicación -->
@@ -407,6 +413,7 @@ export class SettingsPage implements OnInit {
   readonly max = THRESHOLD_MAX_MM;
   threshold = signal(DEFAULT_SETTINGS.thresholdMm);
   rate = signal(DEFAULT_SETTINGS.sprinklerRateMmMin);
+  area = signal<number | null>(null);
   lat = signal(DEFAULT_SETTINGS.latitude);
   lon = signal(DEFAULT_SETTINGS.longitude);
   placeName = signal<string | undefined>(undefined);
@@ -446,6 +453,7 @@ export class SettingsPage implements OnInit {
     const r = this.runner();
     if (r === undefined) return { level: 'checking', text: 'Consultando…' };
     if (r === null) return { level: 'stale', text: 'Solo se puede revisar en el teléfono.' };
+    if (!r.lastRunAt && r.error) return { level: 'error', text: `No se pudo consultar: ${r.error}.` };
     if (!r.lastRunAt)
       return { level: 'late', text: 'Aún no se ha ejecutado. Android la corre cada ~15 min; si en una hora sigue igual, deja la app sin restricciones de batería.' };
     const age = this.statusAt() - r.lastRunAt;
@@ -502,6 +510,7 @@ export class SettingsPage implements OnInit {
     const s = this.engine.snapshot() ?? (await this.engine.refresh());
     this.threshold.set(s.settings.thresholdMm);
     this.rate.set(s.settings.sprinklerRateMmMin);
+    this.area.set(s.settings.lawnAreaM2 ?? null);
     this.lat.set(s.settings.latitude);
     this.lon.set(s.settings.longitude);
     this.placeName.set(s.settings.placeName);
@@ -769,6 +778,7 @@ export class SettingsPage implements OnInit {
     await this.engine.saveSettings({
       thresholdMm: clamp(this.threshold(), THRESHOLD_MIN_MM, THRESHOLD_MAX_MM),
       sprinklerRateMmMin: rate,
+      lawnAreaM2: (this.area() ?? 0) > 0 ? clamp(this.area()!, 1, 100_000) : undefined,
       latitude: clamp(this.lat(), -90, 90),
       longitude: clamp(this.lon(), -180, 180),
       placeName: this.placeName(),

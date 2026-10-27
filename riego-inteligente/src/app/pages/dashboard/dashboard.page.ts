@@ -36,7 +36,7 @@ import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
-import { humidityPct, longDateEs, round1, toISODate, weekdayEs } from '../../core/irrigation-core';
+import { humidityPct, litersFor, longDateEs, round1, toISODate, weekdayEs } from '../../core/irrigation-core';
 import { LIVE_FRESH_MS } from '../../core/dmc';
 import type { OverseedArea } from '../../core/models';
 import { lawnMessages, lawnMood, lawnScene } from '../../core/lawn-mood';
@@ -130,10 +130,11 @@ export class DashboardPage implements OnInit, OnDestroy {
           title: `Riego de siembra: ${ev.minutes} min`,
           detail: `Riego corto en todo el jardín para mantener húmeda la semilla. Si hace calor, repite a las 13:00.${wind}`,
         };
+      const liters = litersFor(ev.deficitMm, this.snap()?.settings.lawnAreaM2);
       return {
         cls: 'water', icon: 'water-outline',
         title: `Riega ${ev.minutes} minutos hoy`,
-        detail: `Entre 06:30 y 08:30. Déficit acumulado de ${fmt(ev.deficitMm)} mm.${wind}${patches}`,
+        detail: `Entre 06:30 y 08:30. Déficit acumulado de ${fmt(ev.deficitMm)} mm${liters ? ` (≈ ${fmt(liters, 0)} L)` : ''}.${wind}${patches}`,
       };
     }
     const station = this.snap()?.backup?.name ?? this.snap()?.settings.dmc?.name ?? 'la estación';
@@ -303,6 +304,18 @@ export class DashboardPage implements OnInit, OnDestroy {
   });
 
   readonly overseedOn = computed(() => (this.snap()?.overseedDaysLeft ?? 0) > 0);
+
+  /** Últimos 30 días, en cifras (solo si ya hay días registrados). */
+  readonly month = computed(() => {
+    const m = this.snap()?.month;
+    if (!m || (!m.days && !m.irrigations)) return null;
+    return [
+      { label: 'Riegos', value: String(m.irrigations), note: m.irrigations === 1 ? 'vez' : 'veces' },
+      { label: 'Agua de riego', value: `${fmt(m.irrigationMm, 0)} mm`, note: m.liters !== null ? `≈ ${fmt(m.liters, 0)} litros` : 'indica la superficie en Ajustes para ver litros' },
+      { label: 'Lluvia útil', value: `${fmt(m.rainMm, 0)} mm`, note: `en ${m.days} ${m.days === 1 ? 'día registrado' : 'días registrados'}` },
+      { label: 'Consumo del pasto', value: `${fmt(m.etcMm, 0)} mm`, note: 'evapotranspiración (ETc)' },
+    ];
+  });
   readonly overseedArea = computed<OverseedArea>(() => this.snap()?.state.overseedArea ?? 'patches');
   readonly overseedText = computed(() => {
     const left = this.snap()?.overseedDaysLeft ?? 0;

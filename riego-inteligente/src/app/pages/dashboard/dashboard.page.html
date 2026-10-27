@@ -243,6 +243,20 @@
       </div>
     </div>
 
+    <!-- Últimos 30 días -->
+    @if (month(); as m) {
+      <h2 class="section md-title-medium">Últimos 30 días</h2>
+      <div class="tiles">
+        @for (t of m; track t.label) {
+          <div class="tile">
+            <span class="md-label-medium md-variant">{{ t.label }}</span>
+            <span class="md-headline-small">{{ t.value }}</span>
+            <span class="md-body-small md-variant">{{ t.note }}</span>
+          </div>
+        }
+      </div>
+    }
+
     <div class="fab-spacer"></div>
   } @else {
     <div class="md-banner md-body-medium">Calculando balance hídrico…</div>
