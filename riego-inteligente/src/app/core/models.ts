@@ -24,6 +24,8 @@ export interface Settings {
   dmcAuth?: DmcAuth;
   /** Estación agroclimática INIA (lluvia observada). Opcional. */
   agromet?: AgrometConfig;
+  /** Sensor de humedad de suelo Tuya / Smart Life, leído desde la nube de Tuya. Opcional. */
+  soilSensor?: SoilSensorConfig;
   /** false hasta que el usuario elige ubicación (GPS o búsqueda): dispara el aviso de primer arranque. */
   locationSet: boolean;
 }
@@ -44,6 +46,24 @@ export interface DmcAuth {
   user: string;
   /** Token personal que envía la DMC al confirmar la cuenta. Solo se guarda en el teléfono. */
   token: string;
+}
+
+/** Centro de datos de la cuenta de Smart Life (Chile: América oeste). */
+export type TuyaRegion = 'us' | 'ueaz' | 'eu' | 'weaz' | 'cn' | 'in';
+
+export interface SoilSensorConfig {
+  region: TuyaRegion;
+  /** Access ID / Client ID del proyecto en iot.tuya.com. */
+  accessId: string;
+  /** Access Secret / Client Secret. Solo se guarda en el teléfono. */
+  accessSecret: string;
+  /** ID del sensor (en Smart Life: el dispositivo → lápiz → Información del dispositivo → ID virtual). */
+  deviceId: string;
+  /** Calibración: % que marca con el suelo recién regado a fondo (déficit 0) y cuando toca regar (déficit = umbral). */
+  wetPct?: number;
+  dryPct?: number;
+  /** true: su lectura reemplaza al cálculo del balance (requiere calibración). */
+  enabled: boolean;
 }
 
 export interface AgrometConfig {
@@ -196,6 +216,10 @@ export interface SoilReading {
   moisturePct: number;
   takenAt: string;
   source: string;
+  /** Déficit (mm) según la calibración; null si el sensor aún no está calibrado o no se usa en el balance. */
+  deficitMm?: number | null;
+  /** Lo que marca el sensor: humedad del suelo (%), temperatura (°C) y batería (%). */
+  raw?: { soilPct: number | null; tempC: number | null; battery: number | null };
 }
 
 export interface ChartDay {

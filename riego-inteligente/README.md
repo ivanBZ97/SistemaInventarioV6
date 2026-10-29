@@ -191,9 +191,15 @@ GitHub Actions escribe el commit y el número de build en `src/app/core/build-in
 "build N". La app revisa ese release como máximo cada 12 h (1 h si falló) y, si hay uno más nuevo, muestra un aviso
 con el enlace de descarga; el APK nuevo se instala encima porque usa la misma clave.
 
-## Fase 2: sensor de suelo
+## Sensor de suelo (Tuya / Smart Life)
 
-`SoilSensorProvider` (`core/soil-sensor.provider.ts`) define `isAvailable()` y `read(): SoilReading | null`
-(humedad útil 0–100 %). Si devuelve una lectura de menos de 3 h, `IrrigationEngineService` sobrescribe el déficit
-teórico. `TuyaZigbeeSoilSensorProvider` es el esqueleto: impleméntalo y regístralo en `app.config.ts`
-(`{ provide: SOIL_SENSOR_PROVIDER, useClass: TuyaZigbeeSoilSensorProvider }`).
+Ajustes → **Sensor de suelo** lee un sensor Tuya / Smart Life (WiFi o Zigbee) desde la nube de Tuya (OpenAPI,
+`src/app/core/tuya.ts`): firma HMAC-SHA256 propia en JavaScript (`sha256.ts`, también en el worker), token
+(`/v1.0/token`, se reutiliza mientras no vence) y estado del sensor (`/v1.0/devices/{id}`: `humidity`,
+`temp_current`, `battery_percentage` y variantes). Requiere un proyecto gratuito en iot.tuya.com (Smart Home,
+centro de datos de la cuenta; Chile = América oeste) con la API IoT Core y la cuenta de Smart Life vinculada.
+
+Calibración en dos puntos: "Ahora está recién regado" (déficit 0) y "Ahora toca regar" (déficit = umbral); entre
+ambos, proporcional. Con el sensor activado, una lectura de menos de 6 h y posterior al último riego/ajuste
+reemplaza al déficit del balance (en la app cada 10 min como máximo y en el worker cada hora). El panel muestra lo
+que marca el sensor y si está en uso.

@@ -9,7 +9,5 @@ export const appConfig: ApplicationConfig = {
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
     provideIonicAngular({ mode: 'md' }),
     provideRouter(routes, withHashLocation()),
-    // Fase 2 (sensor Tuya Zigbee):
-    // { provide: SOIL_SENSOR_PROVIDER, useClass: TuyaZigbeeSoilSensorProvider },
   ],
 };

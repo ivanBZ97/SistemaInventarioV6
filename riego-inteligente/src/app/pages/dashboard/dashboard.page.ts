@@ -126,6 +126,19 @@ export class DashboardPage implements OnInit, OnDestroy {
     return s.elevationM != null ? `${name} · ${Math.round(s.elevationM)} m` : name;
   });
 
+  /** Lo que marca el sensor de suelo y si se está usando en el balance. */
+  readonly sensorTag = computed(() => {
+    const s = this.snap();
+    if (!s) return null;
+    if (s.sensorError) return 'Sensor de suelo sin conexión';
+    const r = s.sensor;
+    if (!r?.raw || r.raw.soilPct === null) return s.state.source === 'sensor' ? 'Dato de sensor' : null;
+    const min = Math.max(0, Math.round((this.now() - Date.parse(r.takenAt)) / 60_000));
+    const ago = min < 90 ? `hace ${min} min` : `hace ${Math.round(min / 60)} h`;
+    const used = s.state.source === 'sensor' ? ' · en uso' : r.deficitMm == null ? ' · sin calibrar' : '';
+    return `Sensor: ${fmt(r.raw.soilPct)} % (${ago})${used}`;
+  });
+
   // ───────────── Recomendación ─────────────
   /** Hoy se pospuso el riego ("Posponer a mañana"). */
   readonly snoozed = computed(() => !!this.snap() && this.snap()!.state.snoozedDate === this.snap()!.today);

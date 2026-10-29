@@ -19,6 +19,7 @@ import {
   withLiveRain,
   withStationEt0,
 } from '../src/app/core/dmc';
+import { SENSOR_MAX_AGE_MS, type TuyaToken, deficitFromSensor, readTuyaSoil } from '../src/app/core/tuya';
 import type { DailyWeather, DayRecord, DmcConfig, RunnerStatus, Settings, WaterState } from '../src/app/core/models';
 
 declare const CapacitorKV: {
@@ -78,6 +79,31 @@ async function dmcData(cfg: DmcConfig, settings: Settings, today: string, modelD
   return sd;
 }
 
+const SENSOR_EVERY_MS = 60 * 60_000;
+
+/**
+ * Sensor de suelo (si está configurado, calibrado y activado): con una lectura reciente y posterior al último
+ * riego o ajuste, el aviso de la mañana usa la humedad real. Se consulta a Tuya como máximo cada hora.
+ */
+async function withSensor(state: WaterState, settings: Settings, today: string, now: number): Promise<WaterState> {
+  const cfg = settings.soilSensor;
+  if (!cfg?.enabled || !cfg.accessId || !cfg.accessSecret || !cfg.deviceId) return state;
+  const cachedRaw = CapacitorKV.get('sensorReading')?.value;
+  let cached = cachedRaw ? (JSON.parse(cachedRaw) as { at: number; soilPct: number; updatedAt: number }) : null;
+  if (!cached || now - cached.at > SENSOR_EVERY_MS) {
+    const tokRaw = CapacitorKV.get('tuyaToken')?.value;
+    const token = tokRaw ? (JSON.parse(tokRaw) as TuyaToken) : null;
+    const r = await readTuyaSoil(cfg, now, token);
+    if (r.token !== token) CapacitorKV.set('tuyaToken', JSON.stringify(r.token));
+    if (r.status.soilPct === null) return state;
+    cached = { at: now, soilPct: r.status.soilPct, updatedAt: r.status.updatedAt ?? now };
+    CapacitorKV.set('sensorReading', JSON.stringify(cached));
+  }
+  const deficit = deficitFromSensor(cached.soilPct, cfg, settings.thresholdMm);
+  if (deficit === null || now - cached.updatedAt > SENSOR_MAX_AGE_MS || cached.updatedAt <= (state.resetAt ?? 0)) return state;
+  return { ...state, deficitMm: deficit, asOf: today, source: 'sensor', resetDate: today, resetAt: cached.updatedAt };
+}
+
 /** La app envía aquí su estado cada vez que cambia (ver BackgroundService.sync). */
 addEventListener('syncState', (resolve, reject, args) => {
   try {
@@ -122,7 +148,8 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
     if (dmc) weather = withLiveRain(withStationEt0(weather, dmc.et0, dmc.correction, today), dmc.live, today);
     // Días ya contados con lluvia/ET0 del modelo → se corrigen en memoria (la app lo guarda al abrirse).
     const rec = reconcileObservedRain(snap.state, snap.history ?? [], Object.fromEntries(observed), snap.rainOverrides);
-    const { state } = reconcileObservedEt0(rec.state, rec.history, Object.fromEntries(dmc?.et0 ?? []));
+    const reconciled = reconcileObservedEt0(rec.state, rec.history, Object.fromEntries(dmc?.et0 ?? [])).state;
+    const state = await withSensor(reconciled, snap.settings, today, Date.now()).catch(() => reconciled);
     const { notifications, morningFor } = planNotifications({ state, settings: snap.settings, weather, now: new Date() });
     if (notifications.length) {
       CapacitorNotifications.schedule(

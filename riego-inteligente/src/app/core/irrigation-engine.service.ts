@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { StorageService } from './storage.service';
 import { STATION_LIVE_MAX_AGE_MS, WeatherService } from './weather.service';
 import type { StationSource } from './dmc';
+import { SENSOR_MAX_AGE_MS, tuyaErrorText } from './tuya';
 import { LocationService } from './location.service';
 import { SOIL_SENSOR_PROVIDER } from './soil-sensor.provider';
 import {
@@ -13,7 +14,6 @@ import {
   reconcileObservedRain,
   applyIrrigation,
   buildChart,
-  deficitFromHumidity,
   evaluate,
   forecastNextIrrigation,
   monthSummary,
@@ -36,6 +36,7 @@ import type {
   StationStatus,
   PlannedNotification,
   Settings,
+  SoilReading,
   WaterState,
 } from './models';
 
@@ -65,10 +66,12 @@ export interface Snapshot {
   station: StationStatus | null;
   /** Estación de respaldo en uso porque la elegida lleva más de 3 h sin publicar. */
   backup: StationSource | null;
+  /** Última lectura del sensor de suelo (si hay uno configurado) y, si falló, por qué. */
+  sensor: SoilReading | null;
+  sensorError: string | null;
   error: string | null;
 }
 
-const SENSOR_MAX_AGE_MS = 3 * 3_600_000;
 
 /**
  * IrrigationEngineService: orquesta el motor agronómico (reglas puras en irrigation-core.ts)
@@ -150,14 +153,17 @@ export class IrrigationEngineService {
       history.splice(0, history.length, ...trimmed);
     }
 
-    // 2) Fase 2: un sensor real sobrescribe el cálculo teórico.
+    // 2) Sensor de suelo: una lectura reciente, calibrada y posterior al último riego/ajuste reemplaza al cálculo.
+    let sensor: SoilReading | null = null;
+    let sensorError: string | null = null;
     try {
-      const reading = await this.sensor.read();
-      if (reading && Date.now() - Date.parse(reading.takenAt) < SENSOR_MAX_AGE_MS) {
-        state = { ...state, deficitMm: deficitFromHumidity(reading.moisturePct), source: 'sensor', resetDate: today, resetAt: Date.parse(reading.takenAt) };
+      sensor = await this.sensor.read(settings, forceWeather);
+      const at = sensor ? Date.parse(sensor.takenAt) : 0;
+      if (sensor && sensor.deficitMm != null && Date.now() - at < SENSOR_MAX_AGE_MS && at > (state.resetAt ?? 0)) {
+        state = { ...state, deficitMm: sensor.deficitMm, source: 'sensor', resetDate: today, resetAt: at };
       }
-    } catch {
-      /* sensor caído: se mantiene el balance teórico */
+    } catch (e) {
+      sensorError = tuyaErrorText(e); // sensor caído: se mantiene el balance teórico
     }
     await this.storage.set('state', state);
 
@@ -180,6 +186,8 @@ export class IrrigationEngineService {
       liveRain,
       station,
       backup,
+      sensor,
+      sensorError,
       error,
     };
     this.snapshot.set(snap);

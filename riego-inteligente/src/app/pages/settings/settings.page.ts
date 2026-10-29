@@ -17,7 +17,7 @@ import {
 import { addIcons } from 'ionicons';
 import {
   alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline, downloadOutline, informationCircleOutline,
+  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
 } from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
@@ -41,7 +41,9 @@ import {
   stationsToCheck,
 } from '../../core/dmc';
 import { StorageService } from '../../core/storage.service';
-import type { AgrometConfig, DmcAuth, DmcConfig, PlannedNotification, RunnerStatus } from '../../core/models';
+import type { AgrometConfig, DmcAuth, DmcConfig, PlannedNotification, RunnerStatus, SoilReading, SoilSensorConfig, TuyaRegion } from '../../core/models';
+import { SOIL_SENSOR_PROVIDER } from '../../core/soil-sensor.provider';
+import { TUYA_REGIONS, tuyaErrorText } from '../../core/tuya';
 import { UpdateService } from '../../core/update.service';
 import { APK_URL } from '../../core/update';
 import { BUILD_INFO } from '../../core/build-info';
@@ -250,6 +252,57 @@ function whenOf(t: number): string {
         </div>
       </div>
 
+      <!-- Sensor de suelo Tuya / Smart Life -->
+      <h2 class="section md-title-small">Sensor de suelo</h2>
+      <div class="card">
+        <p class="md-body-medium md-variant intro">
+          Sensor Tuya / Smart Life leído desde la nube de Tuya. Necesita un proyecto gratuito en iot.tuya.com con tu
+          cuenta de Smart Life vinculada (Access ID y Access Secret en «Overview»). Las claves se guardan solo en este teléfono.
+        </p>
+        <div class="chips" role="radiogroup" aria-label="Centro de datos de tu cuenta">
+          @for (r of tuyaRegions; track r.id) {
+            <button class="chip" role="radio" [class.on]="tuyaRegion() === r.id" [attr.aria-checked]="tuyaRegion() === r.id" (click)="tuyaRegion.set(r.id)">
+              @if (tuyaRegion() === r.id) { <ion-icon name="checkmark-outline" /> }{{ r.label }}
+            </button>
+          }
+        </div>
+        <div class="field two">
+          <ion-input fill="outline" label="Access ID" labelPlacement="floating" [value]="tuyaId()" (ionInput)="tuyaId.set($any($event).detail.value ?? '')" />
+          <ion-input fill="outline" type="password" label="Access Secret" labelPlacement="floating" [value]="tuyaSecret()" (ionInput)="tuyaSecret.set($any($event).detail.value ?? '')" />
+        </div>
+        <div class="field">
+          <ion-input fill="outline" label="ID del sensor" labelPlacement="floating" helperText="Smart Life → el sensor → lápiz → Información del dispositivo → ID virtual"
+                     [value]="tuyaDevice()" (ionInput)="tuyaDevice.set($any($event).detail.value ?? '')" />
+        </div>
+        <div class="chips">
+          <button class="chip" (click)="testSensor()" [disabled]="sensorBusy()"><ion-icon name="pulse-outline" />{{ sensorBusy() ? 'Consultando…' : 'Probar sensor' }}</button>
+        </div>
+        @if (sensorReport(); as r) {
+          <div class="md-body-small report" [class.err]="r.error">
+            @for (l of r.lines; track $index) { <p>{{ l }}</p> }
+          </div>
+        }
+        <div class="divider"></div>
+        <div class="row">
+          <div class="li-icon"><ion-icon name="leaf-outline" /></div>
+          <div class="li-text">
+            <span class="md-body-large">Calibración</span>
+            <span class="md-body-medium md-variant">{{ calibrationText() }}</span>
+          </div>
+        </div>
+        <div class="chips">
+          <button class="chip" (click)="calibrate('wet')" [disabled]="sensorBusy()"><ion-icon name="water-outline" />Ahora está recién regado</button>
+          <button class="chip" (click)="calibrate('dry')" [disabled]="sensorBusy()"><ion-icon name="alarm-outline" />Ahora toca regar</button>
+        </div>
+        <div class="row">
+          <div class="li-text">
+            <span class="md-body-large">Usar el sensor en el balance</span>
+            <span class="md-body-medium md-variant">Su lectura reemplaza al cálculo (necesita la calibración)</span>
+          </div>
+          <ion-toggle [checked]="sensorOn()" [disabled]="!calibrated()" (ionChange)="sensorOn.set($any($event).detail.checked)" aria-label="Usar el sensor en el balance" />
+        </div>
+      </div>
+
       <!-- Notificaciones -->
       <h2 class="section md-title-small">Notificaciones</h2>
       <div class="card">
@@ -407,7 +460,7 @@ export class SettingsPage implements OnInit {
   constructor() {
     addIcons({
       alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline, downloadOutline, informationCircleOutline,
+      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
     });
   }
 
@@ -445,6 +498,88 @@ export class SettingsPage implements OnInit {
   dmcUser = signal('');
   dmcToken = signal('');
   agrometKey = signal('');
+
+  // ───────────── Sensor de suelo (Tuya) ─────────────
+  private soil = inject(SOIL_SENSOR_PROVIDER);
+  readonly tuyaRegions = (Object.keys(TUYA_REGIONS) as TuyaRegion[]).slice(0, 3).map((id) => ({ id, label: TUYA_REGIONS[id].label }));
+  tuyaRegion = signal<TuyaRegion>('us');
+  tuyaId = signal('');
+  tuyaSecret = signal('');
+  tuyaDevice = signal('');
+  wetPct = signal<number | undefined>(undefined);
+  dryPct = signal<number | undefined>(undefined);
+  sensorOn = signal(false);
+  sensorBusy = signal(false);
+  sensorReport = signal<{ lines: string[]; error: boolean } | null>(null);
+  readonly calibrated = computed(() => {
+    const w = this.wetPct();
+    const d = this.dryPct();
+    return w !== undefined && d !== undefined && w - d >= 3;
+  });
+  readonly calibrationText = computed(() => {
+    const w = this.wetPct();
+    const d = this.dryPct();
+    const pct = (v: number | undefined) => (v === undefined ? '—' : `${String(v).replace('.', ',')} %`);
+    if (w !== undefined && d !== undefined && w - d < 3) return `Húmedo ${pct(w)} · seco ${pct(d)}: están muy juntos; repite con el suelo bien regado y cuando toque regar.`;
+    if (this.calibrated()) return `Húmedo (déficit 0): ${pct(w)} · toca regar (${this.threshold()} mm): ${pct(d)}.`;
+    return `Húmedo: ${pct(w)} · toca regar: ${pct(d)}. Marca el «húmedo» a la mañana siguiente de un riego profundo y el «seco» el día que la app diga que toca regar.`;
+  });
+
+  private sensorDraft(): SoilSensorConfig | undefined {
+    if (!this.tuyaId().trim() || !this.tuyaSecret().trim() || !this.tuyaDevice().trim()) return undefined;
+    return {
+      region: this.tuyaRegion(),
+      accessId: this.tuyaId().trim(),
+      accessSecret: this.tuyaSecret().trim(),
+      deviceId: this.tuyaDevice().trim(),
+      wetPct: this.wetPct(),
+      dryPct: this.dryPct(),
+      enabled: this.sensorOn() && this.calibrated(),
+    };
+  }
+
+  /** Lee el sensor ahora con lo escrito en pantalla (aunque aún no se haya guardado). */
+  private async readSensorNow(): Promise<SoilReading | null> {
+    const cfg = this.sensorDraft();
+    if (!cfg) {
+      this.sensorReport.set({ lines: ['Completa Access ID, Access Secret e ID del sensor.'], error: true });
+      return null;
+    }
+    const base = this.engine.snapshot()?.settings ?? DEFAULT_SETTINGS;
+    this.sensorBusy.set(true);
+    try {
+      return await this.soil.read({ ...base, thresholdMm: this.threshold(), soilSensor: cfg }, true);
+    } catch (e) {
+      this.sensorReport.set({ lines: [`No se pudo leer el sensor: ${tuyaErrorText(e)}.`], error: true });
+      return null;
+    } finally {
+      this.sensorBusy.set(false);
+    }
+  }
+
+  async testSensor(): Promise<void> {
+    const r = await this.readSensorNow();
+    if (!r?.raw) return;
+    const c = (v: number | null, unit: string) => (v === null ? '—' : `${String(Math.round(v * 10) / 10).replace('.', ',')}${unit}`);
+    const age = Date.now() - Date.parse(r.takenAt);
+    this.sensorReport.set({
+      lines: [
+        `✓ ${r.source.replace(/^tuya:/, '')}: humedad del suelo ${c(r.raw.soilPct, ' %')} · ${c(r.raw.tempC, ' °C')} · batería ${c(r.raw.battery, ' %')}.`,
+        `Último reporte: ${whenOf(Date.parse(r.takenAt))}${age > 6 * 3_600_000 ? ' (viejo: revisa que tenga WiFi y pilas)' : ''}.`,
+        this.calibrated() ? `Con tu calibración equivale a ${c(r.deficitMm ?? null, ' mm')} de déficit.` : 'Falta calibrarlo para usarlo en el balance.',
+      ],
+      error: false,
+    });
+  }
+
+  /** Guarda la lectura actual como punto "húmedo" (déficit 0) o "toca regar" (déficit = umbral). */
+  async calibrate(point: 'wet' | 'dry'): Promise<void> {
+    const r = await this.readSensorNow();
+    const pct = r?.raw?.soilPct;
+    if (pct === null || pct === undefined) return;
+    (point === 'wet' ? this.wetPct : this.dryPct).set(pct);
+    this.toast(`${point === 'wet' ? 'Húmedo' : 'Toca regar'}: ${String(pct).replace('.', ',')} %. Pulsa Guardar cambios.`);
+  }
 
   // ───────────── Estado del sistema ─────────────
   readonly updates = inject(UpdateService);
@@ -530,6 +665,16 @@ export class SettingsPage implements OnInit {
     this.dmcUser.set(s.settings.dmcAuth?.user ?? '');
     this.dmcToken.set(s.settings.dmcAuth?.token ?? '');
     this.agrometKey.set(s.settings.agromet?.apiKey ?? '');
+    const ss = s.settings.soilSensor;
+    if (ss) {
+      this.tuyaRegion.set(ss.region);
+      this.tuyaId.set(ss.accessId);
+      this.tuyaSecret.set(ss.accessSecret);
+      this.tuyaDevice.set(ss.deviceId);
+      this.wetPct.set(ss.wetPct);
+      this.dryPct.set(ss.dryPct);
+      this.sensorOn.set(ss.enabled);
+    }
     void this.loadStatus();
   }
 
@@ -793,6 +938,7 @@ export class SettingsPage implements OnInit {
       dmc: this.dmc(),
       dmcAuth: this.dmcAuth(),
       agromet: this.agromet() ? { ...this.agromet()!, apiKey: this.agrometKey().trim() || this.agromet()!.apiKey } : undefined,
+      soilSensor: this.sensorDraft(),
       useGps: this.auto(),
       locationSet: true,
       morningTime: this.morningTime(),
