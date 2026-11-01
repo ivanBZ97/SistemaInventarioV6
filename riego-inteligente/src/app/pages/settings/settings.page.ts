@@ -1,4 +1,5 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import {
   AlertController,
   IonBackButton,
@@ -17,7 +18,7 @@ import {
 import { addIcons } from 'ionicons';
 import {
   alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
+  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, statsChartOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
 } from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
@@ -85,7 +86,7 @@ function whenOf(t: number): string {
   selector: 'app-settings',
   standalone: true,
   imports: [
-    IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonRange, IonInput, IonButton, IonToggle, IonIcon,
+    IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonRange, IonInput, IonButton, IonToggle, IonIcon, RouterLink,
   ],
   template: `
     <ion-header class="ion-no-border">
@@ -122,16 +123,16 @@ function whenOf(t: number): string {
           </ion-input>
         </div>
         <div class="chips">
-          <button class="chip" [class.on]="bucketOpen()" (click)="bucketOpen.set(!bucketOpen())"><ion-icon name="timer-outline" />Riego a mano: calcular con un balde</button>
+          <button class="chip" [class.on]="bucketOpen()" (click)="bucketOpen.set(!bucketOpen())"><ion-icon name="timer-outline" />Riego a mano: calcular con un balde o bidón</button>
         </div>
         @if (bucketOpen()) {
           <p class="intro md-body-medium md-variant">
             Pon la pistola en el modo que usas para regar (p. ej. ducha), con la llave abierta como siempre, y cronometra cuánto
-            tarda en llenar un balde. Así se reparte ese caudal en todo el pasto: los minutos que te indique la app son el tiempo
+            tarda en llenar un balde o bidón (p. ej. de 20 litros). Así se reparte ese caudal en todo el pasto: los minutos que te indique la app son el tiempo
             total paseando el chorro parejo por todo el jardín.
           </p>
           <div class="field two">
-            <ion-input fill="outline" type="number" inputmode="decimal" label="Balde" labelPlacement="floating"
+            <ion-input fill="outline" type="number" inputmode="decimal" label="Balde o bidón" labelPlacement="floating"
                        [value]="bucketLiters()" (ionInput)="bucketLiters.set(+$any($event).detail.value || null)">
               <span slot="end" class="md-body-medium md-variant">litros</span>
             </ion-input>
@@ -302,6 +303,7 @@ function whenOf(t: number): string {
         </div>
         <div class="chips">
           <button class="chip" (click)="testSensor()" [disabled]="sensorBusy()"><ion-icon name="pulse-outline" />{{ sensorBusy() ? 'Consultando…' : 'Probar sensor' }}</button>
+          <a class="chip" routerLink="/sensor"><ion-icon name="stats-chart-outline" />Ver historial</a>
         </div>
         @if (sensorReport(); as r) {
           <div class="md-body-small report" [class.err]="r.error">
@@ -486,7 +488,7 @@ export class SettingsPage implements OnInit {
   constructor() {
     addIcons({
       alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
+      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, statsChartOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
     });
   }
 
@@ -500,7 +502,7 @@ export class SettingsPage implements OnInit {
   rate = signal(DEFAULT_SETTINGS.sprinklerRateMmMin);
   area = signal<number | null>(null);
   bucketOpen = signal(false);
-  bucketLiters = signal<number | null>(10);
+  bucketLiters = signal<number | null>(20);
   bucketSeconds = signal<number | null>(null);
   readonly bucketRate = computed(() => rateFromBucket(this.bucketLiters() ?? 0, this.bucketSeconds() ?? 0, this.area() ?? 0));
   readonly bucketText = computed(() => {

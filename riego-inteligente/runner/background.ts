@@ -20,6 +20,7 @@ import {
   withStationEt0,
 } from '../src/app/core/dmc';
 import { SENSOR_MAX_AGE_MS, type TuyaToken, deficitFromSensor, readTuyaSoil } from '../src/app/core/tuya';
+import { RUNNER_HISTORY_KEEP_DAYS, type SensorSample, mergeSamples } from '../src/app/core/sensor-history';
 import type { DailyWeather, DayRecord, DmcConfig, RunnerStatus, Settings, WaterState } from '../src/app/core/models';
 
 declare const CapacitorKV: {
@@ -80,6 +81,14 @@ async function dmcData(cfg: DmcConfig, settings: Settings, today: string, modelD
 }
 
 const SENSOR_EVERY_MS = 60 * 60_000;
+const SENSOR_HISTORY = 'sensorHistory';
+
+/** Las lecturas del worker quedan aquí (dos semanas) hasta que la app las recoja para su historial. */
+function saveSensorSample(sample: SensorSample, now: number): void {
+  const raw = CapacitorKV.get(SENSOR_HISTORY)?.value;
+  const prev = raw ? (JSON.parse(raw) as SensorSample[]) : [];
+  CapacitorKV.set(SENSOR_HISTORY, JSON.stringify(mergeSamples(prev, [sample], now, RUNNER_HISTORY_KEEP_DAYS)));
+}
 
 /**
  * Sensor de suelo (si está configurado, calibrado y activado): con una lectura reciente y posterior al último
@@ -87,7 +96,8 @@ const SENSOR_EVERY_MS = 60 * 60_000;
  */
 async function withSensor(state: WaterState, settings: Settings, today: string, now: number): Promise<WaterState> {
   const cfg = settings.soilSensor;
-  if (!cfg?.enabled || !cfg.accessId || !cfg.accessSecret || !cfg.deviceId) return state;
+  // Configurado basta para guardar el historial; para reemplazar al balance además debe estar activado.
+  if (!cfg?.accessId || !cfg.accessSecret || !cfg.deviceId) return state;
   const cachedRaw = CapacitorKV.get('sensorReading')?.value;
   let cached = cachedRaw ? (JSON.parse(cachedRaw) as { at: number; soilPct: number; updatedAt: number }) : null;
   if (!cached || now - cached.at > SENSOR_EVERY_MS) {
@@ -98,7 +108,9 @@ async function withSensor(state: WaterState, settings: Settings, today: string, 
     if (r.status.soilPct === null) return state;
     cached = { at: now, soilPct: r.status.soilPct, updatedAt: r.status.updatedAt ?? now };
     CapacitorKV.set('sensorReading', JSON.stringify(cached));
+    saveSensorSample({ t: cached.updatedAt, soil: r.status.soilPct, tempC: r.status.tempC, battery: r.status.battery }, now);
   }
+  if (!cfg.enabled) return state;
   const deficit = deficitFromSensor(cached.soilPct, cfg, settings.thresholdMm);
   if (deficit === null || now - cached.updatedAt > SENSOR_MAX_AGE_MS || cached.updatedAt <= (state.resetAt ?? 0)) return state;
   return { ...state, deficitMm: deficit, asOf: today, source: 'sensor', resetDate: today, resetAt: cached.updatedAt };
@@ -183,4 +195,10 @@ addEventListener('refreshIrrigation', async (resolve, reject) => {
 addEventListener('getStatus', (resolve) => {
   const raw = CapacitorKV.get(STATUS)?.value;
   resolve(raw ? JSON.parse(raw) : { lastRunAt: null });
+});
+
+/** La app recoge las lecturas del sensor que hizo el worker (para el historial). */
+addEventListener('getSensorHistory', (resolve) => {
+  const raw = CapacitorKV.get(SENSOR_HISTORY)?.value;
+  resolve({ samples: raw ? JSON.parse(raw) : [] });
 });

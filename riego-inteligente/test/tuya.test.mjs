@@ -25,7 +25,7 @@ test('firma de Tuya: HMAC(client_id + [token] + t + nonce + stringToSign) en may
 test('lee humedad, temperatura y batería del sensor (y las variantes en décimas)', () => {
   const s = tuya.parseSoilDevice({ name: 'Pasto', online: true, update_time: 1730000000,
     status: [{ code: 'humidity', value: 32 }, { code: 'temp_current', value: 187 }, { code: 'battery_percentage', value: 90 }] });
-  assert.deepEqual({ ...s, codes: undefined }, { name: 'Pasto', online: true, updatedAt: 1730000000000, soilPct: 32, tempC: 18.7, battery: 90, codes: undefined });
+  assert.deepEqual({ ...s, codes: undefined }, { name: 'Pasto', online: true, updatedAt: 1730000000000, soilPct: 32, tempC: 18.7, battery: 90, soilCode: 'humidity', tempCode: 'temp_current', codes: undefined });
   assert.equal(tuya.parseSoilDevice({ status: [{ code: 'soil_moisture', value: 355 }] }).soilPct, 35.5);
   assert.equal(tuya.parseSoilDevice({ status: [] }).soilPct, null);
 });

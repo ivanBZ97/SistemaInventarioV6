@@ -89,6 +89,9 @@ export interface SoilStatus {
   soilPct: number | null;
   tempC: number | null;
   battery: number | null;
+  /** Código de la humedad y de la temperatura en este modelo (para pedir su historial a Tuya). */
+  soilCode: string | null;
+  tempCode: string | null;
   /** Códigos que entrega el sensor (para el diagnóstico si cambia el modelo). */
   codes: string[];
 }
@@ -96,6 +99,11 @@ export interface SoilStatus {
 type TuyaDp = { code?: string; value?: unknown; time?: unknown };
 
 const SOIL_CODES = ['humidity', 'soil_humidity', 'soil_moisture', 'moisture', 'humidity_value', 'va_humidity'];
+const TEMP_CODES = ['temp_current', 'soil_temp', 'temperature', 'temp_value', 'va_temperature'];
+
+/** Algunos modelos informan la humedad en décimas (p. ej. 355 = 35,5 %) y la temperatura en décimas de °C. */
+export const normSoil = (v: number) => (v > 100 ? v / 10 : v);
+export const normTemp = (v: number) => (Math.abs(v) > 60 ? v / 10 : v);
 const toMs = (v: unknown) => (typeof v === 'number' && v > 0 ? (v < 1e12 ? v * 1000 : v) : null);
 
 /**
@@ -115,15 +123,17 @@ export function parseSoilDevice(result: Record<string, unknown>, shadow?: TuyaDp
   const num = (...codes: string[]) => (find(codes)?.value as number | undefined) ?? null;
   const soilDp = find(SOIL_CODES);
   const soil = soilDp ? (soilDp.value as number) : null;
-  const temp = num('temp_current', 'soil_temp', 'temperature', 'temp_value', 'va_temperature');
+  const tempDp = find(TEMP_CODES);
+  const temp = tempDp ? (tempDp.value as number) : null;
   return {
     name: typeof result['name'] === 'string' ? (result['name'] as string) : 'Sensor de suelo',
     online: result['online'] === true,
     updatedAt: toMs(soilDp?.time) ?? toMs(result['update_time']),
-    // Algunos modelos informan la humedad en décimas (p. ej. 355 = 35,5 %) y la temperatura en décimas de °C.
-    soilPct: soil === null ? null : soil > 100 ? soil / 10 : soil,
-    tempC: temp === null ? null : Math.abs(temp) > 60 ? temp / 10 : temp,
+    soilPct: soil === null ? null : normSoil(soil),
+    tempC: temp === null ? null : normTemp(temp),
     battery: num('battery_percentage', 'battery', 'va_battery'),
+    soilCode: soilDp?.code ?? null,
+    tempCode: tempDp?.code ?? null,
     codes: status.map((s) => String(s.code)),
   };
 }
@@ -153,6 +163,34 @@ export async function readTuyaSoil(cfg: SoilSensorConfig, now: number, token?: T
     shadow = null;
   }
   return { status: parseSoilDevice(result, shadow), token: tk };
+}
+
+/**
+ * Historial de reportes del sensor guardado en la nube de Tuya (el plan gratuito guarda ~7 días): permite completar
+ * el historial del teléfono con los reportes ocurridos mientras nadie consultaba. Hasta `maxPages` páginas de 100.
+ */
+export async function readTuyaReportLogs(
+  cfg: SoilSensorConfig,
+  token: TuyaToken,
+  codes: string[],
+  startMs: number,
+  endMs: number,
+  maxPages = 10,
+): Promise<{ code?: string; value?: unknown; event_time?: unknown }[]> {
+  const id = encodeURIComponent(cfg.deviceId.trim());
+  const out: { code?: string; value?: unknown; event_time?: unknown }[] = [];
+  let rowKey: string | null = null;
+  for (let page = 0; page < maxPages; page++) {
+    // Los parámetros van en orden alfabético: así los firma Tuya.
+    const q: string = `codes=${codes.join(',')}&end_time=${Math.round(endMs)}${rowKey ? `&last_row_key=${encodeURIComponent(rowKey)}` : ''}&size=100&start_time=${Math.round(startMs)}`;
+    const r = await call(cfg, `/v2.0/cloud/thing/${id}/report-logs?${q}`, Date.now(), token.accessToken);
+    const logs = Array.isArray(r['logs']) ? (r['logs'] as { code?: string; value?: unknown; event_time?: unknown }[]) : [];
+    out.push(...logs);
+    const next = typeof r['last_row_key'] === 'string' ? (r['last_row_key'] as string) : null;
+    if (!r['has_more'] || !next || !logs.length) break;
+    rowKey = next;
+  }
+  return out;
 }
 
 /**

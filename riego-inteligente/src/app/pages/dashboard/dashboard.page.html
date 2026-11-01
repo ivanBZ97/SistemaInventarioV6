@@ -57,7 +57,7 @@
       </div>
       @if (s.state.source !== 'model' || s.rainSource || s.et0Source || s.sensor || s.sensorError) {
         <div class="hero-tags">
-          @if (sensorTag(); as st) { <span class="tag">{{ st }}</span> }
+          @if (sensorTag(); as st) { <a class="tag tag-link" routerLink="/sensor">{{ st }} ›</a> }
           @if (s.state.source === 'manual') { <span class="tag">Ajustado manualmente</span> }
           @if (s.rainSource) { <span class="tag">Lluvia medida en {{ s.rainSource }}</span> }
           @if (s.et0Source) {

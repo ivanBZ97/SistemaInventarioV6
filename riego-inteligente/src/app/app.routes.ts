@@ -7,6 +7,10 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/dashboard/dashboard.page').then((m) => m.DashboardPage),
   },
   {
+    path: 'sensor',
+    loadComponent: () => import('./pages/sensor/sensor-history.page').then((m) => m.SensorHistoryPage),
+  },
+  {
     path: 'settings',
     loadComponent: () => import('./pages/settings/settings.page').then((m) => m.SettingsPage),
   },
