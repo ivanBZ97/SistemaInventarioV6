@@ -605,7 +605,8 @@ export class SettingsPage implements OnInit {
     this.sensorReport.set({
       lines: [
         `✓ ${r.source.replace(/^tuya:/, '')}: humedad del suelo ${c(r.raw.soilPct, ' %')} · ${c(r.raw.tempC, ' °C')} · batería ${c(r.raw.battery, ' %')}.`,
-        `Último reporte: ${whenOf(Date.parse(r.takenAt))}${age > 6 * 3_600_000 ? ' (viejo: revisa que tenga WiFi y pilas)' : ''}.`,
+        `Último reporte: ${whenOf(Date.parse(r.takenAt))} (hace ${ageText(Math.max(0, age))})${age > 6 * 3_600_000 ? ': viejo, revisa que tenga WiFi y pilas' : ''}.`,
+        'Es a pilas: duerme y se conecta cada cierto rato o cuando la humedad cambia; Tuya entrega su último dato.',
         this.calibrated() ? `Con tu calibración equivale a ${c(r.deficitMm ?? null, ' mm')} de déficit.` : 'Falta calibrarlo para usarlo en el balance.',
       ],
       error: false,

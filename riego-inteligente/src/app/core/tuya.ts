@@ -93,23 +93,33 @@ export interface SoilStatus {
   codes: string[];
 }
 
-/** Lee el estado del sensor de suelo (los códigos varían algo entre modelos; se prueban los habituales). */
-export function parseSoilDevice(result: Record<string, unknown>): SoilStatus {
-  const status = (Array.isArray(result['status']) ? result['status'] : []) as { code?: string; value?: unknown }[];
-  const num = (...codes: string[]) => {
+type TuyaDp = { code?: string; value?: unknown; time?: unknown };
+
+const SOIL_CODES = ['humidity', 'soil_humidity', 'soil_moisture', 'moisture', 'humidity_value', 'va_humidity'];
+const toMs = (v: unknown) => (typeof v === 'number' && v > 0 ? (v < 1e12 ? v * 1000 : v) : null);
+
+/**
+ * Lee el estado del sensor de suelo (los códigos varían algo entre modelos; se prueban los habituales).
+ * `shadow`: propiedades de /v2.0/cloud/thing/{id}/shadow/properties, que traen la hora exacta en que el sensor
+ * informó cada dato; si no están, se usa el estado y la `update_time` del dispositivo.
+ */
+export function parseSoilDevice(result: Record<string, unknown>, shadow?: TuyaDp[] | null): SoilStatus {
+  const status = (shadow?.length ? shadow : Array.isArray(result['status']) ? result['status'] : []) as TuyaDp[];
+  const find = (codes: string[]) => {
     for (const code of codes) {
-      const v = status.find((s) => s.code === code)?.value;
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      const dp = status.find((s) => s.code === code);
+      if (typeof dp?.value === 'number' && Number.isFinite(dp.value)) return dp;
     }
     return null;
   };
-  const soil = num('humidity', 'soil_humidity', 'soil_moisture', 'moisture', 'humidity_value', 'va_humidity');
+  const num = (...codes: string[]) => (find(codes)?.value as number | undefined) ?? null;
+  const soilDp = find(SOIL_CODES);
+  const soil = soilDp ? (soilDp.value as number) : null;
   const temp = num('temp_current', 'soil_temp', 'temperature', 'temp_value', 'va_temperature');
-  const upd = typeof result['update_time'] === 'number' ? (result['update_time'] as number) : null;
   return {
     name: typeof result['name'] === 'string' ? (result['name'] as string) : 'Sensor de suelo',
     online: result['online'] === true,
-    updatedAt: upd === null ? null : upd < 1e12 ? upd * 1000 : upd,
+    updatedAt: toMs(soilDp?.time) ?? toMs(result['update_time']),
     // Algunos modelos informan la humedad en décimas (p. ej. 355 = 35,5 %) y la temperatura en décimas de °C.
     soilPct: soil === null ? null : soil > 100 ? soil / 10 : soil,
     tempC: temp === null ? null : Math.abs(temp) > 60 ? temp / 10 : temp,
@@ -134,7 +144,15 @@ export async function readTuyaSoil(cfg: SoilSensorConfig, now: number, token?: T
       throw e;
     }
   }
-  return { status: parseSoilDevice(result), token: tk };
+  // La hora exacta de cada dato (opcional: si el proyecto no tiene ese permiso, basta el estado del dispositivo).
+  let shadow: TuyaDp[] | null = null;
+  try {
+    const r = await call(cfg, `/v2.0/cloud/thing/${encodeURIComponent(cfg.deviceId.trim())}/shadow/properties`, now, tk.accessToken);
+    shadow = Array.isArray(r['properties']) ? (r['properties'] as TuyaDp[]) : null;
+  } catch {
+    shadow = null;
+  }
+  return { status: parseSoilDevice(result, shadow), token: tk };
 }
 
 /**

@@ -60,6 +60,7 @@ test('lee el sensor: pide token, firma con él y lo reutiliza mientras no vence'
     assert.equal(calls[1].url, 'https://openapi.tuyaus.com/v1.0/devices/dev1');
     assert.equal(calls[1].headers.access_token, 'TOK');
     assert.equal(calls[1].headers.sign, tuya.tuyaSign({ accessId: 'ID', secret: 'SECRET', t: String(now), method: 'GET', path: '/v1.0/devices/dev1', accessToken: 'TOK' }));
+    assert.equal(calls[2].url, 'https://openapi.tuyaus.com/v2.0/cloud/thing/dev1/shadow/properties');
     await tuya.readTuyaSoil(cfg, now + 60_000, r.token);
     assert.equal(calls.filter((c) => c.url.includes('/token')).length, 1); // token reutilizado
   } finally {
@@ -86,4 +87,16 @@ test('si Tuya rechaza el token guardado, pide otro una vez; los errores se expli
   } finally {
     globalThis.fetch = orig;
   }
+});
+
+test('la hora del reporte sale de la propiedad de humedad (shadow) si Tuya la entrega', () => {
+  const s = tuya.parseSoilDevice(
+    { name: 'Pasto', update_time: 1730000000, status: [{ code: 'humidity', value: 30 }] },
+    [{ code: 'humidity', value: 49, time: 1730007200123 }, { code: 'temp_current', value: 212, time: 1730000000000 }],
+  );
+  assert.equal(s.soilPct, 49);
+  assert.equal(s.tempC, 21.2);
+  assert.equal(s.updatedAt, 1730007200123);
+  // Sin shadow: estado y update_time del dispositivo.
+  assert.equal(tuya.parseSoilDevice({ update_time: 1730000000, status: [{ code: 'humidity', value: 30 }] }, null).updatedAt, 1730000000000);
 });
