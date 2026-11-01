@@ -17,7 +17,7 @@ import {
 import { addIcons } from 'ionicons';
 import {
   alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
+  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
 } from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
@@ -47,7 +47,7 @@ import { TUYA_REGIONS, tuyaErrorText } from '../../core/tuya';
 import { UpdateService } from '../../core/update.service';
 import { APK_URL } from '../../core/update';
 import { BUILD_INFO } from '../../core/build-info';
-import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, round1, toISODate, weekdayEs } from '../../core/irrigation-core';
+import { DEFAULT_SETTINGS, MORNING_TIME_OPTIONS, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, addDays, clamp, rateFromBucket, round1, toISODate, weekdayEs } from '../../core/irrigation-core';
 
 /** Fila de la lista de estaciones: revisada, o aún consultándose. */
 type StationRow = Omit<StationCheck, 'health'> & { health: StationHealth | 'checking' };
@@ -111,7 +111,7 @@ function whenOf(t: number): string {
         <div class="divider"></div>
         <div class="field">
           <ion-input fill="outline" type="number" inputmode="decimal" label="Tasa del aspersor" labelPlacement="floating"
-                     helperText="mm por minuto. Mídela con el test de latas." [value]="rate()" (ionInput)="rate.set(+$any($event).detail.value)">
+                     helperText="mm por minuto: aspersor (test de latas) o manguera/pistola (calcúlala con un balde)." [value]="rate()" (ionInput)="rate.set(+$any($event).detail.value)">
             <span slot="end" class="md-body-medium md-variant">mm/min</span>
           </ion-input>
         </div>
@@ -121,6 +121,32 @@ function whenOf(t: number): string {
             <span slot="end" class="md-body-medium md-variant">m²</span>
           </ion-input>
         </div>
+        <div class="chips">
+          <button class="chip" [class.on]="bucketOpen()" (click)="bucketOpen.set(!bucketOpen())"><ion-icon name="timer-outline" />Riego a mano: calcular con un balde</button>
+        </div>
+        @if (bucketOpen()) {
+          <p class="intro md-body-medium md-variant">
+            Pon la pistola en el modo que usas para regar (p. ej. ducha), con la llave abierta como siempre, y cronometra cuánto
+            tarda en llenar un balde. Así se reparte ese caudal en todo el pasto: los minutos que te indique la app son el tiempo
+            total paseando el chorro parejo por todo el jardín.
+          </p>
+          <div class="field two">
+            <ion-input fill="outline" type="number" inputmode="decimal" label="Balde" labelPlacement="floating"
+                       [value]="bucketLiters()" (ionInput)="bucketLiters.set(+$any($event).detail.value || null)">
+              <span slot="end" class="md-body-medium md-variant">litros</span>
+            </ion-input>
+            <ion-input fill="outline" type="number" inputmode="decimal" label="Se llenó en" labelPlacement="floating"
+                       [value]="bucketSeconds()" (ionInput)="bucketSeconds.set(+$any($event).detail.value || null)">
+              <span slot="end" class="md-body-medium md-variant">seg</span>
+            </ion-input>
+          </div>
+          <p class="intro md-body-medium">{{ bucketText() }}</p>
+          @if (bucketRate(); as r) {
+            <div class="chips">
+              <button class="chip" (click)="useBucketRate(r)"><ion-icon name="checkmark-outline" />Usar {{ r }} mm/min</button>
+            </div>
+          }
+        }
       </div>
 
       <!-- Ubicación -->
@@ -460,7 +486,7 @@ export class SettingsPage implements OnInit {
   constructor() {
     addIcons({
       alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
+      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
     });
   }
 
@@ -473,6 +499,20 @@ export class SettingsPage implements OnInit {
   threshold = signal(DEFAULT_SETTINGS.thresholdMm);
   rate = signal(DEFAULT_SETTINGS.sprinklerRateMmMin);
   area = signal<number | null>(null);
+  bucketOpen = signal(false);
+  bucketLiters = signal<number | null>(10);
+  bucketSeconds = signal<number | null>(null);
+  readonly bucketRate = computed(() => rateFromBucket(this.bucketLiters() ?? 0, this.bucketSeconds() ?? 0, this.area() ?? 0));
+  readonly bucketText = computed(() => {
+    const l = this.bucketLiters() ?? 0;
+    const sec = this.bucketSeconds() ?? 0;
+    if (!(l > 0) || !(sec > 0)) return 'Ingresa los litros del balde y los segundos que tardó.';
+    const flow = (l / (sec / 60)).toFixed(1).replace('.', ',');
+    const r = this.bucketRate();
+    if (r === null) return `Caudal: ${flow} L/min. Ingresa la superficie del pasto (arriba) para calcular la tasa.`;
+    const min = Math.round(this.threshold() / r);
+    return `Caudal: ${flow} L/min en ${this.area()} m² = ${String(r).replace('.', ',')} mm/min. Un riego de ${this.threshold()} mm serían unos ${min} min en total.`;
+  });
   lat = signal(DEFAULT_SETTINGS.latitude);
   lon = signal(DEFAULT_SETTINGS.longitude);
   placeName = signal<string | undefined>(undefined);
@@ -923,6 +963,12 @@ export class SettingsPage implements OnInit {
 
   exactAlarms(): Promise<void> {
     return this.notifications.requestExactAlarms();
+  }
+
+  useBucketRate(rate: number): void {
+    this.rate.set(rate);
+    this.bucketOpen.set(false);
+    void this.toast(`Tasa: ${String(rate).replace('.', ',')} mm/min. Toca "Guardar cambios".`);
   }
 
   async save(): Promise<void> {

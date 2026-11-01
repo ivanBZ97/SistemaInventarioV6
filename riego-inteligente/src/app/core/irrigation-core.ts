@@ -210,6 +210,16 @@ export function minutesFor(deficitMm: number, rateMmMin: number): number {
   return Math.round(deficitMm / rateMmMin);
 }
 
+/**
+ * Tasa (mm/min) al regar a mano con manguera o pistola: el caudal (balde de `liters` llenado en `seconds`) repartido
+ * en todo el pasto. Los minutos recomendados son entonces el tiempo total paseando el chorro parejo por el jardín.
+ */
+export function rateFromBucket(liters: number, seconds: number, areaM2: number): number | null {
+  if (!(liters > 0) || !(seconds > 0) || !(areaM2 > 0)) return null;
+  const rate = liters / (seconds / 60) / areaM2;
+  return Math.max(0.01, Math.round(rate * 100) / 100);
+}
+
 /** 0 mm = 100 %; 12 mm = 20 % (lineal). */
 export function humidityPct(deficitMm: number): number {
   return clamp(100 - (deficitMm / CRITICAL_DEFICIT_MM) * 80, 0, 100);

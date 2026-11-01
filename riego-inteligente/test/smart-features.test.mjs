@@ -264,3 +264,17 @@ test('lluvia fantasma: pronóstico de 8,6 mm por la tarde, la estación midió 0
   const late = { ...today, hourlyRainMm: early, live: { ...live, sinceMs: at(6, 49) } };
   assert.equal(c.dayRain(late), 2);
 });
+
+// ───────────── Riego a mano: tasa con un balde ─────────────
+
+test('balde de 10 L en 60 s sobre 24 m² = 0,42 mm/min (8 mm ≈ 19 min)', () => {
+  const r = c.rateFromBucket(10, 60, 24);
+  assert.equal(r, 0.42);
+  assert.equal(c.minutesFor(8, r), 19);
+});
+
+test('sin superficie, litros o segundos válidos no hay tasa', () => {
+  assert.equal(c.rateFromBucket(10, 60, 0), null);
+  assert.equal(c.rateFromBucket(0, 60, 24), null);
+  assert.equal(c.rateFromBucket(10, 0, 24), null);
+});
