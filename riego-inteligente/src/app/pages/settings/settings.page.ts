@@ -44,7 +44,7 @@ import {
 import { StorageService } from '../../core/storage.service';
 import type { AgrometConfig, DmcAuth, DmcConfig, PlannedNotification, RunnerStatus, SoilReading, SoilSensorConfig, TuyaRegion } from '../../core/models';
 import { SOIL_SENSOR_PROVIDER } from '../../core/soil-sensor.provider';
-import { TUYA_REGIONS, tuyaErrorText } from '../../core/tuya';
+import { TUYA_REGIONS, calibrationPoints, tuyaErrorText } from '../../core/tuya';
 import { UpdateService } from '../../core/update.service';
 import { APK_URL } from '../../core/update';
 import { BUILD_INFO } from '../../core/build-info';
@@ -556,14 +556,19 @@ export class SettingsPage implements OnInit {
   readonly calibrated = computed(() => {
     const w = this.wetPct();
     const d = this.dryPct();
-    return w !== undefined && d !== undefined && w - d >= 3;
+    return calibrationPoints({ wetPct: w, dryPct: d }) !== null;
   });
   readonly calibrationText = computed(() => {
     const w = this.wetPct();
     const d = this.dryPct();
     const pct = (v: number | undefined) => (v === undefined ? '—' : `${String(v).replace('.', ',')} %`);
     if (w !== undefined && d !== undefined && w - d < 3) return `Húmedo ${pct(w)} · seco ${pct(d)}: están muy juntos; repite con el suelo bien regado y cuando toque regar.`;
-    if (this.calibrated()) return `Húmedo (déficit 0): ${pct(w)} · toca regar (${this.threshold()} mm): ${pct(d)}.`;
+    const cal = calibrationPoints({ wetPct: w, dryPct: d });
+    if (cal?.provisional) {
+      const missing = w === undefined ? 'húmedo' : 'toca regar';
+      return `Provisional: húmedo ${pct(cal.wet)} · toca regar ${pct(cal.dry)} (el «${missing}» es estimado). Ya puedes usar el sensor; se afina cuando marques el «${missing}»${w === undefined ? ' a la mañana siguiente de un riego profundo' : ' el día que la app diga que toca regar'}.`;
+    }
+    if (cal) return `Húmedo (déficit 0): ${pct(w)} · toca regar (${this.threshold()} mm): ${pct(d)}.`;
     return `Húmedo: ${pct(w)} · toca regar: ${pct(d)}. Marca el «húmedo» a la mañana siguiente de un riego profundo y el «seco» el día que la app diga que toca regar.`;
   });
 
@@ -621,7 +626,11 @@ export class SettingsPage implements OnInit {
     const pct = r?.raw?.soilPct;
     if (pct === null || pct === undefined) return;
     (point === 'wet' ? this.wetPct : this.dryPct).set(pct);
-    this.toast(`${point === 'wet' ? 'Húmedo' : 'Toca regar'}: ${String(pct).replace('.', ',')} %. Pulsa Guardar cambios.`);
+    const label = `${point === 'wet' ? 'Húmedo' : 'Toca regar'}: ${String(pct).replace('.', ',')} %.`;
+    // Justo después de regar el sensor marca el suelo encharcado, no lo que retiene una vez drenado.
+    this.toast(point === 'wet' && pct >= 97
+      ? `${label} Recién regado marca saturado: para afinar, vuelve a marcarlo mañana temprano. Pulsa Guardar cambios.`
+      : `${label} Pulsa Guardar cambios.`);
   }
 
   // ───────────── Estado del sistema ─────────────
@@ -722,7 +731,7 @@ export class SettingsPage implements OnInit {
   }
 
   private async toast(message: string): Promise<void> {
-    (await this.toasts.create({ message, duration: 2500, cssClass: 'md-snackbar' })).present();
+    (await this.toasts.create({ message, duration: Math.max(2500, message.length * 60), cssClass: 'md-snackbar' })).present();
   }
 
   async useGps(): Promise<void> {

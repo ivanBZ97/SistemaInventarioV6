@@ -37,7 +37,12 @@ test('calibración: húmedo = déficit 0, toca regar = umbral; sin calibrar, nul
   assert.equal(tuya.deficitFromSensor(32, cal, 8), 4);
   assert.equal(tuya.deficitFromSensor(45, cal, 8), 0); // más húmedo que "lleno"
   assert.equal(tuya.deficitFromSensor(16, cal, 8), 12); // más seco que "toca regar"
-  assert.equal(tuya.deficitFromSensor(30, { wetPct: 40 }, 8), null);
+  assert.equal(tuya.deficitFromSensor(30, {}, 8), null);
+  // Con un solo punto: el otro se estima a 30 puntos (provisional).
+  assert.equal(tuya.deficitFromSensor(85, { wetPct: 100 }, 8), 4);
+  assert.equal(tuya.deficitFromSensor(70, { wetPct: 100 }, 8), 8);
+  assert.equal(tuya.deficitFromSensor(70, { dryPct: 49 }, 8), 2.4);
+  assert.deepEqual(tuya.calibrationPoints({ wetPct: 100 }), { wet: 100, dry: 70, provisional: true });
   assert.equal(tuya.deficitFromSensor(30, { wetPct: 30, dryPct: 29 }, 8), null); // puntos demasiado juntos
 });
 

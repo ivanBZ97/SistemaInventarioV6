@@ -199,9 +199,25 @@ export async function readTuyaReportLogs(
  * null si falta calibrar (o los dos puntos están demasiado juntos para distinguir).
  */
 export function deficitFromSensor(soilPct: number, cfg: Pick<SoilSensorConfig, 'wetPct' | 'dryPct'>, thresholdMm: number): number | null {
-  const { wetPct, dryPct } = cfg;
-  if (wetPct === undefined || dryPct === undefined || wetPct - dryPct < 3) return null;
-  return Math.round(clamp((thresholdMm * (wetPct - soilPct)) / (wetPct - dryPct), 0, 25) * 10) / 10;
+  const cal = calibrationPoints(cfg);
+  if (!cal) return null;
+  return Math.round(clamp((thresholdMm * (cal.wet - soilPct)) / (cal.wet - cal.dry), 0, 25) * 10) / 10;
+}
+
+/** Distancia típica (puntos de %) entre "recién regado" y "toca regar", para la calibración provisional. */
+export const PROVISIONAL_SPAN_PCT = 30;
+
+/**
+ * Puntos de calibración en uso. Con uno solo marcado, el otro se estima a {@link PROVISIONAL_SPAN_PCT} puntos
+ * (provisional: así el sensor se puede usar desde ya y se afina al marcar el segundo). null si no hay ninguno o
+ * los dos están demasiado juntos para distinguir.
+ */
+export function calibrationPoints(cfg: Pick<SoilSensorConfig, 'wetPct' | 'dryPct'>): { wet: number; dry: number; provisional: boolean } | null {
+  const { wetPct: w, dryPct: d } = cfg;
+  if (w !== undefined && d !== undefined) return w - d >= 3 ? { wet: w, dry: d, provisional: false } : null;
+  if (w !== undefined) return { wet: w, dry: Math.max(0, w - PROVISIONAL_SPAN_PCT), provisional: true };
+  if (d !== undefined) return { wet: Math.min(100, d + PROVISIONAL_SPAN_PCT), dry: d, provisional: true };
+  return null;
 }
 
 /** Un reporte del sensor de más de 6 h ya no describe el suelo de ahora. */
