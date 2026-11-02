@@ -225,7 +225,7 @@ export async function readTuyaReportLogs(
   const start = Math.round(Math.max(startMs, now - 7 * 86_400_000 + 3_600_000, end - 7 * 86_400_000 + 3_600_000));
   if (start >= end) return [];
   const order = [...LOG_VARIANTS].sort((a, b) => Number(b.id === workingVariant) - Number(a.id === workingVariant));
-  let lastError: unknown = null;
+  const failures: TuyaError[] = [];
   for (const v of order) {
     try {
       const out: TuyaLog[] = [];
@@ -243,10 +243,11 @@ export async function readTuyaReportLogs(
       return out;
     } catch (e) {
       if (!(e instanceof TuyaError)) throw e; // sin conexión: no tiene sentido probar otra forma
-      lastError = e;
+      failures.push(new TuyaError(e.code, `${v.id}: ${e.message} (${e.code})`));
     }
   }
-  throw lastError;
+  // Todas las formas fallaron: el detalle de cada una sirve para el diagnóstico.
+  throw new TuyaError(failures.at(-1)?.code, failures.map((f) => f.message).join(' · '));
 }
 
 /**

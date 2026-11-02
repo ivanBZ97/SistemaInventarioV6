@@ -150,7 +150,10 @@ function when(t: number): string {
           <button class="chip" (click)="reload(true)" [disabled]="loading()"><ion-icon name="cloud-download-outline" />{{ loading() ? 'Actualizando…' : 'Traer de Tuya' }}</button>
         </div>
         @if (cloudError()) {
-          <p class="note md-body-small err">No se pudo traer el historial de la nube de Tuya ({{ cloudError() }}). Se muestra lo guardado en el teléfono.</p>
+          <p class="note md-body-small md-variant">
+            Cada reporte que lee el teléfono queda guardado aquí por un año. El historial de la nube de Tuya (para completar
+            lo que no alcanzó a leer) no está disponible: {{ cloudError() }}.
+          </p>
         } @else {
           <p class="note md-body-small md-variant">
             Cada reporte del sensor queda guardado en este teléfono por un año. El sensor es a pilas e informa cada cierto rato;
