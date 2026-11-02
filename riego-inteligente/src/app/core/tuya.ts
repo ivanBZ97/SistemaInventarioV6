@@ -122,13 +122,18 @@ export function parseSoilDevice(result: Record<string, unknown>, shadow?: TuyaDp
   };
   const num = (...codes: string[]) => (find(codes)?.value as number | undefined) ?? null;
   const soilDp = find(SOIL_CODES);
+  // Último reporte del sensor: el dato más nuevo de cualquier código. Muchos sensores solo envían lo que cambió,
+  // así que la humedad puede seguir igual (y con su hora vieja) mientras la temperatura se informa cada rato.
+  const measured = new Set([...SOIL_CODES, ...TEMP_CODES, 'battery_percentage', 'battery', 'va_battery']);
+  const times = status.filter((dp) => measured.has(String(dp.code))).map((dp) => toMs(dp.time)).filter((t): t is number => t !== null);
+  const lastReport = times.length ? Math.max(...times) : null;
   const soil = soilDp ? (soilDp.value as number) : null;
   const tempDp = find(TEMP_CODES);
   const temp = tempDp ? (tempDp.value as number) : null;
   return {
     name: typeof result['name'] === 'string' ? (result['name'] as string) : 'Sensor de suelo',
     online: result['online'] === true,
-    updatedAt: toMs(soilDp?.time) ?? toMs(result['update_time']),
+    updatedAt: lastReport ?? toMs(result['update_time']),
     soilPct: soil === null ? null : normSoil(soil),
     tempC: temp === null ? null : normTemp(temp),
     battery: num('battery_percentage', 'battery', 'va_battery'),
@@ -165,9 +170,45 @@ export async function readTuyaSoil(cfg: SoilSensorConfig, now: number, token?: T
   return { status: parseSoilDevice(result, shadow), token: tk };
 }
 
+type TuyaLog = { code?: string; value?: unknown; event_time?: unknown };
+
 /**
- * Historial de reportes del sensor guardado en la nube de Tuya (el plan gratuito guarda ~7 días): permite completar
- * el historial del teléfono con los reportes ocurridos mientras nadie consultaba. Hasta `maxPages` páginas de 100.
+ * Formas de pedir el historial de reportes (según el proyecto y el plan, Tuya acepta una u otra). Cada una arma
+ * la ruta con los parámetros en orden alfabético (así los firma Tuya) y lee la página de respuesta.
+ */
+const LOG_VARIANTS: {
+  id: string;
+  url: (id: string, code: string, start: number, end: number, rowKey: string | null) => string;
+  page: (r: Record<string, unknown>) => { logs: TuyaLog[]; next: string | null };
+}[] = [
+  {
+    id: 'thing-report-logs',
+    url: (id, code, start, end, row) =>
+      `/v2.0/cloud/thing/${id}/report-logs?codes=${code}&end_time=${end}${row ? `&last_row_key=${encodeURIComponent(row)}` : ''}&size=20&start_time=${start}`,
+    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? (r['last_row_key'] as string) : null }),
+  },
+  {
+    id: 'iot03-report-logs',
+    url: (id, code, start, end, row) =>
+      `/v1.0/iot-03/devices/${id}/report-logs?codes=${code}&end_time=${end}${row ? `&last_row_key=${encodeURIComponent(row)}` : ''}&size=20&start_time=${start}`,
+    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? (r['last_row_key'] as string) : null }),
+  },
+  {
+    id: 'device-logs',
+    url: (id, code, start, end, row) =>
+      `/v1.0/devices/${id}/logs?codes=${code}&end_time=${end}&size=100${row ? `&start_row_key=${encodeURIComponent(row)}` : ''}&start_time=${start}&type=7`,
+    page: (r) => ({ logs: logsOf(r), next: r['has_next'] && typeof r['next_row_key'] === 'string' ? (r['next_row_key'] as string) : null }),
+  },
+];
+
+const logsOf = (r: Record<string, unknown>) => (Array.isArray(r['logs']) ? (r['logs'] as TuyaLog[]) : []);
+
+/** La forma que funcionó con este proyecto (se prueba primero la próxima vez). */
+let workingVariant: string | null = null;
+
+/**
+ * Historial de reportes del sensor guardado en la nube de Tuya (~7 días): completa el historial del teléfono con
+ * los reportes ocurridos mientras nadie consultaba. Un código por consulta, hasta `maxPages` páginas cada uno.
  */
 export async function readTuyaReportLogs(
   cfg: SoilSensorConfig,
@@ -175,22 +216,37 @@ export async function readTuyaReportLogs(
   codes: string[],
   startMs: number,
   endMs: number,
-  maxPages = 10,
-): Promise<{ code?: string; value?: unknown; event_time?: unknown }[]> {
+  maxPages = 15,
+): Promise<TuyaLog[]> {
   const id = encodeURIComponent(cfg.deviceId.trim());
-  const out: { code?: string; value?: unknown; event_time?: unknown }[] = [];
-  let rowKey: string | null = null;
-  for (let page = 0; page < maxPages; page++) {
-    // Los parámetros van en orden alfabético: así los firma Tuya.
-    const q: string = `codes=${codes.join(',')}&end_time=${Math.round(endMs)}${rowKey ? `&last_row_key=${encodeURIComponent(rowKey)}` : ''}&size=100&start_time=${Math.round(startMs)}`;
-    const r = await call(cfg, `/v2.0/cloud/thing/${id}/report-logs?${q}`, Date.now(), token.accessToken);
-    const logs = Array.isArray(r['logs']) ? (r['logs'] as { code?: string; value?: unknown; event_time?: unknown }[]) : [];
-    out.push(...logs);
-    const next = typeof r['last_row_key'] === 'string' ? (r['last_row_key'] as string) : null;
-    if (!r['has_more'] || !next || !logs.length) break;
-    rowKey = next;
+  const now = Date.now();
+  // Ni futuro (si el reloj del teléfono va adelantado) ni más atrás de lo que Tuya guarda.
+  const end = Math.round(Math.min(endMs, now - 10_000));
+  const start = Math.round(Math.max(startMs, now - 7 * 86_400_000 + 3_600_000, end - 7 * 86_400_000 + 3_600_000));
+  if (start >= end) return [];
+  const order = [...LOG_VARIANTS].sort((a, b) => Number(b.id === workingVariant) - Number(a.id === workingVariant));
+  let lastError: unknown = null;
+  for (const v of order) {
+    try {
+      const out: TuyaLog[] = [];
+      for (const code of codes) {
+        let row: string | null = null;
+        for (let page = 0; page < maxPages; page++) {
+          const r = await call(cfg, v.url(id, encodeURIComponent(code), start, end, row), Date.now(), token.accessToken);
+          const { logs, next } = v.page(r);
+          out.push(...logs.map((l) => ({ ...l, code: l.code ?? code })));
+          if (!next || !logs.length) break;
+          row = next;
+        }
+      }
+      workingVariant = v.id;
+      return out;
+    } catch (e) {
+      if (!(e instanceof TuyaError)) throw e; // sin conexión: no tiene sentido probar otra forma
+      lastError = e;
+    }
   }
-  return out;
+  throw lastError;
 }
 
 /**

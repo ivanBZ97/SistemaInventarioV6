@@ -49,26 +49,61 @@ test('registros de la nube de Tuya → muestras (humedad con la temperatura del 
   assert.deepEqual(out, [s(T, 49, 21.2), s(T - 3_600_000, 52, null)]);
 });
 
-test('pide el historial a Tuya con los parámetros en orden alfabético y recorre las páginas', async () => {
+test('pide el historial a Tuya (un código por consulta, parámetros en orden alfabético) y recorre las páginas', async () => {
   const orig = globalThis.fetch;
   const urls = [];
   try {
+    const now = Date.now();
     globalThis.fetch = async (url) => {
       urls.push(String(url));
       const page2 = String(url).includes('last_row_key');
+      const code = /codes=([a-z_]+)/.exec(String(url))[1];
       return { ok: true, status: 200, json: async () => ({ success: true, result: {
         has_more: !page2, last_row_key: page2 ? null : 'ROW1',
-        logs: [{ code: 'humidity', value: page2 ? '50' : '49', event_time: page2 ? T - 1000 : T }],
+        logs: [{ code, value: page2 ? '50' : '49', event_time: now - (page2 ? 2 : 1) * 3_600_000 }],
       } }) };
     };
     const cfg = { region: 'us', accessId: 'ID', accessSecret: 'SECRET', deviceId: 'dev1', enabled: false };
-    const logs = await tuya.readTuyaReportLogs(cfg, { accessToken: 'TOK', expiresAt: Infinity }, ['humidity', 'temp_current'], 1000, 2000);
-    assert.equal(logs.length, 2);
-    assert.equal(urls[0], 'https://openapi.tuyaus.com/v2.0/cloud/thing/dev1/report-logs?codes=humidity,temp_current&end_time=2000&size=100&start_time=1000');
-    assert.match(urls[1], /end_time=2000&last_row_key=ROW1&size=100/);
+    const logs = await tuya.readTuyaReportLogs(cfg, { accessToken: 'TOK', expiresAt: Infinity }, ['humidity', 'temp_current'], now - 86_400_000, now);
+    assert.equal(logs.length, 4);
+    assert.match(urls[0], /^https:\/\/openapi\.tuyaus\.com\/v2\.0\/cloud\/thing\/dev1\/report-logs\?codes=humidity&end_time=\d+&size=20&start_time=\d+$/);
+    assert.match(urls[1], /codes=humidity&end_time=\d+&last_row_key=ROW1&size=20&start_time=/);
+    assert.match(urls[2], /codes=temp_current/);
   } finally {
     globalThis.fetch = orig;
   }
+});
+
+test('si Tuya rechaza esa forma ("Parameter error"), prueba las otras y recuerda la que funcionó', async () => {
+  const orig = globalThis.fetch;
+  const urls = [];
+  try {
+    const now = Date.now();
+    globalThis.fetch = async (url) => {
+      urls.push(String(url));
+      if (!String(url).includes('/v1.0/devices/')) return { ok: true, status: 200, json: async () => ({ success: false, code: 40000303, msg: 'Parameter error!' }) };
+      return { ok: true, status: 200, json: async () => ({ success: true, result: { has_next: false, logs: [{ code: 'humidity', value: '61', event_time: now - 3_600_000 }] } }) };
+    };
+    const cfg = { region: 'us', accessId: 'ID', accessSecret: 'SECRET', deviceId: 'dev1', enabled: false };
+    const tk = { accessToken: 'TOK', expiresAt: Infinity };
+    const logs = await tuya.readTuyaReportLogs(cfg, tk, ['humidity'], now - 86_400_000, now);
+    assert.equal(logs[0].value, '61');
+    assert.match(urls.at(-1), /\/v1\.0\/devices\/dev1\/logs\?codes=humidity&end_time=\d+&size=100&start_time=\d+&type=7$/);
+    urls.length = 0;
+    await tuya.readTuyaReportLogs(cfg, tk, ['humidity'], now - 86_400_000, now);
+    assert.equal(urls.length, 1); // va directo a la que funcionó
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test('la hora del último reporte es el dato medido más nuevo (la humedad puede no cambiar en toda la noche)', () => {
+  const st = tuya.parseSoilDevice({}, [
+    { code: 'humidity', value: 100, time: 1730000000000 },
+    { code: 'temp_current', value: 116, time: 1730030000000 },
+    { code: 'alarm_switch', value: true, time: 1730090000000 }, // un ajuste, no una medición
+  ]);
+  assert.equal(st.updatedAt, 1730030000000);
 });
 
 test('la lectura del sensor informa qué códigos usa este modelo', () => {
