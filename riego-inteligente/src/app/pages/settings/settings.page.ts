@@ -9,6 +9,7 @@ import {
   IonHeader,
   IonIcon,
   IonInput,
+  IonInputPasswordToggle,
   IonRange,
   IonToggle,
   IonTitle,
@@ -18,7 +19,7 @@ import {
 import { addIcons } from 'ionicons';
 import {
   alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, statsChartOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
+  notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, statsChartOutline, waterOutline, eyeOutline, eyeOffOutline, downloadOutline, informationCircleOutline, leafOutline,
 } from 'ionicons/icons';
 import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
@@ -86,7 +87,7 @@ function whenOf(t: number): string {
   selector: 'app-settings',
   standalone: true,
   imports: [
-    IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonRange, IonInput, IonButton, IonToggle, IonIcon, RouterLink,
+    IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton, IonContent, IonRange, IonInput, IonInputPasswordToggle, IonButton, IonToggle, IonIcon, RouterLink,
   ],
   template: `
     <ion-header class="ion-no-border">
@@ -295,7 +296,9 @@ function whenOf(t: number): string {
         </div>
         <div class="field two">
           <ion-input fill="outline" label="Access ID" labelPlacement="floating" [value]="tuyaId()" (ionInput)="tuyaId.set($any($event).detail.value ?? '')" />
-          <ion-input fill="outline" type="password" label="Access Secret" labelPlacement="floating" [value]="tuyaSecret()" (ionInput)="tuyaSecret.set($any($event).detail.value ?? '')" />
+          <ion-input fill="outline" type="password" label="Access Secret" labelPlacement="floating" [value]="tuyaSecret()" (ionInput)="tuyaSecret.set($any($event).detail.value ?? '')">
+            <ion-input-password-toggle slot="end" showIcon="eye-outline" hideIcon="eye-off-outline" />
+          </ion-input>
         </div>
         <div class="field">
           <ion-input fill="outline" label="ID del sensor" labelPlacement="floating" helperText="Smart Life → el sensor → lápiz → Información del dispositivo → ID virtual"
@@ -327,7 +330,7 @@ function whenOf(t: number): string {
             <span class="md-body-large">Usar el sensor en el balance</span>
             <span class="md-body-medium md-variant">Su lectura reemplaza al cálculo (necesita la calibración)</span>
           </div>
-          <ion-toggle [checked]="sensorOn()" [disabled]="!calibrated()" (ionChange)="sensorOn.set($any($event).detail.checked)" aria-label="Usar el sensor en el balance" />
+          <ion-toggle [checked]="sensorOn()" [disabled]="!calibrated()" (ionChange)="toggleSensor($any($event).detail.checked)" aria-label="Usar el sensor en el balance" />
         </div>
       </div>
 
@@ -488,7 +491,7 @@ export class SettingsPage implements OnInit {
   constructor() {
     addIcons({
       alarmOutline, checkmarkOutline, chevronForwardOutline, copyOutline, closeOutline, locateOutline, locationOutline, navigateOutline,
-      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, statsChartOutline, waterOutline, downloadOutline, informationCircleOutline, leafOutline,
+      notificationsOutline, pulseOutline, radioOutline, searchOutline, syncOutline, timeOutline, timerOutline, statsChartOutline, waterOutline, eyeOutline, eyeOffOutline, downloadOutline, informationCircleOutline, leafOutline,
     });
   }
 
@@ -626,11 +629,25 @@ export class SettingsPage implements OnInit {
     const pct = r?.raw?.soilPct;
     if (pct === null || pct === undefined) return;
     (point === 'wet' ? this.wetPct : this.dryPct).set(pct);
-    const label = `${point === 'wet' ? 'Húmedo' : 'Toca regar'}: ${String(pct).replace('.', ',')} %.`;
+    const label = `${point === 'wet' ? 'Húmedo' : 'Toca regar'}: ${String(pct).replace('.', ',')} % (guardado).`;
+    // La calibración se guarda al tiro: es fácil olvidar "Guardar cambios" y perderla.
+    await this.saveSensor();
     // Justo después de regar el sensor marca el suelo encharcado, no lo que retiene una vez drenado.
     this.toast(point === 'wet' && pct >= 97
-      ? `${label} Recién regado marca saturado: para afinar, vuelve a marcarlo mañana temprano. Pulsa Guardar cambios.`
-      : `${label} Pulsa Guardar cambios.`);
+      ? `${label} Recién regado marca saturado: para afinar, vuelve a marcarlo mañana temprano.`
+      : label);
+  }
+
+  /** Guarda solo el sensor (claves, calibración y si se usa), sin tocar el resto de los ajustes en edición. */
+  private async saveSensor(): Promise<void> {
+    await this.engine.saveSettings({ soilSensor: this.sensorDraft() });
+    await this.background.sync();
+  }
+
+  async toggleSensor(on: boolean): Promise<void> {
+    this.sensorOn.set(on);
+    await this.saveSensor();
+    this.toast(on ? 'El sensor ahora manda en el balance (guardado).' : 'El sensor ya no se usa en el balance (guardado).');
   }
 
   // ───────────── Estado del sistema ─────────────

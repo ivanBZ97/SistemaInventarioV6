@@ -128,7 +128,11 @@ function when(t: number): string {
               <line [attr.x1]="i.x" [attr.x2]="i.x" [attr.y1]="Y0" [attr.y2]="Y1" class="irr" />
               <circle [attr.cx]="i.x" [attr.cy]="Y1 - 4" r="4" class="irr-dot" />
             }
+            <path [attr.d]="chart().gapPath" class="line gap" />
             <path [attr.d]="chart().path" class="line" />
+            @for (d of chart().dots; track $index) {
+              <circle [attr.cx]="d.x" [attr.cy]="d.y" r="2.5" class="report-dot" />
+            }
             @for (x of chart().xticks; track x.x) {
               <text [attr.x]="x.x" [attr.y]="H - 14" class="tick" text-anchor="middle">{{ x.label }}</text>
             }
@@ -206,6 +210,8 @@ function when(t: number): string {
     .grid { stroke: var(--md-outline-variant); stroke-width: 1; opacity: .6; }
     .tick { fill: var(--md-on-surface-variant); font: 400 9px var(--md-font); }
     .line { fill: none; stroke: var(--md-primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .line.gap { stroke-width: 1.5; stroke-dasharray: 3 4; opacity: .6; }
+    .report-dot { fill: var(--md-primary); stroke: var(--md-surface-container-low); stroke-width: 1.5; }
     .calib { stroke: var(--md-on-surface-variant); stroke-width: 1; stroke-dasharray: 4 3; opacity: .7; }
     .calib-label { fill: var(--md-on-surface-variant); font: 500 8.5px var(--md-font);
       paint-order: stroke; stroke: var(--md-surface-container-low); stroke-width: 3px; stroke-linejoin: round; }
@@ -335,7 +341,8 @@ export class SensorHistoryPage implements OnInit {
     const v = this.visible();
     const { t0, t1 } = this.domain();
     const cal = this.calibration();
-    const values = [...v.map((s) => s.soil), ...(cal.wet !== undefined ? [cal.wet] : []), ...(cal.dry !== undefined ? [cal.dry] : [])];
+    const prior = [...this.samples()].reverse().find((s) => s.t < t0);
+    const values = [...(prior ? [prior.soil] : []), ...v.map((s) => s.soil), ...(cal.wet !== undefined ? [cal.wet] : []), ...(cal.dry !== undefined ? [cal.dry] : [])];
     let lo = values.length ? Math.floor((Math.min(...values) - 3) / 10) * 10 : 0;
     let hi = values.length ? Math.ceil((Math.max(...values) + 3) / 10) * 10 : 100;
     lo = Math.max(0, lo);
@@ -343,15 +350,37 @@ export class SensorHistoryPage implements OnInit {
     const x = (t: number) => X0 + ((t - t0) / (t1 - t0)) * (X1 - X0);
     const y = (p: number) => Y1 - ((p - lo) / (hi - lo)) * (Y1 - Y0);
 
-    // La línea se corta donde faltan reportes (sensor sin WiFi, sin pilas…).
-    const gap = Math.max(3 * HOUR, (t1 - t0) / 40);
+    // El sensor a pilas informa solo cuando algo cambia: entre dos reportes la humedad sigue en el último valor,
+    // así que se dibuja en escalones. Un tramo de más de 24 h sin ningún reporte va punteado (no se sabe qué pasó).
+    const LONG_GAP = 24 * HOUR;
+    const pts = [...(prior ? [{ t: t0, soil: prior.soil }] : []), ...v];
+    const end = Math.min(Date.now(), t1);
     let path = '';
-    v.forEach((s, i) => {
-      const cmd = i === 0 || s.t - v[i - 1].t > gap ? 'M' : 'L';
-      path += `${cmd}${x(s.t).toFixed(1)},${y(s.soil).toFixed(1)}`;
+    let gapPath = '';
+    pts.forEach((s, i) => {
+      const sx = x(s.t).toFixed(1);
+      const sy = y(s.soil).toFixed(1);
+      if (i === 0) {
+        path += `M${sx},${sy}`;
+        return;
+      }
+      const prev = pts[i - 1];
+      const py = y(prev.soil).toFixed(1);
+      if (s.t - prev.t > LONG_GAP) {
+        gapPath += `M${x(prev.t).toFixed(1)},${py}H${sx}`;
+        path += `M${sx},${py}`;
+      } else {
+        path += `H${sx}`;
+      }
+      path += `V${sy}`;
     });
-    // Un punto aislado se dibuja como un trazo mínimo para que se vea.
-    path = path.replace(/M([\d.]+),([\d.]+)(?=M|$)/g, (_m, a, b) => `M${a},${b}l0.1,0`);
+    const last = pts.at(-1);
+    if (last && end > last.t) {
+      if (end - last.t > LONG_GAP) gapPath += `M${x(last.t).toFixed(1)},${y(last.soil).toFixed(1)}H${x(end).toFixed(1)}`;
+      else path += `H${x(end).toFixed(1)}`;
+    }
+    // Con pocos reportes, cada uno se marca con un punto.
+    const dots = v.length <= 80 ? v.map((s) => ({ x: x(s.t), y: y(s.soil) })) : [];
 
     const step = (hi - lo) / 20 > 2 ? 20 : 10;
     const grid: { v: number; y: number }[] = [];
@@ -370,6 +399,8 @@ export class SensorHistoryPage implements OnInit {
     const f = this.focus();
     return {
       path,
+      gapPath,
+      dots,
       grid,
       calib,
       irrigations,
