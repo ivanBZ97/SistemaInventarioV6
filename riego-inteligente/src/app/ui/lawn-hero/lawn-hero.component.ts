@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, computed, effect, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, type OnDestroy, computed, effect, input, signal } from '@angular/core';
 import type { Mood, Scene } from '../../core/lawn-mood';
 
 interface Blade {
@@ -66,7 +66,7 @@ export class LawnHeroComponent implements OnDestroy {
         y: baseY,
         rot: fall,
         dur: `${2.6 + (i % 4) * 0.5}s`,
-        tone: (i % 2 === 0 ? 1 : 2) as 1 | 2,
+        tone: (i % 2 === 0 ? 1 : 2),
       };
     });
   });

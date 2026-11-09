@@ -1,5 +1,6 @@
 import type { DailyWeather } from './models';
-import { addDays } from './irrigation-core';
+import { addDays } from './dates';
+import { fetchWithTimeout } from './http';
 
 export const OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast';
 
@@ -84,7 +85,7 @@ export function parseForecast(json: OpenMeteoResponse): DailyWeather[] {
 function hourlyRainByDay(h: OpenMeteoResponse['hourly']): Map<string, number[]> {
   const out = new Map<string, number[]>();
   if (!h?.time) return out;
-  const rain = seriesOf(h as OpenMeteoResponse['daily'], 'precipitation');
+  const rain = seriesOf(h, 'precipitation');
   if (!rain.length) return out;
   h.time.forEach((t, i) => {
     let date = t.slice(0, 10);
@@ -106,7 +107,7 @@ export async function fetchForecastWithMeta(
   lat: number,
   lon: number,
 ): Promise<{ days: DailyWeather[]; elevationM: number | null }> {
-  const res = await fetch(forecastUrl(lat, lon));
+  const res = await fetchWithTimeout(forecastUrl(lat, lon));
   if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
   const json = (await res.json()) as OpenMeteoResponse;
   return { days: parseForecast(json), elevationM: typeof json.elevation === 'number' ? json.elevation : null };
@@ -129,7 +130,7 @@ export async function searchPlaces(query: string): Promise<Place[]> {
   const q = query.trim();
   if (q.length < 2) return [];
   const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=es&format=json`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   if (!res.ok) throw new Error(`Geocoding HTTP ${res.status}`);
   const json = (await res.json()) as {
     results?: { name: string; admin1?: string; country?: string; latitude: number; longitude: number }[];
@@ -145,10 +146,10 @@ export async function searchPlaces(query: string): Promise<Place[]> {
 export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
   try {
     const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=es`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return null;
     const j = (await res.json()) as { locality?: string; city?: string; principalSubdivision?: string };
-    const parts = [j.locality || j.city, j.principalSubdivision].filter(Boolean);
+    const parts = [j.locality?.trim() || j.city, j.principalSubdivision].filter(Boolean);
     return parts.length ? [...new Set(parts)].join(', ') : null;
   } catch {
     return null;

@@ -1,4 +1,4 @@
-import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
+import { type ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
 import { RouteReuseStrategy, provideRouter, withHashLocation } from '@angular/router';
 import { IonicRouteStrategy, provideIonicAngular } from '@ionic/angular/standalone';
 import { routes } from './app.routes';

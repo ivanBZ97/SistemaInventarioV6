@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, type OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   AlertController,
@@ -25,14 +25,13 @@ import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
 import { LocationService } from '../../core/location.service';
-import { Place, searchPlaces } from '../../core/open-meteo';
+import { type Place, searchPlaces } from '../../core/open-meteo';
 import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../core/agromet';
 import {
   type DmcStation,
   type DmcStore,
   type StationCheck,
   type StationHealth,
-  ageText,
   bestStation,
   checkStations,
   diagnoseDmc,
@@ -42,10 +41,12 @@ import {
   stationMeta,
   stationsToCheck,
 } from '../../core/dmc';
+import { ageText } from '../../core/format';
 import { StorageService } from '../../core/storage.service';
 import type { AgrometConfig, DmcAuth, DmcConfig, PlannedNotification, RunnerStatus, SoilReading, SoilSensorConfig, TuyaRegion } from '../../core/models';
 import { SOIL_SENSOR_PROVIDER } from '../../core/soil-sensor.provider';
-import { TUYA_REGIONS, calibrationPoints, tuyaErrorText } from '../../core/tuya';
+import { TUYA_REGIONS, tuyaErrorText } from '../../core/tuya';
+import { calibrationPoints } from '../../core/soil-sensor';
 import { UpdateService } from '../../core/update.service';
 import { APK_URL } from '../../core/update';
 import { BUILD_INFO } from '../../core/build-info';
@@ -609,15 +610,15 @@ export class SettingsPage implements OnInit {
 
   async testSensor(): Promise<void> {
     const r = await this.readSensorNow();
-    if (!r?.raw) return;
+    if (!r) return;
     const c = (v: number | null, unit: string) => (v === null ? '—' : `${String(Math.round(v * 10) / 10).replace('.', ',')}${unit}`);
-    const age = Date.now() - Date.parse(r.takenAt);
+    const age = Date.now() - r.at;
     this.sensorReport.set({
       lines: [
-        `✓ ${r.source.replace(/^tuya:/, '')}: humedad del suelo ${c(r.raw.soilPct, ' %')} · ${c(r.raw.tempC, ' °C')} · batería ${c(r.raw.battery, ' %')}.`,
-        `Último reporte: ${whenOf(Date.parse(r.takenAt))} (hace ${ageText(Math.max(0, age))})${age > 6 * 3_600_000 ? ': viejo, revisa que tenga WiFi y pilas' : ''}.`,
+        `✓ ${r.name}: humedad del suelo ${c(r.soilPct, ' %')} · ${c(r.tempC, ' °C')} · batería ${c(r.battery, ' %')}.`,
+        `Último reporte: ${whenOf(r.at)} (hace ${ageText(Math.max(0, age))})${age > 6 * 3_600_000 ? ': viejo, revisa que tenga WiFi y pilas' : ''}.`,
         'Es a pilas: duerme y se conecta cada cierto rato o cuando la humedad cambia; Tuya entrega su último dato.',
-        this.calibrated() ? `Con tu calibración equivale a ${c(r.deficitMm ?? null, ' mm')} de déficit.` : 'Falta calibrarlo para usarlo en el balance.',
+        r.deficitMm !== null ? `Con tu calibración equivale a ${c(r.deficitMm, ' mm')} de déficit.` : 'Falta calibrarlo para usarlo en el balance.',
       ],
       error: false,
     });
@@ -626,8 +627,8 @@ export class SettingsPage implements OnInit {
   /** Guarda la lectura actual como punto "húmedo" (déficit 0) o "toca regar" (déficit = umbral). */
   async calibrate(point: 'wet' | 'dry'): Promise<void> {
     const r = await this.readSensorNow();
-    const pct = r?.raw?.soilPct;
-    if (pct === null || pct === undefined) return;
+    if (!r) return;
+    const pct = r.soilPct;
     (point === 'wet' ? this.wetPct : this.dryPct).set(pct);
     const label = `${point === 'wet' ? 'Húmedo' : 'Toca regar'}: ${String(pct).replace('.', ',')} % (guardado).`;
     // La calibración se guarda al tiro: es fácil olvidar "Guardar cambios" y perderla.

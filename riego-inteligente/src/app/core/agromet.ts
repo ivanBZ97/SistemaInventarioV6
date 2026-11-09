@@ -1,7 +1,10 @@
 // Lluvia OBSERVADA de la red agroclimática INIA (https://agromet.inia.cl/api/v2, requiere clave personal).
 // Reemplaza la lluvia del modelo en los días ya transcurridos, que es la que alimenta el balance hídrico.
 // Funciones sin dependencias de Angular: las usan la app y el worker en segundo plano.
-import { addDays, distanceKm, toISODate } from './irrigation-core';
+import { addDays, toISODate } from './dates';
+import { distanceKm } from './geo';
+import { fetchWithTimeout } from './http';
+import { textOf } from './parse';
 import type { AgrometConfig, DailyWeather, ISODate } from './models';
 
 const BASE = 'https://agromet.inia.cl/api/v2';
@@ -26,7 +29,7 @@ interface Sample {
 
 async function call<T>(endpoint: string, apiKey: string, params: Record<string, string> = {}): Promise<T[]> {
   const q = new URLSearchParams({ ...params, key: apiKey });
-  const res = await fetch(`${BASE}/${endpoint}/?${q}`);
+  const res = await fetchWithTimeout(`${BASE}/${endpoint}/?${q}`);
   if (res.status === 401 || res.status === 403) throw new Error('Clave de Agromet inválida');
   if (!res.ok) throw new Error(`Agromet HTTP ${res.status}`);
   const json = (await res.json()) as { response?: T[] } | T[];
@@ -47,9 +50,9 @@ export async function listStations(apiKey: string): Promise<AgrometStation[]> {
     if (latitude === null || longitude === null) return [];
     return [
       {
-        id: String(r['identificador'] ?? ''),
-        name: String(r['nombre'] ?? ''),
-        comuna: String(r['comuna'] ?? ''),
+        id: textOf(r['identificador']),
+        name: textOf(r['nombre']),
+        comuna: textOf(r['comuna']),
         latitude,
         longitude,
         elevationM: num(r['elevacion']),
@@ -71,8 +74,8 @@ const normalize = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLo
 /** Los IDs numéricos no son consistentes entre fuentes: la variable de lluvia se busca por nombre. */
 export async function findRainVariable(apiKey: string, stationId: string): Promise<string | null> {
   const vars = await call<Record<string, unknown>>('variables', apiKey, { estacion: stationId });
-  const hit = vars.find((v) => normalize(String(v['nombre'] ?? '')).includes('precipitacion'));
-  return hit ? String(hit['identificador']) : null;
+  const hit = vars.find((v) => normalize(textOf(v['nombre'])).includes('precipitacion'));
+  return hit ? textOf(hit['identificador']) || null : null;
 }
 
 /** Fecha local (YYYY-MM-DD) de una muestra; si trae zona horaria se convierte a la del teléfono. */

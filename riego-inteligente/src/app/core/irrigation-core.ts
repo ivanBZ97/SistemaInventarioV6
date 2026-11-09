@@ -12,6 +12,11 @@ import type {
   Settings,
   WaterState,
 } from './models';
+import { type TimeOfDay, addDays, atTime, diffDays, toISODate, weekdayEs } from './dates';
+
+// Las fechas son parte de la API del núcleo: quien lo usa no necesita saber que viven en otro módulo.
+export { addDays, atTime, diffDays, longDateEs, toISODate, weekdayEs } from './dates';
+export { distanceKm } from './geo';
 
 export const DEFAULT_SETTINGS: Settings = {
   thresholdMm: 8.0,
@@ -21,15 +26,6 @@ export const DEFAULT_SETTINGS: Settings = {
   useGps: false,
   locationSet: false,
 };
-
-/** Distancia en km entre dos coordenadas (haversine). */
-export function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const rad = Math.PI / 180;
-  const dLat = (lat2 - lat1) * rad;
-  const dLon = (lon2 - lon1) * rad;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
-  return 6371 * 2 * Math.asin(Math.sqrt(a));
-}
 
 /** Si te mueves más de esto, el clima de la ubicación anterior ya no vale. */
 export const MOVED_THRESHOLD_KM = 10;
@@ -57,12 +53,25 @@ export const SEEDBED_THRESHOLD_MM = 2;
 export const SEEDBED_SPRAY_MM = 2;
 
 /** Ventana permitida para alertas de riego (nunca riego nocturno). */
-export const MORNING = { hour: 6, minute: 30 };
-export const WINDOW_END = { hour: 8, minute: 30 };
-export const OVERSEED_CHECK = { hour: 13, minute: 0 };
+export const MORNING: TimeOfDay = { hour: 6, minute: 30 };
+export const WINDOW_END: TimeOfDay = { hour: 8, minute: 30 };
+export const OVERSEED_CHECK: TimeOfDay = { hour: 13, minute: 0 };
 
 export const NOTIF_ID_MORNING = 1001;
 export const NOTIF_ID_OVERSEED = 1002;
+
+/** Canales de notificación de Android (los crea NotificationService; el worker solo los nombra). */
+export const CHANNEL = {
+  /** Aviso de la mañana (con sonido). */
+  morning: 'riego-matutino',
+  /** "Hoy no hace falta regar", sin sonido si el usuario lo pidió. */
+  info: 'riego-info',
+  /** Recordatorio de las 13:00 del modo Resiembra. */
+  overseed: 'riego-resiembra',
+} as const;
+
+/** Botones "Ya regué" / "Posponer a mañana" del aviso de riego. */
+export const ACTION_TYPE_ID = 'RIEGO_ACTIONS';
 
 /** Déficit (mm) en el que la humedad útil llega al nivel crítico de 20 %. */
 const CRITICAL_DEFICIT_MM = 12;
@@ -73,30 +82,6 @@ export function clamp(v: number, lo: number, hi: number): number {
 
 export function round1(v: number): number {
   return Math.round(v * 10) / 10;
-}
-
-// ───────────────────────── Fechas (calendario local) ─────────────────────────
-
-export function toISODate(d: Date): ISODate {
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-export function addDays(iso: ISODate, n: number): ISODate {
-  const [y, m, d] = iso.split('-').map(Number);
-  return toISODate(new Date(y, m - 1, d + n));
-}
-
-export function diffDays(a: ISODate, b: ISODate): number {
-  const [ya, ma, da] = a.split('-').map(Number);
-  const [yb, mb, db] = b.split('-').map(Number);
-  return Math.round((Date.UTC(ya, ma - 1, da) - Date.UTC(yb, mb - 1, db)) / 86_400_000);
-}
-
-export function atTime(iso: ISODate, t: { hour: number; minute: number }): Date {
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d, t.hour, t.minute, 0, 0);
 }
 
 // ───────────────────────── Modelo agronómico ─────────────────────────
@@ -399,21 +384,6 @@ export function evaluate(
 
 // ───────────────────────── Próximo riego (pronóstico) ─────────────────────────
 
-const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-
-/** "jueves" (sin depender de Intl: también corre en el worker en segundo plano). */
-export function weekdayEs(date: ISODate): string {
-  const [y, m, d] = date.split('-').map(Number);
-  return WEEKDAYS[new Date(y, m - 1, d).getDay()];
-}
-
-/** "jueves 23 de octubre" */
-export function longDateEs(date: ISODate): string {
-  const [, m, d] = date.split('-').map(Number);
-  return `${weekdayEs(date)} ${d} de ${MONTHS[m - 1]}`;
-}
-
 export interface ForecastDay {
   date: ISODate;
   /** Déficit al inicio del día (mm). */
@@ -558,7 +528,7 @@ export function thresholdFor(state: WaterState, settings: Settings, date: ISODat
 export const MORNING_TIME_OPTIONS = ['06:30', '06:45', '07:00', '07:15', '07:30', '07:45', '08:00', '08:15', '08:30'];
 
 /** Hora del aviso elegida por el usuario, limitada a la ventana (jamás nocturna). */
-export function morningTimeOf(settings: Pick<Settings, 'morningTime'>): { hour: number; minute: number } {
+export function morningTimeOf(settings: Pick<Settings, 'morningTime'>): TimeOfDay {
   const m = /^(\d{1,2}):(\d{2})$/.exec(settings.morningTime ?? '');
   const mins = m ? Number(m[1]) * 60 + Number(m[2]) : MORNING.hour * 60 + MORNING.minute;
   const lo = MORNING.hour * 60 + MORNING.minute;
@@ -580,7 +550,7 @@ export function morningNotification(ev: Evaluation, at: Date): PlannedNotificati
     : '';
   const base = {
     id: NOTIF_ID_MORNING,
-    channelId: 'riego-matutino' as const,
+    channelId: CHANNEL.morning,
     at: clampToIrrigationWindow(at),
   };
   // Siembra por parches: el pasto se riega normal y los parches se rocían a mano todos los días.
@@ -717,7 +687,7 @@ export function planNotifications({ state, weather, settings, now }: PlanInput):
     if (ev) {
       const n = morningNotification(ev, at);
       // Días sin riego: si el usuario lo pidió, por un canal sin sonido (igual reemplaza cualquier aviso viejo).
-      if (ev.status === 'ok' && settings.quietOkAlerts) n.channelId = 'riego-info';
+      if (ev.status === 'ok' && settings.quietOkAlerts) n.channelId = CHANNEL.info;
       if (ev.status === 'ok') {
         const next = forecastNextIrrigation(state, weather, settings, targetDate);
         if (next && next.daysAhead > 0) n.body += ` Próximo riego estimado: ${weekdayEs(next.date)}.`;
@@ -734,7 +704,7 @@ export function planNotifications({ state, weather, settings, now }: PlanInput):
     if (w && w.tempMaxC >= OVERSEED_TEMP_C) {
       notifications.push({
         id: NOTIF_ID_OVERSEED,
-        channelId: 'riego-resiembra',
+        channelId: CHANNEL.overseed,
         title: '🌱 Modo Resiembra',
         body: overseedMessage(state, w, settings, seedDate),
         at: atTime(seedDate, OVERSEED_CHECK),

@@ -3,11 +3,11 @@ import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { IrrigationEngineService } from './irrigation-engine.service';
-import { NOTIF_ID_MORNING, NOTIF_ID_OVERSEED } from './irrigation-core';
+import type { PlannedNotification } from './models';
+import { ACTION_TYPE_ID, CHANNEL, NOTIF_ID_MORNING, NOTIF_ID_OVERSEED } from './irrigation-core';
 
-export const ACTION_TYPE_ID = 'RIEGO_ACTIONS';
-export const ACTION_DONE = 'ya-regue';
-export const ACTION_SNOOZE = 'posponer';
+const ACTION_DONE = 'ya-regue';
+const ACTION_SNOOZE = 'posponer';
 const NOTIF_ID_TEST = 1099;
 
 @Injectable({ providedIn: 'root' })
@@ -21,7 +21,7 @@ export class NotificationService {
     this.initialised = true;
 
     await LocalNotifications.createChannel({
-      id: 'riego-matutino',
+      id: CHANNEL.morning,
       name: 'Evaluación matutina de riego',
       description: 'Alerta diaria matutina con el balance hídrico',
       importance: 5,
@@ -30,7 +30,7 @@ export class NotificationService {
       lights: true,
     });
     await LocalNotifications.createChannel({
-      id: 'riego-info',
+      id: CHANNEL.info,
       name: 'Días sin riego',
       description: 'Aviso de la mañana cuando no hace falta regar (sin sonido)',
       importance: 2,
@@ -38,7 +38,7 @@ export class NotificationService {
       vibration: false,
     });
     await LocalNotifications.createChannel({
-      id: 'riego-resiembra',
+      id: CHANNEL.overseed,
       name: 'Modo Resiembra',
       description: 'Recordatorio de las 13:00 mientras dure la resiembra',
       importance: 5,
@@ -58,22 +58,31 @@ export class NotificationService {
       ],
     });
 
-    await LocalNotifications.addListener('localNotificationActionPerformed', async (event) => {
-      if (event.actionId === ACTION_DONE) await this.engine.registerIrrigation('notification');
-      else if (event.actionId === ACTION_SNOOZE) await this.engine.snoozeToday();
-      else return; // toque en el cuerpo: solo abre la app
-      await LocalNotifications.cancel({ notifications: [{ id: NOTIF_ID_MORNING }] });
-      await this.reschedule();
+    await LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
+      void this.onAction(event.actionId).catch((e: unknown) => console.error('No se pudo aplicar la acción del aviso', e));
     });
 
     // Al volver a primer plano se refresca el balance y se reprograman las alertas.
-    await App.addListener('resume', async () => {
-      await this.engine.updateLocationIfMoved();
-      await this.engine.refresh();
-      await this.reschedule();
+    await App.addListener('resume', () => {
+      void this.onResume().catch((e: unknown) => console.error('No se pudo refrescar al volver a la app', e));
     });
 
     await this.ensurePermissions();
+  }
+
+  /** Botones del aviso de riego: "Ya regué" y "Posponer a mañana" (un toque en el cuerpo solo abre la app). */
+  private async onAction(actionId: string): Promise<void> {
+    if (actionId === ACTION_DONE) await this.engine.registerIrrigation('notification');
+    else if (actionId === ACTION_SNOOZE) await this.engine.snoozeToday();
+    else return;
+    await LocalNotifications.cancel({ notifications: [{ id: NOTIF_ID_MORNING }] });
+    await this.reschedule();
+  }
+
+  private async onResume(): Promise<void> {
+    await this.engine.refresh();
+    await this.reschedule();
+    if (await this.engine.updateLocationIfMoved()) await this.reschedule();
   }
 
   /** Permisos actuales, sin pedirlos. null fuera del teléfono. */
@@ -103,7 +112,7 @@ export class NotificationService {
         id: NOTIF_ID_TEST,
         title: '🧪 Prueba de aviso',
         body: 'Si ves esto, los avisos de riego funcionan.',
-        channelId: 'riego-matutino',
+        channelId: CHANNEL.morning,
         schedule: { at: new Date(Date.now() + 5_000), allowWhileIdle: true },
       }],
     });
@@ -125,7 +134,7 @@ export class NotificationService {
   /** (Re)programa el aviso matutino y el de resiembra (13:00) según el plan vigente. */
   async reschedule(): Promise<void> {
     if (!Capacitor.isNativePlatform()) return;
-    let planned;
+    let planned: PlannedNotification[];
     try {
       planned = await this.engine.plan();
     } catch {

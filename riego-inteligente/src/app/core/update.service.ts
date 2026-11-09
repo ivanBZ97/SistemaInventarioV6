@@ -1,18 +1,13 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { StorageService } from './storage.service';
+import { fetchWithTimeout } from './http';
+import { STORAGE } from './storage-keys';
 import { RELEASE_API, type ReleaseInfo, parseRelease, updateAvailable } from './update';
 
 const CHECK_EVERY_MS = 12 * 3_600_000;
 const RETRY_AFTER_FAILURE_MS = 3_600_000;
 /** Una red mala (portal cautivo) puede dejar la consulta colgada: se abandona a los 10 s. */
 const TIMEOUT_MS = 10_000;
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('tiempo agotado')), ms);
-    p.then((v) => (clearTimeout(t), resolve(v)), (e) => (clearTimeout(t), reject(e)));
-  });
-}
 
 interface UpdateCache {
   at: number;
@@ -49,7 +44,7 @@ export class UpdateService {
   }
 
   private async run(force: boolean): Promise<void> {
-    const cache = await this.storage.get<UpdateCache | null>('updateCheck', null);
+    const cache = await this.storage.get<UpdateCache | null>(STORAGE.updateCheck, null);
     const wait = cache?.ok === false ? RETRY_AFTER_FAILURE_MS : CHECK_EVERY_MS;
     if (!force && cache && Date.now() - cache.at < wait) {
       this.release.set(cache.release);
@@ -58,19 +53,17 @@ export class UpdateService {
     }
     const at = Date.now();
     try {
-      // AbortSignal.timeout cancela la conexión (si el WebView lo soporta); withTimeout asegura no quedar colgados.
-      const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(TIMEOUT_MS) : undefined;
-      const res = await withTimeout(fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' }, signal }), TIMEOUT_MS);
+      const res = await fetchWithTimeout(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } }, TIMEOUT_MS);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const release = parseRelease(await withTimeout(res.json(), TIMEOUT_MS));
+      const release = parseRelease(await res.json());
       this.release.set(release);
       this.checked.set({ at, ok: true });
-      await this.storage.set<UpdateCache>('updateCheck', { at, ok: true, release });
+      await this.storage.set<UpdateCache>(STORAGE.updateCheck, { at, ok: true, release });
     } catch {
       // Sin red o límite de GitHub: se conserva lo último sabido y se reintenta en 1 h.
       this.release.set(cache?.release ?? null);
       this.checked.set({ at, ok: false });
-      await this.storage.set<UpdateCache>('updateCheck', { at, ok: false, release: cache?.release ?? null }).catch(() => undefined);
+      await this.storage.set<UpdateCache>(STORAGE.updateCheck, { at, ok: false, release: cache?.release ?? null }).catch(() => undefined);
     }
   }
 }

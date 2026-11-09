@@ -1,7 +1,7 @@
 // Sensor de humedad de suelo Tuya / Smart Life leído desde la nube de Tuya (OpenAPI, iot.tuya.com): firma
 // HMAC-SHA256, token y estado del dispositivo. Funciones sin dependencias de Angular: las usan la app y el worker.
+import { fetchWithTimeout } from './http';
 import { hex, hmacSha256, sha256, utf8 } from './sha256';
-import { clamp } from './irrigation-core';
 import type { SoilSensorConfig, TuyaRegion } from './models';
 
 export const TUYA_REGIONS: Record<TuyaRegion, { label: string; url: string }> = {
@@ -44,9 +44,13 @@ export class TuyaError extends Error {
   }
 }
 
+/** Código propio (no de Tuya): el dispositivo respondió, pero no trae un dato de humedad reconocible. */
+export const NO_HUMIDITY = 'no-humidity';
+
 /** Errores de Tuya en palabras simples (los más comunes al configurar). */
 export function tuyaErrorText(e: unknown): string {
   if (e instanceof TuyaError) {
+    if (e.code === NO_HUMIDITY) return e.message;
     const code = Number(e.code);
     if (code === 1004) return 'firma inválida: revisa el Access Secret';
     if (code === 1005 || code === 2009) return 'Access ID inválido o de otro centro de datos (revisa la región)';
@@ -63,7 +67,7 @@ async function call(cfg: SoilSensorConfig, path: string, now: number, accessToke
   const sign = tuyaSign({ accessId: cfg.accessId.trim(), secret: cfg.accessSecret.trim(), t, method: 'GET', path, accessToken });
   const headers: Record<string, string> = { client_id: cfg.accessId.trim(), sign, t, sign_method: 'HMAC-SHA256' };
   if (accessToken) headers['access_token'] = accessToken;
-  const res = await fetch(TUYA_REGIONS[cfg.region]?.url + path, { headers });
+  const res = await fetchWithTimeout(TUYA_REGIONS[cfg.region].url + path, { headers });
   if (!res.ok) throw new TuyaError(res.status, `HTTP ${res.status}`);
   const json = (await res.json()) as { success?: boolean; code?: number; msg?: string; result?: Record<string, unknown> };
   if (!json.success) throw new TuyaError(json.code, json.msg ?? 'error');
@@ -77,7 +81,7 @@ export interface TuyaToken {
 
 export async function tuyaToken(cfg: SoilSensorConfig, now: number): Promise<TuyaToken> {
   const r = await call(cfg, '/v1.0/token?grant_type=1', now);
-  const ttl = typeof r['expire_time'] === 'number' ? (r['expire_time'] as number) : 7200;
+  const ttl = typeof r['expire_time'] === 'number' ? (r['expire_time']) : 7200;
   return { accessToken: String(r['access_token']), expiresAt: now + ttl * 1000 - 120_000 };
 }
 
@@ -96,7 +100,7 @@ export interface SoilStatus {
   codes: string[];
 }
 
-type TuyaDp = { code?: string; value?: unknown; time?: unknown };
+interface TuyaDp { code?: string; value?: unknown; time?: unknown }
 
 const SOIL_CODES = ['humidity', 'soil_humidity', 'soil_moisture', 'moisture', 'humidity_value', 'va_humidity'];
 const TEMP_CODES = ['temp_current', 'soil_temp', 'temperature', 'temp_value', 'va_temperature'];
@@ -131,7 +135,7 @@ export function parseSoilDevice(result: Record<string, unknown>, shadow?: TuyaDp
   const tempDp = find(TEMP_CODES);
   const temp = tempDp ? (tempDp.value as number) : null;
   return {
-    name: typeof result['name'] === 'string' ? (result['name'] as string) : 'Sensor de suelo',
+    name: typeof result['name'] === 'string' ? (result['name']) : 'Sensor de suelo',
     online: result['online'] === true,
     updatedAt: lastReport ?? toMs(result['update_time']),
     soilPct: soil === null ? null : normSoil(soil),
@@ -170,7 +174,7 @@ export async function readTuyaSoil(cfg: SoilSensorConfig, now: number, token?: T
   return { status: parseSoilDevice(result, shadow), token: tk };
 }
 
-type TuyaLog = { code?: string; value?: unknown; event_time?: unknown };
+interface TuyaLog { code?: string; value?: unknown; event_time?: unknown }
 
 /**
  * Formas de pedir el historial de reportes (según el proyecto y el plan, Tuya acepta una u otra). Cada una arma
@@ -185,19 +189,19 @@ const LOG_VARIANTS: {
     id: 'thing-report-logs',
     url: (id, code, start, end, row) =>
       `/v2.0/cloud/thing/${id}/report-logs?codes=${code}&end_time=${end}${row ? `&last_row_key=${encodeURIComponent(row)}` : ''}&size=20&start_time=${start}`,
-    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? (r['last_row_key'] as string) : null }),
+    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? (r['last_row_key']) : null }),
   },
   {
     id: 'iot03-report-logs',
     url: (id, code, start, end, row) =>
       `/v1.0/iot-03/devices/${id}/report-logs?codes=${code}&end_time=${end}${row ? `&last_row_key=${encodeURIComponent(row)}` : ''}&size=20&start_time=${start}`,
-    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? (r['last_row_key'] as string) : null }),
+    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? (r['last_row_key']) : null }),
   },
   {
     id: 'device-logs',
     url: (id, code, start, end, row) =>
       `/v1.0/devices/${id}/logs?codes=${code}&end_time=${end}&size=100${row ? `&start_row_key=${encodeURIComponent(row)}` : ''}&start_time=${start}&type=7`,
-    page: (r) => ({ logs: logsOf(r), next: r['has_next'] && typeof r['next_row_key'] === 'string' ? (r['next_row_key'] as string) : null }),
+    page: (r) => ({ logs: logsOf(r), next: r['has_next'] && typeof r['next_row_key'] === 'string' ? (r['next_row_key']) : null }),
   },
 ];
 
@@ -249,33 +253,3 @@ export async function readTuyaReportLogs(
   // Todas las formas fallaron: el detalle de cada una sirve para el diagnóstico.
   throw new TuyaError(failures.at(-1)?.code, failures.map((f) => f.message).join(' · '));
 }
-
-/**
- * Lectura del sensor (% de humedad del suelo) → déficit (mm) con la calibración de tu jardín: el % con el suelo
- * recién regado a fondo es déficit 0 y el % cuando toca regar es el umbral; en medio, proporcional.
- * null si falta calibrar (o los dos puntos están demasiado juntos para distinguir).
- */
-export function deficitFromSensor(soilPct: number, cfg: Pick<SoilSensorConfig, 'wetPct' | 'dryPct'>, thresholdMm: number): number | null {
-  const cal = calibrationPoints(cfg);
-  if (!cal) return null;
-  return Math.round(clamp((thresholdMm * (cal.wet - soilPct)) / (cal.wet - cal.dry), 0, 25) * 10) / 10;
-}
-
-/** Distancia típica (puntos de %) entre "recién regado" y "toca regar", para la calibración provisional. */
-export const PROVISIONAL_SPAN_PCT = 30;
-
-/**
- * Puntos de calibración en uso. Con uno solo marcado, el otro se estima a {@link PROVISIONAL_SPAN_PCT} puntos
- * (provisional: así el sensor se puede usar desde ya y se afina al marcar el segundo). null si no hay ninguno o
- * los dos están demasiado juntos para distinguir.
- */
-export function calibrationPoints(cfg: Pick<SoilSensorConfig, 'wetPct' | 'dryPct'>): { wet: number; dry: number; provisional: boolean } | null {
-  const { wetPct: w, dryPct: d } = cfg;
-  if (w !== undefined && d !== undefined) return w - d >= 3 ? { wet: w, dry: d, provisional: false } : null;
-  if (w !== undefined) return { wet: w, dry: Math.max(0, w - PROVISIONAL_SPAN_PCT), provisional: true };
-  if (d !== undefined) return { wet: Math.min(100, d + PROVISIONAL_SPAN_PCT), dry: d, provisional: true };
-  return null;
-}
-
-/** Un reporte del sensor de más de 6 h ya no describe el suelo de ahora. */
-export const SENSOR_MAX_AGE_MS = 6 * 3_600_000;

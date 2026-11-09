@@ -1,16 +1,18 @@
 import { InjectionToken, Injectable, inject } from '@angular/core';
 import { StorageService } from './storage.service';
-import { humidityPct } from './irrigation-core';
-import { type TuyaToken, deficitFromSensor, normSoil, normTemp, readTuyaReportLogs, readTuyaSoil, tuyaErrorText, tuyaToken } from './tuya';
+import { STORAGE } from './storage-keys';
+import { NO_HUMIDITY, type SoilStatus, TuyaError, type TuyaToken, normSoil, normTemp, readTuyaReportLogs, readTuyaSoil, tuyaErrorText, tuyaToken } from './tuya';
+import { deficitFromSensor } from './soil-sensor';
 import { type SensorSample, mergeSamples, samplesFromLogs } from './sensor-history';
-import type { Settings, SoilReading } from './models';
+import type { Settings, SoilReading, SoilSensorConfig } from './models';
 
 /**
  * Sensor de suelo. Un proveedor entrega la lectura real; si es reciente, está calibrada y es posterior al último
- * riego o ajuste, el motor la usa en vez del déficit teórico.
+ * riego o ajuste, el motor la usa en vez del déficit teórico (ver `applySensorReading`).
  */
 export interface SoilSensorProvider {
   readonly id: string;
+  /** Última lectura del sensor; null si no hay sensor configurado. Lanza si el sensor no responde. */
   read(settings: Settings, force?: boolean): Promise<SoilReading | null>;
   /** Reportes guardados en la nube del fabricante entre dos instantes (si el proveedor los ofrece). */
   reportLogs?(settings: Settings, sinceMs: number, untilMs: number): Promise<SensorSample[]>;
@@ -21,15 +23,14 @@ export const SOIL_SENSOR_PROVIDER = new InjectionToken<SoilSensorProvider>('SOIL
   factory: () => inject(TuyaSoilSensorProvider),
 });
 
-export const SENSOR_HISTORY_KEY = 'sensorHistory';
 let historyQueue: Promise<unknown> = Promise.resolve();
 
 /** Une muestras al historial guardado, en fila (dos escrituras seguidas no se pisan). Devuelve el historial. */
 export function appendSensorSamples(storage: StorageService, samples: SensorSample[]): Promise<SensorSample[]> {
   const run = historyQueue.then(async () => {
-    const prev = await storage.get<SensorSample[]>(SENSOR_HISTORY_KEY, []);
+    const prev = await storage.get<SensorSample[]>(STORAGE.sensorHistory, []);
     const next = mergeSamples(prev, samples, Date.now());
-    if (samples.length || next.length !== prev.length) await storage.set(SENSOR_HISTORY_KEY, next);
+    if (samples.length || next.length !== prev.length) await storage.set(STORAGE.sensorHistory, next);
     return next;
   });
   historyQueue = run.catch(() => undefined);
@@ -39,66 +40,69 @@ export function appendSensorSamples(storage: StorageService, samples: SensorSamp
 /** Con la app abierta, Tuya se consulta como máximo cada 10 min (el sensor a pilas reporta cada cierto rato). */
 const CACHE_MS = 10 * 60_000;
 
+/** Sensor configurado por completo (las tres claves), o null. */
+function configured(settings: Settings): SoilSensorConfig | null {
+  const cfg = settings.soilSensor;
+  return cfg?.accessId?.trim() && cfg.accessSecret?.trim() && cfg.deviceId?.trim() ? cfg : null;
+}
+
+const cacheKey = (cfg: SoilSensorConfig) => `${cfg.region}|${cfg.accessId}|${cfg.deviceId}`;
+
 /** Sensor Tuya / Smart Life (WiFi o Zigbee) leído desde la nube de Tuya con las claves del proyecto en iot.tuya.com. */
 @Injectable({ providedIn: 'root' })
 export class TuyaSoilSensorProvider implements SoilSensorProvider {
   readonly id = 'tuya';
   private storage = inject(StorageService);
-  private last: { at: number; key: string; reading: SoilReading } | null = null;
-  private codes: { key: string; soil: string; temp: string | null } | null = null;
+  /** Última respuesta de Tuya (se reutiliza 10 min). */
+  private last: { at: number; key: string; status: SoilStatus & { soilPct: number } } | null = null;
 
   async read(settings: Settings, force = false): Promise<SoilReading | null> {
-    const cfg = settings.soilSensor;
-    if (!cfg?.accessId?.trim() || !cfg.accessSecret?.trim() || !cfg.deviceId?.trim()) return null;
-    const key = `${cfg.region}|${cfg.accessId}|${cfg.deviceId}`;
-    const now = Date.now();
-    let reading = !force && this.last?.key === key && now - this.last.at < CACHE_MS ? this.last.reading : null;
-    if (!reading) {
-      const token = await this.storage.get<TuyaToken | null>('tuyaToken', null);
-      const r = await readTuyaSoil(cfg, now, token);
-      if (r.token !== token) await this.storage.set('tuyaToken', r.token);
-      const s = r.status;
-      if (s.soilPct === null) throw new Error(`el sensor no informa humedad (códigos: ${s.codes.join(', ') || 'ninguno'})`);
-      reading = {
-        moisturePct: 0,
-        takenAt: new Date(s.updatedAt ?? now).toISOString(),
-        source: `tuya:${s.name}`,
-        raw: { soilPct: s.soilPct, tempC: s.tempC, battery: s.battery },
-      };
-      this.last = { at: now, key, reading };
-      if (s.soilCode) this.codes = { key, soil: s.soilCode, temp: s.tempCode };
-      await this.saveSample({ t: Date.parse(reading.takenAt), soil: s.soilPct, tempC: s.tempC, battery: s.battery });
-    }
-    // La calibración y el umbral pueden cambiar sin volver a consultar el sensor.
-    const deficit = deficitFromSensor(reading.raw!.soilPct!, cfg, settings.thresholdMm);
+    const cfg = configured(settings);
+    if (!cfg) return null;
+    const status = await this.status(cfg, force);
     return {
-      ...reading,
-      deficitMm: cfg.enabled ? deficit : null,
-      moisturePct: deficit === null ? 0 : humidityPct(deficit),
+      name: status.name,
+      at: status.updatedAt ?? this.last?.at ?? Date.now(),
+      soilPct: status.soilPct,
+      tempC: status.tempC,
+      battery: status.battery,
+      // La calibración y el umbral pueden cambiar sin volver a consultar el sensor.
+      deficitMm: deficitFromSensor(status.soilPct, cfg, settings.thresholdMm),
     };
   }
 
-  /** Cada lectura nueva queda en el historial del teléfono. */
-  private async saveSample(sample: SensorSample): Promise<void> {
-    await appendSensorSamples(this.storage, [sample]).catch(() => undefined); // sin almacenamiento: la lectura igual sirve
+  /** Estado del sensor: el guardado si tiene menos de 10 min; si no, se consulta a Tuya y queda en el historial. */
+  private async status(cfg: SoilSensorConfig, force: boolean): Promise<SoilStatus & { soilPct: number }> {
+    const key = cacheKey(cfg);
+    const now = Date.now();
+    if (!force && this.last?.key === key && now - this.last.at < CACHE_MS) return this.last.status;
+    const token = await this.storage.get<TuyaToken | null>(STORAGE.tuyaToken, null);
+    const r = await readTuyaSoil(cfg, now, token);
+    if (r.token !== token) await this.storage.set(STORAGE.tuyaToken, r.token);
+    const { soilPct } = r.status;
+    if (soilPct === null) throw new TuyaError(NO_HUMIDITY, `el sensor no informa humedad (códigos: ${r.status.codes.join(', ') || 'ninguno'})`);
+    const status = { ...r.status, soilPct };
+    this.last = { at: now, key, status };
+    // Sin almacenamiento disponible la lectura igual sirve: el historial es secundario.
+    await appendSensorSamples(this.storage, [{ t: status.updatedAt ?? now, soil: soilPct, tempC: status.tempC, battery: status.battery }]).catch(() => undefined);
+    return status;
   }
 
   async reportLogs(settings: Settings, sinceMs: number, untilMs: number): Promise<SensorSample[]> {
-    const cfg = settings.soilSensor;
-    if (!cfg?.accessId?.trim() || !cfg.accessSecret?.trim() || !cfg.deviceId?.trim()) return [];
-    const key = `${cfg.region}|${cfg.accessId}|${cfg.deviceId}`;
-    if (this.codes?.key !== key) await this.read(settings, true); // aprende los códigos de este modelo
-    const codes = this.codes?.key === key ? this.codes : null;
-    if (!codes) return [];
+    const cfg = configured(settings);
+    if (!cfg) return [];
     try {
+      // Los códigos de humedad y temperatura dependen del modelo: se aprenden de una lectura.
+      const { soilCode, tempCode } = await this.status(cfg, this.last?.key !== cacheKey(cfg));
+      if (!soilCode) return [];
       const now = Date.now();
-      let token = await this.storage.get<TuyaToken | null>('tuyaToken', null);
+      let token = await this.storage.get<TuyaToken | null>(STORAGE.tuyaToken, null);
       if (!token || token.expiresAt <= now) {
         token = await tuyaToken(cfg, now);
-        await this.storage.set('tuyaToken', token);
+        await this.storage.set(STORAGE.tuyaToken, token);
       }
-      const logs = await readTuyaReportLogs(cfg, token, [codes.soil, ...(codes.temp ? [codes.temp] : [])], sinceMs, untilMs);
-      return samplesFromLogs(logs, codes.soil, codes.temp, { soil: normSoil, temp: normTemp });
+      const logs = await readTuyaReportLogs(cfg, token, [soilCode, ...(tempCode ? [tempCode] : [])], sinceMs, untilMs);
+      return samplesFromLogs(logs, soilCode, tempCode, { soil: normSoil, temp: normTemp });
     } catch (e) {
       throw new Error(tuyaErrorText(e));
     }

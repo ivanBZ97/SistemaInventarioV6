@@ -203,6 +203,7 @@ export interface RunnerStatus {
 
 export interface PlannedNotification {
   id: number;
+  /** Canal de Android (ver `CHANNEL` en irrigation-core). */
   channelId: 'riego-matutino' | 'riego-resiembra' | 'riego-info';
   title: string;
   body: string;
@@ -211,15 +212,18 @@ export interface PlannedNotification {
   actions: boolean;
 }
 
+/** Última lectura del sensor de suelo. */
 export interface SoilReading {
-  /** Humedad útil en la raíz, 0–100 (misma escala que el indicador del Dashboard). */
-  moisturePct: number;
-  takenAt: string;
-  source: string;
-  /** Déficit (mm) según la calibración; null si el sensor aún no está calibrado o no se usa en el balance. */
-  deficitMm?: number | null;
-  /** Lo que marca el sensor: humedad del suelo (%), temperatura (°C) y batería (%). */
-  raw?: { soilPct: number | null; tempC: number | null; battery: number | null };
+  /** Nombre del sensor (como aparece en la app del fabricante). */
+  name: string;
+  /** Instante en que el sensor informó (ms). */
+  at: number;
+  /** Humedad del suelo que marca el sensor (%). */
+  soilPct: number;
+  tempC: number | null;
+  battery: number | null;
+  /** Déficit (mm) equivalente según la calibración del jardín; null si el sensor aún no está calibrado. */
+  deficitMm: number | null;
 }
 
 export interface ChartDay {

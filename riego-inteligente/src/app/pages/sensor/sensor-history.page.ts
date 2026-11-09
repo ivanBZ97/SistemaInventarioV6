@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, type OnInit, computed, inject, signal } from '@angular/core';
 import {
   IonBackButton,
   IonButtons,
@@ -18,7 +18,7 @@ import { SensorHistoryService } from '../../core/sensor-history.service';
 import { StorageService } from '../../core/storage.service';
 import { type SensorSample, dailySensorSummary, sensorCsv } from '../../core/sensor-history';
 import { addDays, toISODate, weekdayEs } from '../../core/irrigation-core';
-import { ageText } from '../../core/dmc';
+import { ageText } from '../../core/format';
 import type { IrrigationEvent } from '../../core/models';
 
 type Range = '24h' | '7d' | '30d' | 'all';

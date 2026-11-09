@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, type OnDestroy, type OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import {
   AlertController,
@@ -132,11 +132,11 @@ export class DashboardPage implements OnInit, OnDestroy {
     if (!s) return null;
     if (s.sensorError) return 'Sensor de suelo sin conexión';
     const r = s.sensor;
-    if (!r?.raw || r.raw.soilPct === null) return s.state.source === 'sensor' ? 'Dato de sensor' : null;
-    const min = Math.max(0, Math.round((this.now() - Date.parse(r.takenAt)) / 60_000));
+    if (!r) return s.state.source === 'sensor' ? 'Dato de sensor' : null;
+    const min = Math.max(0, Math.round((this.now() - r.at) / 60_000));
     const ago = min < 90 ? `hace ${min} min` : `hace ${Math.round(min / 60)} h`;
-    const used = s.state.source === 'sensor' ? ' · en uso' : r.deficitMm == null ? ' · sin calibrar' : '';
-    return `Sensor: ${fmt(r.raw.soilPct)} % (${ago})${used}`;
+    const used = s.state.source === 'sensor' ? ' · en uso' : r.deficitMm === null ? ' · sin calibrar' : '';
+    return `Sensor: ${fmt(r.soilPct)} % (${ago})${used}`;
   });
 
   // ───────────── Recomendación ─────────────

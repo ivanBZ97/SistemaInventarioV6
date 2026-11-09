@@ -3,10 +3,11 @@ import { Capacitor } from '@capacitor/core';
 import { BackgroundRunner } from '@capacitor/background-runner';
 import { StorageService } from './storage.service';
 import type { SensorSample } from './sensor-history';
-import { SENSOR_HISTORY_KEY, SOIL_SENSOR_PROVIDER, appendSensorSamples } from './soil-sensor.provider';
+import { SOIL_SENSOR_PROVIDER, appendSensorSamples } from './soil-sensor.provider';
+import { RUNNER_EVENT, RUNNER_LABEL, type RunnerSensorHistory } from './runner-protocol';
+import { STORAGE } from './storage-keys';
 import type { Settings } from './models';
 
-const RUNNER_LABEL = 'cl.riego.inteligente.check';
 /** Tuya guarda ~7 días de reportes; se le piden como máximo cada 30 min. */
 const CLOUD_DAYS = 7;
 const CLOUD_EVERY_MS = 30 * 60_000;
@@ -23,7 +24,7 @@ export class SensorHistoryService {
   private lastCloudAt = 0;
 
   load(): Promise<SensorSample[]> {
-    return this.storage.get<SensorSample[]>(SENSOR_HISTORY_KEY, []);
+    return this.storage.get<SensorSample[]>(STORAGE.sensorHistory, []);
   }
 
   add(samples: SensorSample[]): Promise<SensorSample[]> {
@@ -38,7 +39,7 @@ export class SensorHistoryService {
     const incoming: SensorSample[] = [];
     if (Capacitor.isNativePlatform()) {
       try {
-        const r = await BackgroundRunner.dispatchEvent<{ samples?: SensorSample[] }>({ label: RUNNER_LABEL, event: 'getSensorHistory', details: {} });
+        const r = await BackgroundRunner.dispatchEvent<Partial<RunnerSensorHistory>>({ label: RUNNER_LABEL, event: RUNNER_EVENT.getSensorHistory, details: {} });
         if (Array.isArray(r?.samples)) incoming.push(...r.samples);
       } catch {
         /* worker sin datos: no importa */

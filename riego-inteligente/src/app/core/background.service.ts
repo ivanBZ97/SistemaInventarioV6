@@ -2,9 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { BackgroundRunner } from '@capacitor/background-runner';
 import { IrrigationEngineService } from './irrigation-engine.service';
+import { RUNNER_EVENT, RUNNER_LABEL } from './runner-protocol';
 import type { RunnerStatus } from './models';
-
-const RUNNER = { label: 'cl.riego.inteligente.check', event: 'syncState' };
 
 /**
  * Worker en segundo plano (WorkManager vía @capacitor/background-runner).
@@ -20,9 +19,9 @@ export class BackgroundService {
   async status(): Promise<RunnerStatus | null> {
     if (!Capacitor.isNativePlatform()) return null;
     try {
-      return await BackgroundRunner.dispatchEvent<RunnerStatus>({ label: RUNNER.label, event: 'getStatus', details: {} });
+      return await BackgroundRunner.dispatchEvent<RunnerStatus>({ label: RUNNER_LABEL, event: RUNNER_EVENT.getStatus, details: {} });
     } catch (e) {
-      return { lastRunAt: null, ok: false, error: `el worker no respondió (${e instanceof Error ? e.message : e})` };
+      return { lastRunAt: null, ok: false, error: `el worker no respondió (${e instanceof Error ? e.message : String(e)})` };
     }
   }
 
@@ -30,7 +29,7 @@ export class BackgroundService {
     if (!Capacitor.isNativePlatform()) return;
     try {
       const details = await this.engine.exportForRunner();
-      await BackgroundRunner.dispatchEvent({ label: RUNNER.label, event: RUNNER.event, details });
+      await BackgroundRunner.dispatchEvent({ label: RUNNER_LABEL, event: RUNNER_EVENT.syncState, details });
     } catch (e) {
       console.warn('No se pudo sincronizar con el worker en segundo plano', e);
     }

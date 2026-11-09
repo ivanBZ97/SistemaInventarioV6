@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { Geolocation } from '@capacitor/geolocation';
-import { MOVED_THRESHOLD_KM, distanceKm } from './irrigation-core';
+import { distanceKm } from './geo';
+import { MOVED_THRESHOLD_KM } from './irrigation-core';
 import { reverseGeocode } from './open-meteo';
 import type { Settings } from './models';
 

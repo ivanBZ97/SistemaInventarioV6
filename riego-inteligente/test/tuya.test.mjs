@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash, createHmac } from 'node:crypto';
 import { hex, hmacSha256, sha256, utf8 } from '../src/app/core/sha256.ts';
 import * as tuya from '../src/app/core/tuya.ts';
+import * as soil from '../src/app/core/soil-sensor.ts';
 
 test('SHA-256 y HMAC-SHA256 coinciden con node:crypto (incluye textos largos y con tildes)', () => {
   for (const text of ['', 'abc', 'a'.repeat(55), 'a'.repeat(56), 'b'.repeat(64), 'riego ñandú 💧'.repeat(30)]) {
@@ -32,18 +33,18 @@ test('lee humedad, temperatura y batería del sensor (y las variantes en décima
 
 test('calibración: húmedo = déficit 0, toca regar = umbral; sin calibrar, null', () => {
   const cal = { wetPct: 40, dryPct: 24 };
-  assert.equal(tuya.deficitFromSensor(40, cal, 8), 0);
-  assert.equal(tuya.deficitFromSensor(24, cal, 8), 8);
-  assert.equal(tuya.deficitFromSensor(32, cal, 8), 4);
-  assert.equal(tuya.deficitFromSensor(45, cal, 8), 0); // más húmedo que "lleno"
-  assert.equal(tuya.deficitFromSensor(16, cal, 8), 12); // más seco que "toca regar"
-  assert.equal(tuya.deficitFromSensor(30, {}, 8), null);
+  assert.equal(soil.deficitFromSensor(40, cal, 8), 0);
+  assert.equal(soil.deficitFromSensor(24, cal, 8), 8);
+  assert.equal(soil.deficitFromSensor(32, cal, 8), 4);
+  assert.equal(soil.deficitFromSensor(45, cal, 8), 0); // más húmedo que "lleno"
+  assert.equal(soil.deficitFromSensor(16, cal, 8), 12); // más seco que "toca regar"
+  assert.equal(soil.deficitFromSensor(30, {}, 8), null);
   // Con un solo punto: el otro se estima a 30 puntos (provisional).
-  assert.equal(tuya.deficitFromSensor(85, { wetPct: 100 }, 8), 4);
-  assert.equal(tuya.deficitFromSensor(70, { wetPct: 100 }, 8), 8);
-  assert.equal(tuya.deficitFromSensor(70, { dryPct: 49 }, 8), 2.4);
-  assert.deepEqual(tuya.calibrationPoints({ wetPct: 100 }), { wet: 100, dry: 70, provisional: true });
-  assert.equal(tuya.deficitFromSensor(30, { wetPct: 30, dryPct: 29 }, 8), null); // puntos demasiado juntos
+  assert.equal(soil.deficitFromSensor(85, { wetPct: 100 }, 8), 4);
+  assert.equal(soil.deficitFromSensor(70, { wetPct: 100 }, 8), 8);
+  assert.equal(soil.deficitFromSensor(70, { dryPct: 49 }, 8), 2.4);
+  assert.deepEqual(soil.calibrationPoints({ wetPct: 100 }), { wet: 100, dry: 70, provisional: true });
+  assert.equal(soil.deficitFromSensor(30, { wetPct: 30, dryPct: 29 }, 8), null); // puntos demasiado juntos
 });
 
 const cfg = { region: 'us', accessId: 'ID', accessSecret: 'SECRET', deviceId: 'dev1', enabled: true };
@@ -104,4 +105,18 @@ test('la hora del reporte sale de la propiedad de humedad (shadow) si Tuya la en
   assert.equal(s.updatedAt, 1730007200123);
   // Sin shadow: estado y update_time del dispositivo.
   assert.equal(tuya.parseSoilDevice({ update_time: 1730000000, status: [{ code: 'humidity', value: 30 }] }, null).updatedAt, 1730000000000);
+});
+
+test('la lectura del sensor reemplaza al balance solo si está activado, es reciente y posterior al último riego', () => {
+  const H = 3_600_000;
+  const now = Date.parse('2026-11-09T10:00:00-03:00');
+  const cfg = { region: 'us', accessId: 'a', accessSecret: 'b', deviceId: 'c', wetPct: 100, dryPct: 60, enabled: true };
+  const state = { deficitMm: 2, asOf: '2026-11-08', source: 'model', resetAt: now - 5 * H };
+  const used = soil.applySensorReading(state, cfg, { soilPct: 80, at: now - H }, 8, '2026-11-09', now);
+  assert.deepEqual(used, { deficitMm: 4, asOf: '2026-11-09', source: 'sensor', resetDate: '2026-11-09', resetAt: now - H });
+  // Sin activar, sin lectura, lectura vieja o anterior al último riego: el balance no cambia.
+  assert.equal(soil.applySensorReading(state, { ...cfg, enabled: false }, { soilPct: 80, at: now - H }, 8, '2026-11-09', now), state);
+  assert.equal(soil.applySensorReading(state, cfg, null, 8, '2026-11-09', now), state);
+  assert.equal(soil.applySensorReading(state, cfg, { soilPct: 80, at: now - 7 * H }, 8, '2026-11-09', now), state);
+  assert.equal(soil.applySensorReading({ ...state, resetAt: now - 30 * 60_000 }, cfg, { soilPct: 80, at: now - H }, 8, '2026-11-09', now).deficitMm, 2);
 });

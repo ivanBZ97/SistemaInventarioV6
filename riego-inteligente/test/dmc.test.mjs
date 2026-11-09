@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as dmc from '../src/app/core/dmc.ts';
-import { DMC_STATIONS_FALLBACK } from '../src/app/core/dmc-stations.ts';
+import { DMC_STATIONS_FALLBACK } from '../src/app/core/dmc/station-catalog.ts';
 
 // Zona horaria de Chile, como el teléfono.
 process.env.TZ = 'America/Santiago';

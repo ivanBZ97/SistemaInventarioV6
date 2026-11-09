@@ -301,7 +301,7 @@ test('al conectar: revisa las estaciones cercanas, dice cuáles responden y elig
       if (code === '330114') return { ok: true, status: 200, json: async () => ({ mensaje: 'usuario o token no válido' }) };
       return { ok: true, status: 200, json: async () => ({ datos: byCode[code] ?? live }) };
     };
-    const { DMC_STATIONS_FALLBACK } = await import('../src/app/core/dmc-stations.ts');
+    const { DMC_STATIONS_FALLBACK } = await import('../src/app/core/dmc/station-catalog.ts');
     const all = DMC_STATIONS_FALLBACK.map(([code, name, latitude, longitude, elevationM]) => ({ code, name, latitude, longitude, elevationM }));
     const near = dmc.stationsToCheck(all, -33.7313, -70.7663);
     assert.deepEqual(near.map((s) => s.code), ['330160', '330071', '330113', '330122', '330114', '330020']); // 6 dentro de 40 km
