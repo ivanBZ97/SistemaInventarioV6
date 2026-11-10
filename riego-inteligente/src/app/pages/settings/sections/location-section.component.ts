@@ -15,7 +15,11 @@ import { SettingsForm } from '../settings-form';
   templateUrl: './location-section.component.html',
   styleUrl: '../../../ui/list.scss',
   styles: `
-    .row.result { min-height: 48px; padding-left: 20px; cursor: pointer; }
+    .row.result {
+      min-height: 48px;
+      padding-left: 20px;
+      cursor: pointer;
+    }
   `,
 })
 export class LocationSectionComponent {

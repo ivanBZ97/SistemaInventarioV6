@@ -18,5 +18,7 @@
 </ion-content>
 
 <div class="save-bar">
-  <ion-button expand="block" [disabled]="!loaded() || saving()" (click)="save()">{{ saving() ? 'Guardando…' : 'Guardar cambios' }}</ion-button>
+  <ion-button expand="block" [disabled]="!loaded() || saving()" (click)="save()">{{
+    saving() ? 'Guardando…' : 'Guardar cambios'
+  }}</ion-button>
 </div>

@@ -1,5 +1,15 @@
 import { Component, type OnInit, computed, inject, signal } from '@angular/core';
-import { IonBackButton, IonButtons, IonContent, IonHeader, IonIcon, IonRefresher, IonRefresherContent, IonTitle, IonToolbar } from '@ionic/angular/standalone';
+import {
+  IonBackButton,
+  IonButtons,
+  IonContent,
+  IonHeader,
+  IonIcon,
+  IonRefresher,
+  IonRefresherContent,
+  IonTitle,
+  IonToolbar,
+} from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { cloudDownloadOutline, copyOutline } from 'ionicons/icons';
 import { DAY_MS, HOUR_MS, type ISODate, addDays, toISODate, weekdayEs } from '../../core/dates';

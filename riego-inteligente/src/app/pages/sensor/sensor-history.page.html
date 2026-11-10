@@ -10,7 +10,16 @@
   @if (latest(); as last) {
     <div class="chips plain" role="radiogroup" aria-label="Periodo">
       @for (r of ranges; track r.id) {
-        <button type="button" class="chip" role="radio" [class.on]="range() === r.id" [attr.aria-checked]="range() === r.id" (click)="setRange(r.id)">{{ r.label }}</button>
+        <button
+          type="button"
+          class="chip"
+          role="radio"
+          [class.on]="range() === r.id"
+          [attr.aria-checked]="range() === r.id"
+          (click)="setRange(r.id)"
+        >
+          {{ r.label }}
+        </button>
       }
     </div>
 
@@ -35,11 +44,21 @@
     <div class="card chart-card">
       <div class="readout md-body-medium" aria-live="polite">
         @if (focus(); as f) {
-          <strong>{{ num(f.soil, ' %') }}</strong> · {{ when(f.t) }}@if (f.tempC !== null) { · {{ num(f.tempC, ' °C') }} }
+          <strong>{{ num(f.soil, ' %') }}</strong> · {{ when(f.t) }}
+          @if (f.tempC !== null) {
+            · {{ num(f.tempC, ' °C') }}
+          }
         }
       </div>
-      <svg [attr.viewBox]="viewBox" class="chart" role="img" [attr.aria-label]="ariaLabel()"
-           (pointerdown)="pick($event)" (pointermove)="pick($event)" (pointerleave)="focusT.set(null)">
+      <svg
+        [attr.viewBox]="viewBox"
+        class="chart"
+        role="img"
+        [attr.aria-label]="ariaLabel()"
+        (pointerdown)="pick($event)"
+        (pointermove)="pick($event)"
+        (pointerleave)="focusT.set(null)"
+      >
         @for (g of chart().grid; track g.v) {
           <line [attr.x1]="geo.X0" [attr.x2]="geo.X1" [attr.y1]="g.y" [attr.y2]="g.y" class="grid" />
           <text [attr.x]="geo.X0 - 4" [attr.y]="g.y + 3" class="tick" text-anchor="end">{{ g.v }}</text>
@@ -71,24 +90,30 @@
       </svg>
       <div class="legend md-body-small md-variant">
         <span><i class="sw line-sw"></i>Humedad del suelo (%)</span>
-        @if (chart().calib.length) { <span><i class="sw calib-sw"></i>Tu calibración</span> }
-        @if (chart().irrigations.length) { <span><i class="sw irr-sw"></i>Riego registrado</span> }
+        @if (chart().calib.length) {
+          <span><i class="sw calib-sw"></i>Tu calibración</span>
+        }
+        @if (chart().irrigations.length) {
+          <span><i class="sw irr-sw"></i>Riego registrado</span>
+        }
       </div>
     </div>
 
     <div class="chips">
       <button type="button" class="chip" (click)="copyCsv()"><ion-icon name="copy-outline" />Copiar CSV ({{ samples().length }})</button>
-      <button type="button" class="chip" (click)="reload(true)" [disabled]="loading()"><ion-icon name="cloud-download-outline" />{{ loading() ? 'Actualizando…' : 'Traer de Tuya' }}</button>
+      <button type="button" class="chip" (click)="reload(true)" [disabled]="loading()">
+        <ion-icon name="cloud-download-outline" />{{ loading() ? 'Actualizando…' : 'Traer de Tuya' }}
+      </button>
     </div>
     @if (cloudError()) {
       <p class="note md-body-small md-variant">
-        Cada reporte que lee el teléfono queda guardado aquí por un año. El historial de la nube de Tuya (para completar
-        lo que no alcanzó a leer) no está disponible: {{ cloudError() }}.
+        Cada reporte que lee el teléfono queda guardado aquí por un año. El historial de la nube de Tuya (para completar lo que no alcanzó a
+        leer) no está disponible: {{ cloudError() }}.
       </p>
     } @else {
       <p class="note md-body-small md-variant">
-        Cada reporte del sensor queda guardado en este teléfono por un año. El sensor es a pilas e informa cada cierto rato;
-        lo que la app no alcanzó a leer se completa desde la nube de Tuya (guarda unos 7 días).
+        Cada reporte del sensor queda guardado en este teléfono por un año. El sensor es a pilas e informa cada cierto rato; lo que la app
+        no alcanzó a leer se completa desde la nube de Tuya (guarda unos 7 días).
       </p>
     }
 
@@ -96,7 +121,13 @@
     <div class="card table-card">
       <table>
         <thead>
-          <tr><th>Día</th><th>Mín %</th><th>Máx %</th><th>Prom. %</th><th>Temp. °C</th></tr>
+          <tr>
+            <th>Día</th>
+            <th>Mín %</th>
+            <th>Máx %</th>
+            <th>Prom. %</th>
+            <th>Temp. °C</th>
+          </tr>
         </thead>
         <tbody>
           @for (d of days(); track d.date) {
@@ -117,11 +148,13 @@
       <p class="md-body-large">{{ loading() ? 'Cargando historial…' : 'Aún no hay mediciones guardadas.' }}</p>
       @if (!loading()) {
         <p class="md-body-medium md-variant">
-          Configura el sensor en Ajustes → Sensor de suelo. Desde entonces cada reporte del sensor queda guardado en este
-          teléfono (un año), y al abrir esta pantalla se completan los últimos 7 días desde la nube de Tuya.
+          Configura el sensor en Ajustes → Sensor de suelo. Desde entonces cada reporte del sensor queda guardado en este teléfono (un año),
+          y al abrir esta pantalla se completan los últimos 7 días desde la nube de Tuya.
         </p>
       }
-      @if (cloudError()) { <p class="md-body-medium err">Nube de Tuya: {{ cloudError() }}</p> }
+      @if (cloudError()) {
+        <p class="md-body-medium err">Nube de Tuya: {{ cloudError() }}</p>
+      }
     </div>
   }
 </ion-content>

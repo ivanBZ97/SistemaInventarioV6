@@ -48,7 +48,13 @@ export function sensorTag(snap: Snapshot | null, now: number): string | null {
   if (!r) return inUse ? 'Dato de sensor' : null;
   const min = Math.max(0, Math.round((now - r.at) / 60_000));
   const ago = min < 90 ? `hace ${min} min` : `hace ${Math.round(min / 60)} h`;
-  const used = inUse ? ' · en uso' : r.deficitMm === null ? ' · sin calibrar' : !snap.settings.soilSensor?.enabled ? ' · solo informativo' : '';
+  const used = inUse
+    ? ' · en uso'
+    : r.deficitMm === null
+      ? ' · sin calibrar'
+      : !snap.settings.soilSensor?.enabled
+        ? ' · solo informativo'
+        : '';
   return `Sensor: ${fmt(r.soilPct)} % (${ago})${used}`;
 }
 
@@ -113,7 +119,12 @@ export function recommendation(snap: Snapshot | null): Recommendation {
           detail: `${fmt(fell)} mm hoy en ${station}. Espera a que pare: la app descuenta lo que cae.`,
         };
       case 'measured':
-        return { cls: 'neutral', icon: 'rainy-outline', title: 'Riego en pausa por lluvia', detail: `Hoy ya llovieron ${fmt(fell)} mm en ${station}.` };
+        return {
+          cls: 'neutral',
+          icon: 'rainy-outline',
+          title: 'Riego en pausa por lluvia',
+          detail: `Hoy ya llovieron ${fmt(fell)} mm en ${station}.`,
+        };
       default:
         return {
           cls: 'neutral',
@@ -313,9 +324,25 @@ export function todayTiles(ev: Evaluation | null | undefined): Tile[] {
   return [
     { icon: 'thermometer-outline', label: 'Temp. máxima', value: `${Math.round(ev.tempMaxC)}°`, note: 'Hoy' },
     ev.rainForecastLeftMm !== null
-      ? { icon: 'rainy-outline', label: 'Lluvia prevista', value: `${fmt(ev.rainForecastLeftMm)} mm`, note: `lo que falta de hoy (el día: ${fmt(ev.rainForecastMm)} mm)` }
-      : { icon: 'rainy-outline', label: 'Lluvia prevista', value: `${fmt(ev.rainForecastMm)} mm`, note: `${Math.round(ev.rainProbPct)}% de prob.` },
-    { icon: 'flag-outline', label: 'Viento máx.', value: `${Math.round(ev.windMaxKmh)} km/h`, note: ev.windWarning ? 'Fuerte: riega temprano' : 'Normal', warn: ev.windWarning },
+      ? {
+          icon: 'rainy-outline',
+          label: 'Lluvia prevista',
+          value: `${fmt(ev.rainForecastLeftMm)} mm`,
+          note: `lo que falta de hoy (el día: ${fmt(ev.rainForecastMm)} mm)`,
+        }
+      : {
+          icon: 'rainy-outline',
+          label: 'Lluvia prevista',
+          value: `${fmt(ev.rainForecastMm)} mm`,
+          note: `${Math.round(ev.rainProbPct)}% de prob.`,
+        },
+    {
+      icon: 'flag-outline',
+      label: 'Viento máx.',
+      value: `${Math.round(ev.windMaxKmh)} km/h`,
+      note: ev.windWarning ? 'Fuerte: riega temprano' : 'Normal',
+      warn: ev.windWarning,
+    },
     { icon: 'leaf-outline', label: 'Consumo del pasto', value: `${fmt(ev.etcTodayMm)} mm`, note: `ETc · Kc ${fmt(ev.kc, 2)}` },
   ];
 }
@@ -339,7 +366,11 @@ export function monthTiles(month: MonthSummary | undefined): Tile[] | null {
       value: `${fmt(month.irrigationMm, 0)} mm`,
       note: month.liters !== null ? `≈ ${fmt(month.liters, 0)} litros` : 'indica la superficie en Ajustes para ver litros',
     },
-    { label: 'Lluvia útil', value: `${fmt(month.rainMm, 0)} mm`, note: `en ${month.days} ${month.days === 1 ? 'día registrado' : 'días registrados'}` },
+    {
+      label: 'Lluvia útil',
+      value: `${fmt(month.rainMm, 0)} mm`,
+      note: `en ${month.days} ${month.days === 1 ? 'día registrado' : 'días registrados'}`,
+    },
     { label: 'Consumo del pasto', value: `${fmt(month.etcMm, 0)} mm`, note: 'evapotranspiración (ETc)' },
   ];
 }
@@ -414,7 +445,9 @@ export function selectedDayView(day: ChartDay, snap: Snapshot | null): SelectedD
     title: longDate(day.date) + (day.estimated ? ' · estimado' : ''),
     loss: fmt(day.etcMm),
     gain: fmt(day.replenishedMm),
-    detail: `Lluvia útil ${fmt(day.rainMm)} mm · Riego ${fmt(day.irrigationMm)} mm` + (corrected !== undefined ? ` · lluvia medida: ${fmt(corrected)} mm` : ''),
+    detail:
+      `Lluvia útil ${fmt(day.rainMm)} mm · Riego ${fmt(day.irrigationMm)} mm` +
+      (corrected !== undefined ? ` · lluvia medida: ${fmt(corrected)} mm` : ''),
     canCorrect: !!snap && day.date < snap.today,
   };
 }
@@ -432,7 +465,9 @@ export interface IrrigationOption {
 }
 
 export function irrigationOptions(recommendedMinutes: number | null): IrrigationOption[] {
-  const options: IrrigationOption[] = recommendedMinutes ? [{ min: recommendedMinutes, label: `Lo recomendado (${recommendedMinutes} min)`, full: true }] : [];
+  const options: IrrigationOption[] = recommendedMinutes
+    ? [{ min: recommendedMinutes, label: `Lo recomendado (${recommendedMinutes} min)`, full: true }]
+    : [];
   for (const min of [5, 10, 15, 20]) if (min !== recommendedMinutes) options.push({ min, label: `${min} min`, full: false });
   return options;
 }

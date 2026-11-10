@@ -1,8 +1,8 @@
 <h2 class="section md-title-small">Estación meteorológica</h2>
 <div class="card">
   <p class="md-body-medium md-variant intro">
-    Usa la lluvia (la de hoy, casi en tiempo real) y la evapotranspiración (ET0) medidas por una estación real cerca de tu
-    jardín en lugar de las del pronóstico.
+    Usa la lluvia (la de hoy, casi en tiempo real) y la evapotranspiración (ET0) medidas por una estación real cerca de tu jardín en lugar
+    de las del pronóstico.
   </p>
 
   <!-- Dirección Meteorológica de Chile -->
@@ -23,46 +23,78 @@
     }
   </div>
   <p class="md-body-small md-variant intro">
-    Credenciales del servicio oficial de la DMC (gratis): regístrate en climatologia.meteochile.gob.cl y te enviarán un token
-    al confirmar la cuenta. Se guardan solo en este teléfono.
+    Credenciales del servicio oficial de la DMC (gratis): regístrate en climatologia.meteochile.gob.cl y te enviarán un token al confirmar
+    la cuenta. Se guardan solo en este teléfono.
   </p>
   <div class="field two">
-    <ion-input fill="outline" type="email" inputmode="email" autocomplete="email" label="Usuario (correo)" labelPlacement="floating"
-               [value]="form.dmcUser()" (ionInput)="form.dmcUser.set(text($event))" />
-    <ion-input fill="outline" type="password" label="Token" labelPlacement="floating"
-               [value]="form.dmcToken()" (ionInput)="form.dmcToken.set(text($event))">
+    <ion-input
+      fill="outline"
+      type="email"
+      inputmode="email"
+      autocomplete="email"
+      label="Usuario (correo)"
+      labelPlacement="floating"
+      [value]="form.dmcUser()"
+      (ionInput)="form.dmcUser.set(text($event))"
+    />
+    <ion-input
+      fill="outline"
+      type="password"
+      label="Token"
+      labelPlacement="floating"
+      [value]="form.dmcToken()"
+      (ionInput)="form.dmcToken.set(text($event))"
+    >
       <ion-input-password-toggle slot="end" showIcon="eye-outline" hideIcon="eye-off-outline" />
     </ion-input>
   </div>
   <div class="chips">
     <button type="button" class="chip" (click)="connectDmc()" [disabled]="checking()">
-      <ion-icon name="sync-outline" />{{ checking() ? 'Revisando estaciones…' : checks() ? 'Volver a revisar' : 'Conectar y ver estaciones' }}
+      <ion-icon name="sync-outline" />{{
+        checking() ? 'Revisando estaciones…' : checks() ? 'Volver a revisar' : 'Conectar y ver estaciones'
+      }}
     </button>
   </div>
   @if (checks(); as list) {
     <p class="md-body-small md-variant intro">{{ checksSummary() }}</p>
     <div class="stations" role="radiogroup" aria-label="Estaciones de la DMC cercanas">
       @for (c of list; track c.code; let first = $first) {
-        <button type="button" class="row station" role="radio" [class.sel]="form.dmc()?.code === c.code" [attr.aria-checked]="form.dmc()?.code === c.code"
-                [disabled]="!usable(c)" (click)="selectStation(c)">
+        <button
+          type="button"
+          class="row station"
+          role="radio"
+          [class.sel]="form.dmc()?.code === c.code"
+          [attr.aria-checked]="form.dmc()?.code === c.code"
+          [disabled]="!usable(c)"
+          (click)="selectStation(c)"
+        >
           <i [class]="'dot ' + c.health"></i>
           <div class="li-text">
-            <span class="md-body-large">{{ c.name }}@if (first) {<span class="tag">Más cercana</span>}</span>
+            <span class="md-body-large"
+              >{{ c.name }}
+              @if (first) {
+                <span class="tag">Más cercana</span>
+              }
+            </span>
             <span class="md-body-medium md-variant">{{ km(c.distanceKm) }} km · {{ healthText(c) }}</span>
           </div>
-          @if (form.dmc()?.code === c.code) { <ion-icon name="checkmark-outline" class="check" /> }
+          @if (form.dmc()?.code === c.code) {
+            <ion-icon name="checkmark-outline" class="check" />
+          }
         </button>
       }
     </div>
   } @else {
     <p class="md-body-small md-variant intro">
-      Con tu usuario y token, revisa las 6 estaciones más cercanas y muestra cuáles están enviando datos (usa algunos MB de
-      datos; mejor con Wi-Fi).
+      Con tu usuario y token, revisa las 6 estaciones más cercanas y muestra cuáles están enviando datos (usa algunos MB de datos; mejor con
+      Wi-Fi).
     </p>
   }
   @if (dmcReport(); as r) {
     <div class="md-body-small report" [class.err]="r.error">
-      @for (line of r.lines; track $index) { <p>{{ line }}</p> }
+      @for (line of r.lines; track $index) {
+        <p>{{ line }}</p>
+      }
       <button type="button" class="copy" (click)="copyReport()"><ion-icon name="copy-outline" />Copiar diagnóstico</button>
     </div>
   }
@@ -71,8 +103,14 @@
   <div class="divider"></div>
   <p class="md-body-medium md-variant intro">INIA Agromet (opcional, requiere una clave personal de la API de INIA).</p>
   <div class="field">
-    <ion-input fill="outline" type="password" label="Clave de API" labelPlacement="floating"
-               [value]="form.agrometKey()" (ionInput)="form.agrometKey.set(text($event))">
+    <ion-input
+      fill="outline"
+      type="password"
+      label="Clave de API"
+      labelPlacement="floating"
+      [value]="form.agrometKey()"
+      (ionInput)="form.agrometKey.set(text($event))"
+    >
       <ion-input-password-toggle slot="end" showIcon="eye-outline" hideIcon="eye-off-outline" />
     </ion-input>
   </div>

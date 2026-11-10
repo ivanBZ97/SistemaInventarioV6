@@ -87,7 +87,10 @@ export function sensorCsv(samples: SensorSample[]): string {
     return `${toISODate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
   const v = (x: number | null) => (x === null ? '' : String(x));
-  return ['fecha_hora;humedad_suelo_pct;temperatura_c;bateria_pct', ...samples.map((s) => `${local(s.t)};${s.soil};${v(s.tempC)};${v(s.battery)}`)].join('\n');
+  return [
+    'fecha_hora;humedad_suelo_pct;temperatura_c;bateria_pct',
+    ...samples.map((s) => `${local(s.t)};${s.soil};${v(s.tempC)};${v(s.battery)}`),
+  ].join('\n');
 }
 
 /**
@@ -103,7 +106,9 @@ export function samplesFromLogs(
   const num = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN);
   const at = (l: { event_time?: unknown }) => num(l.event_time);
   const temps = tempCode
-    ? logs.filter((l) => l.code === tempCode && Number.isFinite(num(l.value)) && Number.isFinite(at(l))).map((l) => [at(l), norm.temp(num(l.value))] as const)
+    ? logs
+        .filter((l) => l.code === tempCode && Number.isFinite(num(l.value)) && Number.isFinite(at(l)))
+        .map((l) => [at(l), norm.temp(num(l.value))] as const)
     : [];
   return logs
     .filter((l) => l.code === soilCode && Number.isFinite(num(l.value)) && Number.isFinite(at(l)))

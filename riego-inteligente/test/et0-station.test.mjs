@@ -21,7 +21,15 @@ test('El Milagro, 19 de octubre (datos de tu captura): ET0 ≈ 3,2–3,3 mm, baj
 });
 
 test('campos meteorológicos y unidad del viento', () => {
-  const s = (wind) => [{ momento: 'x', temperatura: '14.2 °C', humedadRelativa: '80 %', radiacionGlobalInst: '512 Watt/m2', fuerzaDelVientoPromedio10Minutos: wind }];
+  const s = (wind) => [
+    {
+      momento: 'x',
+      temperatura: '14.2 °C',
+      humedadRelativa: '80 %',
+      radiacionGlobalInst: '512 Watt/m2',
+      fuerzaDelVientoPromedio10Minutos: wind,
+    },
+  ];
   assert.equal(dmc.detectMetFields(s('5 kt')).fields.windUnit, 'kt');
   assert.equal(dmc.detectMetFields(s('9 km/h')).fields.windUnit, 'km/h');
   const noUnit = dmc.detectMetFields(s(5)).fields;
@@ -41,8 +49,11 @@ function minuteDay(dateLocal, { t = 20, rh = 50, rad = 300, windKt = 4 } = {}, h
     const tt = new Date(t0 + i * 60_000);
     out.push({
       momento: tt.toISOString().slice(0, 19).replace('T', ' '),
-      temperatura: `${t} °C`, humedadRelativa: `${rh} %`, radiacionGlobalInst: `${rad} Watt/m2`,
-      fuerzaDelVientoPromedio10Minutos: `${windKt} kt`, aguaCaida24Horas: '0.0 mm',
+      temperatura: `${t} °C`,
+      humedadRelativa: `${rh} %`,
+      radiacionGlobalInst: `${rad} Watt/m2`,
+      fuerzaDelVientoPromedio10Minutos: `${windKt} kt`,
+      aguaCaida24Horas: '0.0 mm',
     });
   }
   return out;
@@ -60,7 +71,9 @@ test('ET0 de la estación desde lecturas por minuto = FAO-56 con los valores del
   const st = dmc.stationEt0(buckets, meta, '2026-10-25');
   const expected = fao.et0PenmanMonteith(
     { tmaxC: 20, tminC: 20, eaKpa: fao.satVapourPressure(20) * 0.5, rsMJ: 25.92, u2: 4 * 0.514444 * fao.WIND_10M_TO_2M },
-    -33.754, 460, '2026-10-24',
+    -33.754,
+    460,
+    '2026-10-24',
   );
   assert.equal(st.get('2026-10-24'), Math.round(expected * 10) / 10);
 });
@@ -90,8 +103,16 @@ test('corrección del pronóstico: estación ÷ modelo, ≥ 2 días, limitada a 
 
 test('días pasados usan la ET0 medida; hoy y el futuro, la del modelo corregida', () => {
   const day = (date, et0) => ({ date, et0Mm: et0, precipitationMm: 0, precipitationProbMax: 0, tempMaxC: 20, windMaxKmh: 5 });
-  const out = dmc.withStationEt0([day('2026-10-24', 3.75), day('2026-10-25', 4), day('2026-10-26', 5)], new Map([['2026-10-24', 3.2]]), { ratio: 0.85 }, '2026-10-25');
-  assert.deepEqual(out.map((d) => d.et0Mm), [3.2, 3.4, 4.25]);
+  const out = dmc.withStationEt0(
+    [day('2026-10-24', 3.75), day('2026-10-25', 4), day('2026-10-26', 5)],
+    new Map([['2026-10-24', 3.2]]),
+    { ratio: 0.85 },
+    '2026-10-25',
+  );
+  assert.deepEqual(
+    out.map((d) => d.et0Mm),
+    [3.2, 3.4, 4.25],
+  );
 });
 
 test('ET0 medida corrige el consumo de días ya contados (idempotente; no antes de un riego)', () => {

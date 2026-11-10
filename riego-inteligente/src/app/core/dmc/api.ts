@@ -140,7 +140,8 @@ export function parseDailySummary(json: unknown): Map<ISODate, number> {
     const o = block as Record<string, unknown>;
     if ('fecha' in o && ('valor' in o || 'value' in o)) return take(o['fecha'], o['valor'] ?? o['value']);
     for (const [k, v] of Object.entries(o)) {
-      if (parseDmcDate(k)) take(k, v && typeof v === 'object' ? ((v as Record<string, unknown>)['valor'] ?? (v as Record<string, unknown>)['value']) : v);
+      if (parseDmcDate(k))
+        take(k, v && typeof v === 'object' ? ((v as Record<string, unknown>)['valor'] ?? (v as Record<string, unknown>)['value']) : v);
       else read(v, depth + 1);
     }
   };

@@ -59,15 +59,32 @@ test('pide el historial a Tuya (un código por consulta, parámetros en orden al
       urls.push(String(url));
       const page2 = String(url).includes('last_row_key');
       const code = /codes=([a-z_]+)/.exec(String(url))[1];
-      return { ok: true, status: 200, json: async () => ({ success: true, result: {
-        has_more: !page2, last_row_key: page2 ? null : 'ROW1',
-        logs: [{ code, value: page2 ? '50' : '49', event_time: now - (page2 ? 2 : 1) * 3_600_000 }],
-      } }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          result: {
+            has_more: !page2,
+            last_row_key: page2 ? null : 'ROW1',
+            logs: [{ code, value: page2 ? '50' : '49', event_time: now - (page2 ? 2 : 1) * 3_600_000 }],
+          },
+        }),
+      };
     };
     const cfg = { region: 'us', accessId: 'ID', accessSecret: 'SECRET', deviceId: 'dev1', enabled: false };
-    const logs = await tuya.readTuyaReportLogs(cfg, { accessToken: 'TOK', expiresAt: Infinity }, ['humidity', 'temp_current'], now - 86_400_000, now);
+    const logs = await tuya.readTuyaReportLogs(
+      cfg,
+      { accessToken: 'TOK', expiresAt: Infinity },
+      ['humidity', 'temp_current'],
+      now - 86_400_000,
+      now,
+    );
     assert.equal(logs.length, 4);
-    assert.match(urls[0], /^https:\/\/openapi\.tuyaus\.com\/v2\.0\/cloud\/thing\/dev1\/report-logs\?codes=humidity&end_time=\d+&size=20&start_time=\d+$/);
+    assert.match(
+      urls[0],
+      /^https:\/\/openapi\.tuyaus\.com\/v2\.0\/cloud\/thing\/dev1\/report-logs\?codes=humidity&end_time=\d+&size=20&start_time=\d+$/,
+    );
     assert.match(urls[1], /codes=humidity&end_time=\d+&last_row_key=ROW1&size=20&start_time=/);
     assert.match(urls[2], /codes=temp_current/);
   } finally {
@@ -82,8 +99,16 @@ test('si Tuya rechaza esa forma ("Parameter error"), prueba las otras y recuerda
     const now = Date.now();
     globalThis.fetch = async (url) => {
       urls.push(String(url));
-      if (!String(url).includes('/v1.0/devices/')) return { ok: true, status: 200, json: async () => ({ success: false, code: 40000303, msg: 'Parameter error!' }) };
-      return { ok: true, status: 200, json: async () => ({ success: true, result: { has_next: false, logs: [{ code: 'humidity', value: '61', event_time: now - 3_600_000 }] } }) };
+      if (!String(url).includes('/v1.0/devices/'))
+        return { ok: true, status: 200, json: async () => ({ success: false, code: 40000303, msg: 'Parameter error!' }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          result: { has_next: false, logs: [{ code: 'humidity', value: '61', event_time: now - 3_600_000 }] },
+        }),
+      };
     };
     const cfg = { region: 'us', accessId: 'ID', accessSecret: 'SECRET', deviceId: 'dev1', enabled: false };
     const tk = { accessToken: 'TOK', expiresAt: Infinity };
@@ -108,7 +133,12 @@ test('la hora del último reporte es el dato medido más nuevo (la humedad puede
 });
 
 test('la lectura del sensor informa qué códigos usa este modelo', () => {
-  const st = tuya.parseSoilDevice({ status: [{ code: 'soil_moisture', value: 355 }, { code: 'temp_current', value: 212 }] });
+  const st = tuya.parseSoilDevice({
+    status: [
+      { code: 'soil_moisture', value: 355 },
+      { code: 'temp_current', value: 212 },
+    ],
+  });
   assert.equal(st.soilCode, 'soil_moisture');
   assert.equal(st.tempCode, 'temp_current');
 });
@@ -145,14 +175,26 @@ test('el gráfico parte del valor anterior al periodo y marca punteado un tramo 
 
 test('la escala del gráfico incluye la calibración y los riegos del periodo quedan marcados', () => {
   const c = chartOf([s(T - H1, 92)], { calibration: { wet: 100, dry: 52 }, irrigationTimes: [T - 3 * H1, T - 100 * H1] });
-  assert.deepEqual(c.grid.map((g) => g.v), [40, 60, 80, 100]);
-  assert.deepEqual(c.calib.map((k) => k.label), ['húmedo 100 %', 'toca regar 52 %']);
+  assert.deepEqual(
+    c.grid.map((g) => g.v),
+    [40, 60, 80, 100],
+  );
+  assert.deepEqual(
+    c.calib.map((k) => k.label),
+    ['húmedo 100 %', 'toca regar 52 %'],
+  );
   assert.equal(c.irrigations.length, 1);
 });
 
 test('eje de tiempo: cada 6 h en un día y por día en una semana; el dedo se traduce a un instante', () => {
-  assert.deepEqual(chart.timeTicks(T - 24 * H1, T).map((t) => t.label), ['18:00', '00:00', '06:00', '12:00']);
-  assert.deepEqual(chart.timeTicks(T - 7 * 24 * H1, T).map((t) => t.label), ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom']);
+  assert.deepEqual(
+    chart.timeTicks(T - 24 * H1, T).map((t) => t.label),
+    ['18:00', '00:00', '06:00', '12:00'],
+  );
+  assert.deepEqual(
+    chart.timeTicks(T - 7 * 24 * H1, T).map((t) => t.label),
+    ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'],
+  );
   const { X0, X1 } = chart.CHART_GEOMETRY;
   assert.equal(chart.timeAt(X0 - 50, 1000, 2000), 1000);
   assert.equal(chart.timeAt((X0 + X1) / 2, 1000, 2000), 1500);

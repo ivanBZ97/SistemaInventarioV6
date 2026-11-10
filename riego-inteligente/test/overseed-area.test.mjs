@@ -48,10 +48,16 @@ test('parches: el pasto sigue su umbral y el aviso recuerda rociar los parches',
 
 test('13:00 con calor: riego corto de todo el jardín, o rociar los parches; con lluvia medida hoy, nada', () => {
   const now = new Date(2026, 0, 13, 9, 0);
-  const at13 = (state, weather) => c.planNotifications({ state, weather, settings: S, now }).notifications.find((x) => x.id === c.NOTIF_ID_OVERSEED);
+  const at13 = (state, weather) =>
+    c.planNotifications({ state, weather, settings: S, now }).notifications.find((x) => x.id === c.NOTIF_ID_OVERSEED);
   assert.match(at13(full, w).body, /Riega todo el jardín 3 min \(riego corto\)/);
   assert.equal(at13(patches, w).body, c.OVERSEED_MESSAGE);
-  const rained = [wx('2026-01-13', { live: { date: '2026-01-13', mm: 3, sinceMs: 0, lastAtMs: 1, lastHourMm: 0, rainingNow: false, hourly: [], steps: [[1, 3]] } }), ...w.slice(1)];
+  const rained = [
+    wx('2026-01-13', {
+      live: { date: '2026-01-13', mm: 3, sinceMs: 0, lastAtMs: 1, lastHourMm: 0, rainingNow: false, hourly: [], steps: [[1, 3]] },
+    }),
+    ...w.slice(1),
+  ];
   assert.match(at13(full, rained).body, /la lluvia de hoy mantiene húmeda la semilla/);
   // Con frío no hay aviso de las 13:00 (como antes)
   assert.equal(at13(full, [wx('2026-01-13', { tempMaxC: 15 }), ...w.slice(1)]), undefined);

@@ -114,13 +114,15 @@ export class NotificationService {
   async sendTest(): Promise<boolean> {
     if (!Capacitor.isNativePlatform()) return false;
     await LocalNotifications.schedule({
-      notifications: [{
-        id: NOTIF_ID_TEST,
-        title: '🧪 Prueba de aviso',
-        body: 'Si ves esto, los avisos de riego funcionan.',
-        channelId: CHANNEL.morning,
-        schedule: { at: new Date(Date.now() + 5_000), allowWhileIdle: true },
-      }],
+      notifications: [
+        {
+          id: NOTIF_ID_TEST,
+          title: '🧪 Prueba de aviso',
+          body: 'Si ves esto, los avisos de riego funcionan.',
+          channelId: CHANNEL.morning,
+          schedule: { at: new Date(Date.now() + 5_000), allowWhileIdle: true },
+        },
+      ],
     });
     return true;
   }

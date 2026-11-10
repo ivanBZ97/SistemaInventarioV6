@@ -1,7 +1,8 @@
 // Lectura tipada de los eventos de los controles de Ionic (ionInput, ionChange), para no repetir conversiones en
 // las plantillas.
 
-const detail = (ev: Event): { value?: unknown; checked?: unknown } => (ev as CustomEvent<{ value?: unknown; checked?: unknown }>).detail ?? {};
+const detail = (ev: Event): { value?: unknown; checked?: unknown } =>
+  (ev as CustomEvent<{ value?: unknown; checked?: unknown }>).detail ?? {};
 
 /** Texto escrito en un `ion-input`. */
 export function inputText(ev: Event): string {

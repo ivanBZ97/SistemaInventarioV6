@@ -9,9 +9,18 @@
   </div>
   <div class="chips plain" role="radiogroup" aria-label="Hora del aviso matutino">
     @for (t of timeOptions; track t) {
-      <button type="button" class="chip" role="radio" [class.on]="form.morningTime() === t" [attr.aria-checked]="form.morningTime() === t"
-              (click)="form.morningTime.set(t)">
-        @if (form.morningTime() === t) { <ion-icon name="checkmark-outline" /> }{{ t }}
+      <button
+        type="button"
+        class="chip"
+        role="radio"
+        [class.on]="form.morningTime() === t"
+        [attr.aria-checked]="form.morningTime() === t"
+        (click)="form.morningTime.set(t)"
+      >
+        @if (form.morningTime() === t) {
+          <ion-icon name="checkmark-outline" />
+        }
+        {{ t }}
       </button>
     }
   </div>
@@ -20,7 +29,11 @@
       <span class="md-body-large">Sin sonido los días que no toca regar</span>
       <span class="md-body-medium md-variant">El aviso de «Hoy no hace falta regar» llega en silencio</span>
     </div>
-    <ion-toggle [checked]="form.quietOk()" (ionChange)="form.quietOk.set(checked($event))" aria-label="Sin sonido los días que no toca regar" />
+    <ion-toggle
+      [checked]="form.quietOk()"
+      (ionChange)="form.quietOk.set(checked($event))"
+      aria-label="Sin sonido los días que no toca regar"
+    />
   </div>
   <div class="divider inset"></div>
   <button type="button" class="row link" (click)="askPermission()">

@@ -28,7 +28,10 @@ async function probe(url: string, auth?: DmcAuth, describe?: (json: unknown) => 
 
 const wis2Collections = (json: unknown): string => {
   const cols = (json as { collections?: { id?: string }[] })?.collections ?? [];
-  return `${cols.length} colecciones: ${cols.slice(0, 8).map((c) => c.id).join(', ')}`;
+  return `${cols.length} colecciones: ${cols
+    .slice(0, 8)
+    .map((c) => c.id)
+    .join(', ')}`;
 };
 
 /**
@@ -60,7 +63,9 @@ export async function diagnoseDmc(
     const pts = rainPoints(f.samples, rain);
     if (pts.length) {
       const kb = Math.round(JSON.stringify(f.samples).length / 1024);
-      lines.push(`✓ Datos recientes: ${pts.length} lecturas (≈ ${kb} KB), de ${hhmm(pts[0][0])} a ${hhmm(pts[pts.length - 1][0])} · campo ${rain.field}.`);
+      lines.push(
+        `✓ Datos recientes: ${pts.length} lecturas (≈ ${kb} KB), de ${hhmm(pts[0][0])} a ${hhmm(pts[pts.length - 1][0])} · campo ${rain.field}.`,
+      );
       lines.push(`Lluvia en ese periodo: ${fmtMm(totalRain(pts, rain.kind))}.`);
       const live = liveRainFromStore(next, code, today, now);
       if (live?.sinceMs != null) {
@@ -88,7 +93,9 @@ export async function diagnoseDmc(
           const r = await newestReading(s.code, auth);
           const label = `${s.name} (${Math.round(s.distanceKm)} km)`;
           if (!r.f.ok) return `${label}: ${r.f.status ? `HTTP ${r.f.status}` : 'sin respuesta'}`;
-          return r.newest === null ? `${label}: sin lecturas` : `${label}: última lectura ${hhmm(r.newest)} (hace ${ageText(now - r.newest)})`;
+          return r.newest === null
+            ? `${label}: sin lecturas`
+            : `${label}: última lectura ${hhmm(r.newest)} (hace ${ageText(now - r.newest)})`;
         }),
       );
       lines.push(`Otras estaciones DMC cercanas · ${parts.join(' · ')}.`);
@@ -97,7 +104,10 @@ export async function diagnoseDmc(
   const days = observedFromStore(next, code, today);
   lines.push(
     days.size
-      ? `Lluvia medida que usará la app: ${[...days].sort().map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(mm)}`).join(' · ')}.`
+      ? `Lluvia medida que usará la app: ${[...days]
+          .sort()
+          .map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(mm)}`)
+          .join(' · ')}.`
       : 'Aún no hay días completos guardados: se completan solos con el uso (cada consulta trae ~12 h).',
   );
   // ET0 con los datos de la estación
@@ -141,7 +151,10 @@ export async function diagnoseDmc(
     const pairs = next.et0Pairs ?? {};
     lines.push(
       st.size
-        ? `✓ ET0 medida: ${[...st].sort().map(([d, v]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(v)}${pairs[d] ? ` (modelo ${fmtMm(pairs[d][1])})` : ''}`).join(' · ')}.`
+        ? `✓ ET0 medida: ${[...st]
+            .sort()
+            .map(([d, v]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(v)}${pairs[d] ? ` (modelo ${fmtMm(pairs[d][1])})` : ''}`)
+            .join(' · ')}.`
         : 'ET0 medida: aún no hay días completos (se necesitan ≥ 21 h de lecturas; se completan solos con el uso).',
     );
     const corr = et0Correction(pairs, today);
@@ -150,7 +163,10 @@ export async function diagnoseDmc(
   if (summary) {
     lines.push(
       summary.daily.size
-        ? `✓ Resumen diario oficial: ${[...summary.daily].sort().map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(mm)}`).join(' · ')}.`
+        ? `✓ Resumen diario oficial: ${[...summary.daily]
+            .sort()
+            .map(([d, mm]) => `${d.slice(8)}/${d.slice(5, 7)} ${fmtMm(mm)}`)
+            .join(' · ')}.`
         : `Resumen diario: ${summary.status ? `HTTP ${summary.status}` : 'sin respuesta'}${summary.snippet ? ` · no reconocí la lluvia en: ${summary.snippet}` : ''}`,
     );
   } else {

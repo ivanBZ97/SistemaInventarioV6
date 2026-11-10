@@ -1,68 +1,195 @@
 // Listas, formularios y chips de Material 3 que comparten las pantallas de ajustes e historial.
 // Se incluye en `styleUrls` de cada componente que los usa (los estilos de Angular son por componente).
 
-.section { margin: 24px 24px 8px; color: var(--md-primary); }
-.card { margin: 0 16px; padding: 8px 0; border-radius: var(--md-shape-lg); background: var(--md-surface-container-low); }
-.intro { margin: 8px 16px 0; }
-.divider { height: 1px; margin: 8px 0; background: var(--md-outline-variant); }
-.divider.inset { margin-left: 72px; }
+.section {
+  margin: 24px 24px 8px;
+  color: var(--md-primary);
+}
+.card {
+  margin: 0 16px;
+  padding: 8px 0;
+  border-radius: var(--md-shape-lg);
+  background: var(--md-surface-container-low);
+}
+.intro {
+  margin: 8px 16px 0;
+}
+.divider {
+  height: 1px;
+  margin: 8px 0;
+  background: var(--md-outline-variant);
+}
+.divider.inset {
+  margin-left: 72px;
+}
 
 // Fila de lista: icono, dos líneas de texto y un control o valor al final.
 .row {
-  display: flex; align-items: center; gap: 16px; width: 100%; padding: 12px 16px; min-height: 56px;
-  background: none; border: 0; text-align: left; color: inherit; font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 16px;
+  min-height: 56px;
+  background: none;
+  border: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
 }
-.row.link { cursor: pointer; }
+.row.link {
+  cursor: pointer;
+}
 .li-icon {
-  width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center;
-  background: var(--md-secondary-container); color: var(--md-on-secondary-container); font-size: 20px;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  font-size: 20px;
 }
-.li-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-.value { color: var(--md-primary); }
+.li-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.value {
+  color: var(--md-primary);
+}
 
 // Campos de texto
-.field { padding: 8px 16px; }
-.field.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-ion-input[fill='outline'] { --border-radius: 4px; --border-color: var(--md-outline); --highlight-color-focused: var(--md-primary); }
-.m3-slider { padding: 0 20px; }
+.field {
+  padding: 8px 16px;
+}
+.field.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+ion-input[fill='outline'] {
+  --border-radius: 4px;
+  --border-color: var(--md-outline);
+  --highlight-color-focused: var(--md-primary);
+}
+.m3-slider {
+  padding: 0 20px;
+}
 
 // Chips (acciones y opciones)
-.chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px; }
-.chip {
-  display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 16px 0 8px; border-radius: 8px;
-  border: 1px solid var(--md-outline); background: transparent; color: var(--md-on-surface-variant);
-  font: 500 14px/20px var(--md-font); letter-spacing: .1px; cursor: pointer;
-  ion-icon { font-size: 18px; color: var(--md-primary); }
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
 }
-a.chip { text-decoration: none; }
-.chip.on { background: var(--md-secondary-container); color: var(--md-on-secondary-container); border-color: transparent; }
-.chip:disabled { opacity: .6; cursor: default; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 16px 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--md-outline);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font: 500 14px/20px var(--md-font);
+  letter-spacing: 0.1px;
+  cursor: pointer;
+  ion-icon {
+    font-size: 18px;
+    color: var(--md-primary);
+  }
+}
+a.chip {
+  text-decoration: none;
+}
+.chip.on {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  border-color: transparent;
+}
+.chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 // Chips sin icono (opciones de texto): el relleno es parejo, salvo la elegida, que lleva el visto bueno.
-.chips.plain .chip { padding: 0 12px; }
-.chips.plain .chip.on { padding-left: 8px; }
+.chips.plain .chip {
+  padding: 0 12px;
+}
+.chips.plain .chip.on {
+  padding-left: 8px;
+}
 
 // Indicador de estado
-.dot { width: 12px; height: 12px; flex: none; margin: 0 14px; border-radius: 50%; background: var(--md-outline); }
-.dot.live { background: var(--md-primary); }
-.dot.late { background: var(--md-warning); }
-.dot.error { background: var(--md-error); }
-.dot.stale { background: var(--md-outline); }
-.dot.checking { background: var(--md-outline-variant); animation: blink 1s ease-in-out infinite; }
-@keyframes blink { 50% { opacity: .3; } }
+.dot {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  margin: 0 14px;
+  border-radius: 50%;
+  background: var(--md-outline);
+}
+.dot.live {
+  background: var(--md-primary);
+}
+.dot.late {
+  background: var(--md-warning);
+}
+.dot.error {
+  background: var(--md-error);
+}
+.dot.stale {
+  background: var(--md-outline);
+}
+.dot.checking {
+  background: var(--md-outline-variant);
+  animation: blink 1s ease-in-out infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.3;
+  }
+}
 
 .tag {
-  margin-left: 8px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--md-outline-variant);
-  font: 500 11px/16px var(--md-font); color: var(--md-on-surface-variant); vertical-align: middle;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--md-outline-variant);
+  font: 500 11px/16px var(--md-font);
+  color: var(--md-on-surface-variant);
+  vertical-align: middle;
 }
 
 // Resultado de una prueba o diagnóstico
 .report {
-  margin: 4px 16px 8px; padding: 8px 12px; border-radius: 8px;
-  background: var(--md-secondary-container); color: var(--md-on-secondary-container);
-  p { margin: 0 0 4px; }
+  margin: 4px 16px 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  p {
+    margin: 0 0 4px;
+  }
   .copy {
-    display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 4px 0; border: 0;
-    background: none; color: inherit; font: 500 12px/16px var(--md-font); text-decoration: underline; cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    padding: 4px 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: 500 12px/16px var(--md-font);
+    text-decoration: underline;
+    cursor: pointer;
   }
 }
-.report.err { background: var(--md-error-container); color: var(--md-on-error-container); }
+.report.err {
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
+}

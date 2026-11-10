@@ -64,10 +64,26 @@ async function stationData(cfg: DmcConfig, settings: Settings, today: ISODate, m
   const primaryPrev = kvGet<DmcStore>(RUNNER_KV.dmcStore);
   const backupPrev = kvGet<DmcStore>(RUNNER_KV.dmcStoreBackup);
   const now = Date.now();
-  const base = { cfg, auth: settings.dmcAuth, lat: settings.latitude, lon: settings.longitude, elevationM: null, modelDays, today, now, primaryPrev, backupPrev };
+  const base = {
+    cfg,
+    auth: settings.dmcAuth,
+    lat: settings.latitude,
+    lon: settings.longitude,
+    elevationM: null,
+    modelDays,
+    today,
+    now,
+    primaryPrev,
+    backupPrev,
+  };
   // Para decidir cada cuánto consultar: la lluvia de hoy según lo guardado, con la misma regla de respaldo.
   const liveNow = (await loadStationData({ ...base, maxAgeMs: 0, fetch: false })).live;
-  const maxAgeMs = backgroundStationMaxAgeMs(now, liveNow, modelDays.find((d) => d.date === today), morningTimeOf(settings));
+  const maxAgeMs = backgroundStationMaxAgeMs(
+    now,
+    liveNow,
+    modelDays.find((d) => d.date === today),
+    morningTimeOf(settings),
+  );
   const data = await loadStationData({ ...base, maxAgeMs });
   if (storeChanged(data.primary, primaryPrev)) kvSet(RUNNER_KV.dmcStore, data.primary);
   if (storeChanged(data.backupStore, backupPrev)) kvSet(RUNNER_KV.dmcStoreBackup, data.backupStore);
@@ -189,7 +205,12 @@ addEventListener(RUNNER_EVENT.syncState, (resolve, reject, args) => {
   try {
     const snap = args as Partial<RunnerSnapshot> | null;
     if (snap?.settings && snap.state) {
-      const stored: RunnerSnapshot = { settings: snap.settings, state: snap.state, rainOverrides: snap.rainOverrides ?? {}, history: snap.history ?? [] };
+      const stored: RunnerSnapshot = {
+        settings: snap.settings,
+        state: snap.state,
+        rainOverrides: snap.rainOverrides ?? {},
+        history: snap.history ?? [],
+      };
       kvSet(RUNNER_KV.snapshot, stored);
     }
     resolve();

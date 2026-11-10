@@ -189,7 +189,10 @@ export class IrrigationEngineService {
       this.beforeIrrigation = null;
       const { state, irrigations } = await this.load();
       const { deficitMm, source, snoozedDate, resetDate, resetAt } = before.state;
-      await this.storage.set(STORAGE.irrigations, irrigations.filter((e) => e.at !== before.eventAt));
+      await this.storage.set(
+        STORAGE.irrigations,
+        irrigations.filter((e) => e.at !== before.eventAt),
+      );
       await this.storage.set(STORAGE.state, { ...state, deficitMm, source, snoozedDate, resetDate, resetAt });
       await this.recalculate();
       return true;
@@ -199,7 +202,13 @@ export class IrrigationEngineService {
   /** "Ajustar humedad manualmente": fija el déficit a un valor (0 = muy húmedo, 12+ = muy seco). */
   setDeficit(mm: number): Promise<Snapshot> {
     const now = new Date();
-    return this.updateState((state) => ({ ...state, deficitMm: Math.max(0, mm), source: 'manual', resetDate: toISODate(now), resetAt: now.getTime() }));
+    return this.updateState((state) => ({
+      ...state,
+      deficitMm: Math.max(0, mm),
+      source: 'manual',
+      resetDate: toISODate(now),
+      resetAt: now.getTime(),
+    }));
   }
 
   /** "Posponer a mañana": mantiene el déficit y silencia las alertas de hoy. */
@@ -299,7 +308,10 @@ export class IrrigationEngineService {
     let weather: WeatherResult = NO_WEATHER;
     let error: string | null = null;
     try {
-      weather = await this.weather.getForecast(settings, { force: forceWeather, stationMaxAgeMs: forceWeather ? 60_000 : STATION_LIVE_MAX_AGE_MS });
+      weather = await this.weather.getForecast(settings, {
+        force: forceWeather,
+        stationMaxAgeMs: forceWeather ? 60_000 : STATION_LIVE_MAX_AGE_MS,
+      });
     } catch {
       error = 'Sin conexión y sin datos en caché. Se muestra el último balance guardado.';
     }
@@ -330,7 +342,14 @@ export class IrrigationEngineService {
     let sensorError: string | null = null;
     try {
       sensor = await this.sensor.read(settings, forceWeather);
-      state = applySensorReading(state, settings.soilSensor, sensor && { soilPct: sensor.soilPct, at: sensor.at }, settings.thresholdMm, today, Date.now());
+      state = applySensorReading(
+        state,
+        settings.soilSensor,
+        sensor && { soilPct: sensor.soilPct, at: sensor.at },
+        settings.thresholdMm,
+        today,
+        Date.now(),
+      );
     } catch (e) {
       sensorError = tuyaErrorText(e); // sensor caído: se mantiene el balance teórico
     }

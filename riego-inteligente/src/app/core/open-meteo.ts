@@ -103,10 +103,7 @@ function hourlyRainByDay(h: OpenMeteoResponse['hourly']): Map<string, number[]> 
 }
 
 /** Cliente sin dependencias: sirve en la app (fetch del WebView) y en el worker (fetch del runner). */
-export async function fetchForecastWithMeta(
-  lat: number,
-  lon: number,
-): Promise<{ days: DailyWeather[]; elevationM: number | null }> {
+export async function fetchForecastWithMeta(lat: number, lon: number): Promise<{ days: DailyWeather[]; elevationM: number | null }> {
   const res = await fetchWithTimeout(forecastUrl(lat, lon));
   if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
   const json = (await res.json()) as OpenMeteoResponse;

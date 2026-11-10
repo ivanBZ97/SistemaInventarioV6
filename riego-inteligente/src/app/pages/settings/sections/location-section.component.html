@@ -4,17 +4,33 @@
     <div class="li-icon"><ion-icon name="location-outline" /></div>
     <div class="li-text">
       <span class="md-body-large">{{ form.placeName() || 'Ubicación sin nombre' }}</span>
-      <span class="md-body-medium md-variant">{{ form.lat() }}, {{ form.lon() }}@if (form.elevation() !== null) { · {{ form.elevation() }} m }</span>
+      <span class="md-body-medium md-variant"
+        >{{ form.lat() }}, {{ form.lon() }}
+        @if (form.elevation() !== null) {
+          · {{ form.elevation() }} m
+        }
+      </span>
     </div>
   </div>
   <div class="chips">
     <button type="button" class="chip" [disabled]="locating()" (click)="useGps()"><ion-icon name="locate-outline" />GPS aproximado</button>
-    <button type="button" class="chip" [disabled]="locating()" (click)="usePreciseGps()"><ion-icon name="navigate-outline" />GPS preciso (en el jardín)</button>
+    <button type="button" class="chip" [disabled]="locating()" (click)="usePreciseGps()">
+      <ion-icon name="navigate-outline" />GPS preciso (en el jardín)
+    </button>
   </div>
   <div class="field">
-    <ion-input fill="outline" type="search" label="Buscar ciudad o comuna" labelPlacement="floating"
-               [value]="query()" (ionInput)="query.set(text($event))" (keyup.enter)="search()">
-      <ion-button slot="end" fill="clear" (click)="search()" aria-label="Buscar"><ion-icon slot="icon-only" name="search-outline" /></ion-button>
+    <ion-input
+      fill="outline"
+      type="search"
+      label="Buscar ciudad o comuna"
+      labelPlacement="floating"
+      [value]="query()"
+      (ionInput)="query.set(text($event))"
+      (keyup.enter)="search()"
+    >
+      <ion-button slot="end" fill="clear" (click)="search()" aria-label="Buscar"
+        ><ion-icon slot="icon-only" name="search-outline"
+      /></ion-button>
     </ion-input>
   </div>
   @for (place of results(); track place.label + place.latitude + place.longitude) {
@@ -28,12 +44,30 @@
       <span class="md-body-large">Actualizar automáticamente</span>
       <span class="md-body-medium md-variant">Si te mueves más de 10 km</span>
     </div>
-    <ion-toggle [checked]="form.autoLocation()" (ionChange)="form.autoLocation.set(checked($event))" aria-label="Actualizar ubicación automáticamente" />
+    <ion-toggle
+      [checked]="form.autoLocation()"
+      (ionChange)="form.autoLocation.set(checked($event))"
+      aria-label="Actualizar ubicación automáticamente"
+    />
   </div>
   <div class="field two">
-    <ion-input fill="outline" type="number" inputmode="decimal" label="Latitud" labelPlacement="floating"
-               [value]="form.lat()" (ionInput)="form.lat.set(number($event))" />
-    <ion-input fill="outline" type="number" inputmode="decimal" label="Longitud" labelPlacement="floating"
-               [value]="form.lon()" (ionInput)="form.lon.set(number($event))" />
+    <ion-input
+      fill="outline"
+      type="number"
+      inputmode="decimal"
+      label="Latitud"
+      labelPlacement="floating"
+      [value]="form.lat()"
+      (ionInput)="form.lat.set(number($event))"
+    />
+    <ion-input
+      fill="outline"
+      type="number"
+      inputmode="decimal"
+      label="Longitud"
+      labelPlacement="floating"
+      [value]="form.lon()"
+      (ionInput)="form.lon.set(number($event))"
+    />
   </div>
 </div>

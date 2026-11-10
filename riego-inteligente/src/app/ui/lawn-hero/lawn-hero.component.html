@@ -1,9 +1,16 @@
 <div class="sky">
   @for (m of [message()]; track m) {
-    @if (m) { <div class="bubble" role="status">{{ m }}</div> }
+    @if (m) {
+      <div class="bubble" role="status">{{ m }}</div>
+    }
   }
 
-  <svg viewBox="0 0 320 220" [attr.preserveAspectRatio]="compact() ? 'xMidYMax slice' : 'xMidYMid meet'" role="img" aria-label="Tu pasto, ánimo: {{ shownMood() }}">
+  <svg
+    viewBox="0 0 320 220"
+    [attr.preserveAspectRatio]="compact() ? 'xMidYMax slice' : 'xMidYMid meet'"
+    role="img"
+    aria-label="Tu pasto, ánimo: {{ shownMood() }}"
+  >
     <!-- clima -->
     @if (scene() === 'sun') {
       <g transform="translate(268 46)">
@@ -12,7 +19,16 @@
             <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="24s" repeatCount="indefinite" />
           }
           @for (a of [0, 45, 90, 135, 180, 225, 270, 315]; track a) {
-            <line x1="0" y1="-37" x2="0" y2="-31" class="ray" stroke-width="3" stroke-linecap="round" [attr.transform]="'rotate(' + a + ')'" />
+            <line
+              x1="0"
+              y1="-37"
+              x2="0"
+              y2="-31"
+              class="ray"
+              stroke-width="3"
+              stroke-linecap="round"
+              [attr.transform]="'rotate(' + a + ')'"
+            />
           }
         </g>
         <circle r="26" class="sun-halo" />
@@ -42,13 +58,27 @@
     <path class="soil" d="M0 204 Q80 196 160 204 T320 200 V220 H0 Z" />
 
     <!-- mascota -->
-    <g class="mascot" [class.bounce]="bouncing()" tabindex="0" role="button" aria-label="Toca para que el pasto te hable"
-       (click)="poke()" (keydown.enter)="poke()" (keydown.space)="poke(); $event.preventDefault()">
+    <g
+      class="mascot"
+      [class.bounce]="bouncing()"
+      tabindex="0"
+      role="button"
+      aria-label="Toca para que el pasto te hable"
+      (click)="poke()"
+      (keydown.enter)="poke()"
+      (keydown.space)="poke(); $event.preventDefault()"
+    >
       @for (b of blades(); track $index) {
         <g [attr.transform]="'translate(' + b.x + ' ' + b.y + ') rotate(' + b.rot + ')'">
           <path [attr.d]="b.d" [class]="'blade t' + b.tone">
             @if (!reduceMotion) {
-              <animateTransform attributeName="transform" type="rotate" values="-3 0 0; 3 0 0; -3 0 0" [attr.dur]="b.dur" repeatCount="indefinite" />
+              <animateTransform
+                attributeName="transform"
+                type="rotate"
+                values="-3 0 0; 3 0 0; -3 0 0"
+                [attr.dur]="b.dur"
+                repeatCount="indefinite"
+              />
             }
           </path>
         </g>
@@ -61,14 +91,17 @@
         @case ('happy') {
           <path class="stroke" d="M131 148 Q138 141 145 148 M175 148 Q182 141 189 148" />
           <path class="stroke" d="M148 162 Q160 172 172 162" />
-          <circle class="cheek" cx="124" cy="160" r="6" /><circle class="cheek" cx="196" cy="160" r="6" />
+          <circle class="cheek" cx="124" cy="160" r="6" />
+          <circle class="cheek" cx="196" cy="160" r="6" />
         }
         @case ('content') {
-          <circle class="eye" cx="138" cy="148" r="4.5" /><circle class="eye" cx="182" cy="148" r="4.5" />
+          <circle class="eye" cx="138" cy="148" r="4.5" />
+          <circle class="eye" cx="182" cy="148" r="4.5" />
           <path class="stroke" d="M150 162 Q160 168 170 162" />
         }
         @case ('thirsty') {
-          <circle class="eye" cx="138" cy="150" r="4.5" /><circle class="eye" cx="182" cy="150" r="4.5" />
+          <circle class="eye" cx="138" cy="150" r="4.5" />
+          <circle class="eye" cx="182" cy="150" r="4.5" />
           <path class="stroke thin" d="M130 139 L145 142 M190 139 L175 142" />
           <path class="stroke" d="M151 166 L169 166" />
           <path class="drip" d="M202 130 q-5 8 0 11 q5 -3 0 -11 Z" />
@@ -87,7 +120,16 @@
         @for (x of sprinkleX; track x; let i = $index) {
           <ellipse class="sdrop" [attr.cx]="x + 10" cy="26" rx="2.2" ry="4" [style.animation-delay]="(i % 7) * 0.09 + 's'" />
         }
-        @for (s of [[84, 110], [236, 100], [112, 70], [212, 74]]; track s[0]; let i = $index) {
+        @for (
+          s of [
+            [84, 110],
+            [236, 100],
+            [112, 70],
+            [212, 74],
+          ];
+          track s[0];
+          let i = $index
+        ) {
           <text class="spark" [attr.x]="s[0]" [attr.y]="s[1]" [style.animation-delay]="i * 0.2 + 's'">✨</text>
         }
       </g>

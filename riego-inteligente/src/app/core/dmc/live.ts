@@ -56,12 +56,7 @@ export function withLiveRain(days: DailyWeather[], live: LiveRain | null, today:
  * Cada cuánto consultar la estación en segundo plano (cada consulta trae ~12 h y pesa ~0,5 MB): cada 30 min si
  * llueve, si se pronostica lluvia o en la hora y media antes del aviso de la mañana; si no, cada 3 h.
  */
-export function backgroundStationMaxAgeMs(
-  now: number,
-  live: LiveRain | null,
-  today: DailyWeather | undefined,
-  morning: TimeOfDay,
-): number {
+export function backgroundStationMaxAgeMs(now: number, live: LiveRain | null, today: DailyWeather | undefined, morning: TimeOfDay): number {
   const wet = !!live && (live.lastHourMm > 0 || live.steps.some(([t]) => t >= live.lastAtMs - 3 * 3_600_000));
   const likely = !!today && (today.precipitationMm >= 1 || today.precipitationProbMax >= 30);
   const alertAt = atTime(toISODate(new Date(now)), morning).getTime();

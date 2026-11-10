@@ -28,13 +28,12 @@ export function detectMetFields(samples: DmcSample[]): { fields: MetFields | nul
   const temp = pick('temperatura', /^temperatura(Aire|DelAire)?$/i);
   const rh = pick('humedadRelativa', /^humedad.*relativa$/i);
   const rad = pick('radiacionGlobalInst', /radiacion.*global/i);
-  const wind = pick('fuerzaDelVientoPromedio10Minutos', /(fuerza|velocidad).*viento.*promedio/i) ?? keys.find((k) => /^(fuerza|velocidad)DelViento$/i.test(k));
-  const missing = [
-    !temp && 'temperatura',
-    !rh && 'humedad relativa',
-    !rad && 'radiación global',
-    !wind && 'viento',
-  ].filter((x): x is string => !!x);
+  const wind =
+    pick('fuerzaDelVientoPromedio10Minutos', /(fuerza|velocidad).*viento.*promedio/i) ??
+    keys.find((k) => /^(fuerza|velocidad)DelViento$/i.test(k));
+  const missing = [!temp && 'temperatura', !rh && 'humedad relativa', !rad && 'radiación global', !wind && 'viento'].filter(
+    (x): x is string => !!x,
+  );
   if (!temp || !rh || !rad || !wind) return { fields: null, missing, keys };
   const raw = samples.map((s) => s[wind]).find((v) => typeof v === 'string' && /[a-z]/i.test(v)) as string | undefined;
   const windUnit: WindUnit = raw && /km/i.test(raw) ? 'km/h' : raw && /m\/s/i.test(raw) ? 'm/s' : 'kt';
@@ -123,7 +122,10 @@ export function stationEt0(buckets: MetBucket[], meta: StationMeta, today: ISODa
 }
 
 /** Corrección del pronóstico de ET0: estación ÷ modelo en los últimos 7 días (≥ 2 días), limitada a ±20 %. */
-export function et0Correction(pairs: Record<ISODate, [number, number]> | undefined, today: ISODate): { ratio: number; days: number } | null {
+export function et0Correction(
+  pairs: Record<ISODate, [number, number]> | undefined,
+  today: ISODate,
+): { ratio: number; days: number } | null {
   const recent = Object.entries(pairs ?? {}).filter(([d]) => d < today && d >= addDays(today, -7));
   if (recent.length < 2) return null;
   const st = recent.reduce((s, [, p]) => s + p[0], 0);

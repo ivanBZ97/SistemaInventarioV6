@@ -125,7 +125,11 @@ export class WeatherService {
     const station = settings.dmc ? await this.stationData(settings, settings.dmc, model, today, now, stationMaxAgeMs, offline) : null;
 
     // Lluvia medida en días pasados: estación DMC y, si no tiene, INIA Agromet (con clave).
-    let measured: { days: DailyWeather[]; source: string | null; observed: Record<ISODate, number> } = { days: model.days, source: null, observed: {} };
+    let measured: { days: DailyWeather[]; source: string | null; observed: Record<ISODate, number> } = {
+      days: model.days,
+      source: null,
+      observed: {},
+    };
     const dmcRain = station && settings.dmc ? withDmcRain(model.days, station.rain, settings.dmc, today) : null;
     if (dmcRain?.source) {
       const helper = station?.backup ?? station?.rainFilledFrom;
@@ -140,7 +144,11 @@ export class WeatherService {
         inia = { source: r.source, observed: Object.fromEntries(r.observed) };
       }
       if (inia?.source) {
-        measured = { days: mergeObservedRain(model.days, new Map(Object.entries(inia.observed)), today), source: inia.source, observed: inia.observed };
+        measured = {
+          days: mergeObservedRain(model.days, new Map(Object.entries(inia.observed)), today),
+          source: inia.source,
+          observed: inia.observed,
+        };
       }
     }
 
@@ -181,7 +189,11 @@ export class WeatherService {
    * "Probar" una estación DMC: la consulta ahora, explica en texto qué entregó y deja las lecturas en el almacén
    * (así la prueba también sirve para el balance). `settings` son los ajustes en pantalla, guardados o no.
    */
-  async diagnoseStation(settings: Pick<Settings, 'dmcAuth' | 'latitude' | 'longitude'>, cfg: DmcConfig, elevationM: number | null): Promise<{ ok: boolean; lines: string[] }> {
+  async diagnoseStation(
+    settings: Pick<Settings, 'dmcAuth' | 'latitude' | 'longitude'>,
+    cfg: DmcConfig,
+    elevationM: number | null,
+  ): Promise<{ ok: boolean; lines: string[] }> {
     const { latitude, longitude, dmcAuth } = settings;
     const prev = await this.storage.get<DmcStore | null>(STORAGE.dmcStore, null);
     // Si la estación no tiene datos nuevos, el diagnóstico prueba además las dos más cercanas siguientes.
@@ -200,7 +212,8 @@ export class WeatherService {
     cached: ModelForecast | null,
     force: boolean,
   ): Promise<{ model: ModelForecast; stale: boolean; fresh: boolean }> {
-    if (!force && cached && Date.now() - Date.parse(cached.fetchedAt) < MODEL_MAX_AGE_MS) return { model: cached, stale: false, fresh: false };
+    if (!force && cached && Date.now() - Date.parse(cached.fetchedAt) < MODEL_MAX_AGE_MS)
+      return { model: cached, stale: false, fresh: false };
     try {
       const fetched = await fetchForecastWithMeta(settings.latitude, settings.longitude);
       return { model: { ...fetched, fetchedAt: new Date().toISOString() }, stale: false, fresh: true };

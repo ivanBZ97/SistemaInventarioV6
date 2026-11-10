@@ -8,49 +8,94 @@
     </div>
     <span class="md-title-medium value">{{ form.threshold() }} mm</span>
   </div>
-  <ion-range class="m3-slider" [min]="min" [max]="max" [step]="0.5" [ticks]="true" [snaps]="true"
-             [value]="form.threshold()" (ionInput)="form.threshold.set(number($event))" aria-label="Umbral de riego" />
+  <ion-range
+    class="m3-slider"
+    [min]="min"
+    [max]="max"
+    [step]="0.5"
+    [ticks]="true"
+    [snaps]="true"
+    [value]="form.threshold()"
+    (ionInput)="form.threshold.set(number($event))"
+    aria-label="Umbral de riego"
+  />
   <div class="divider"></div>
   <div class="field">
-    <ion-input fill="outline" type="number" inputmode="decimal" label="Tasa del aspersor" labelPlacement="floating"
-               helperText="mm por minuto: aspersor (test de latas) o manguera/pistola (calcúlala con un balde)."
-               [value]="form.rate()" (ionInput)="form.rate.set(number($event))">
+    <ion-input
+      fill="outline"
+      type="number"
+      inputmode="decimal"
+      label="Tasa del aspersor"
+      labelPlacement="floating"
+      helperText="mm por minuto: aspersor (test de latas) o manguera/pistola (calcúlala con un balde)."
+      [value]="form.rate()"
+      (ionInput)="form.rate.set(number($event))"
+    >
       <span slot="end" class="md-body-medium md-variant">mm/min</span>
     </ion-input>
   </div>
   <div class="field">
-    <ion-input fill="outline" type="number" inputmode="decimal" label="Superficie del pasto (opcional)" labelPlacement="floating"
-               helperText="Para ver cada riego en litros (1 mm en 1 m² = 1 litro)."
-               [value]="form.area()" (ionInput)="form.area.set(positive($event))">
+    <ion-input
+      fill="outline"
+      type="number"
+      inputmode="decimal"
+      label="Superficie del pasto (opcional)"
+      labelPlacement="floating"
+      helperText="Para ver cada riego en litros (1 mm en 1 m² = 1 litro)."
+      [value]="form.area()"
+      (ionInput)="form.area.set(positive($event))"
+    >
       <span slot="end" class="md-body-medium md-variant">m²</span>
     </ion-input>
   </div>
 
   <div class="chips">
-    <button type="button" class="chip" [class.on]="bucketOpen()" [attr.aria-expanded]="bucketOpen()" (click)="bucketOpen.set(!bucketOpen())">
+    <button
+      type="button"
+      class="chip"
+      [class.on]="bucketOpen()"
+      [attr.aria-expanded]="bucketOpen()"
+      (click)="bucketOpen.set(!bucketOpen())"
+    >
       <ion-icon name="timer-outline" />Riego a mano: calcular con un balde o bidón
     </button>
   </div>
   @if (bucketOpen()) {
     <p class="intro md-body-medium md-variant">
-      Pon la pistola en el modo que usas para regar (p. ej. ducha), con la llave abierta como siempre, y cronometra cuánto
-      tarda en llenar un balde o bidón (p. ej. de 20 litros). Así se reparte ese caudal en todo el pasto: los minutos que te
-      indique la app son el tiempo total paseando el chorro parejo por todo el jardín.
+      Pon la pistola en el modo que usas para regar (p. ej. ducha), con la llave abierta como siempre, y cronometra cuánto tarda en llenar
+      un balde o bidón (p. ej. de 20 litros). Así se reparte ese caudal en todo el pasto: los minutos que te indique la app son el tiempo
+      total paseando el chorro parejo por todo el jardín.
     </p>
     <div class="field two">
-      <ion-input fill="outline" type="number" inputmode="decimal" label="Balde o bidón" labelPlacement="floating"
-                 [value]="bucketLiters()" (ionInput)="bucketLiters.set(positive($event))">
+      <ion-input
+        fill="outline"
+        type="number"
+        inputmode="decimal"
+        label="Balde o bidón"
+        labelPlacement="floating"
+        [value]="bucketLiters()"
+        (ionInput)="bucketLiters.set(positive($event))"
+      >
         <span slot="end" class="md-body-medium md-variant">litros</span>
       </ion-input>
-      <ion-input fill="outline" type="number" inputmode="decimal" label="Se llenó en" labelPlacement="floating"
-                 [value]="bucketSeconds()" (ionInput)="bucketSeconds.set(positive($event))">
+      <ion-input
+        fill="outline"
+        type="number"
+        inputmode="decimal"
+        label="Se llenó en"
+        labelPlacement="floating"
+        [value]="bucketSeconds()"
+        (ionInput)="bucketSeconds.set(positive($event))"
+      >
         <span slot="end" class="md-body-medium md-variant">seg</span>
       </ion-input>
     </div>
     <p class="intro md-body-medium">{{ bucketText() }}</p>
     @if (bucketRate(); as rate) {
       <div class="chips">
-        <button type="button" class="chip" (click)="useBucketRate(rate)"><ion-icon name="checkmark-outline" />Usar {{ decimal(rate, 2) }} mm/min</button>
+        <button type="button" class="chip" (click)="useBucketRate(rate)">
+          <ion-icon name="checkmark-outline" />Usar {{ decimal(rate, 2) }} mm/min
+        </button>
       </div>
     }
   }

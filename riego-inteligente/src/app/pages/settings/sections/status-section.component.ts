@@ -56,7 +56,10 @@ export class StatusSectionComponent implements OnInit {
     if (!r.lastRunAt) {
       return r.error
         ? { level: 'error', text: `No se pudo consultar: ${r.error}.` }
-        : { level: 'late', text: 'Aún no se ha ejecutado. Android la corre cada ~15 min; si en una hora sigue igual, deja la app sin restricciones de batería.' };
+        : {
+            level: 'late',
+            text: 'Aún no se ha ejecutado. Android la corre cada ~15 min; si en una hora sigue igual, deja la app sin restricciones de batería.',
+          };
     }
     const age = this.loadedAt() - r.lastRunAt;
     if (r.ok === false) return { level: 'error', text: `Falló ${agoText(age)}: ${r.error ?? 'error desconocido'}.` };
@@ -80,8 +83,10 @@ export class StatusSectionComponent implements OnInit {
     if (p === undefined) return CHECKING;
     if (p === null) return PHONE_ONLY;
     if (!p.notifications) return { level: 'error', text: 'Notificaciones bloqueadas: actívalas en «Permiso de notificaciones».' };
-    if (p.exactAlarms === null) return { level: 'late', text: 'Notificaciones permitidas · no se pudo comprobar el permiso de alarmas exactas.' };
-    if (!p.exactAlarms) return { level: 'late', text: 'Notificaciones permitidas · alarmas exactas sin permiso: el aviso puede llegar tarde.' };
+    if (p.exactAlarms === null)
+      return { level: 'late', text: 'Notificaciones permitidas · no se pudo comprobar el permiso de alarmas exactas.' };
+    if (!p.exactAlarms)
+      return { level: 'late', text: 'Notificaciones permitidas · alarmas exactas sin permiso: el aviso puede llegar tarde.' };
     return { level: 'live', text: 'Notificaciones y alarmas exactas permitidas.' };
   });
 
@@ -125,6 +130,8 @@ export class StatusSectionComponent implements OnInit {
 
   async testNotification(): Promise<void> {
     const sent = await this.notifications.sendTest().catch(() => false);
-    this.snackbar.show(sent ? 'En 5 segundos llega un aviso de prueba (puedes salir de la app para verlo).' : 'Los avisos solo funcionan en el teléfono.');
+    this.snackbar.show(
+      sent ? 'En 5 segundos llega un aviso de prueba (puedes salir de la app para verlo).' : 'Los avisos solo funcionan en el teléfono.',
+    );
   }
 }

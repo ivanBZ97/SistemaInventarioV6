@@ -2,7 +2,16 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { IonIcon, IonInput, IonInputPasswordToggle, IonToggle } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { alarmOutline, checkmarkOutline, eyeOffOutline, eyeOutline, leafOutline, pulseOutline, statsChartOutline, waterOutline } from 'ionicons/icons';
+import {
+  alarmOutline,
+  checkmarkOutline,
+  eyeOffOutline,
+  eyeOutline,
+  leafOutline,
+  pulseOutline,
+  statsChartOutline,
+  waterOutline,
+} from 'ionicons/icons';
 import { ageText, decimal, whenOf } from '../../../core/format';
 import { SENSOR_MAX_AGE_MS } from '../../../core/soil-sensor';
 import { SOIL_SENSOR_PROVIDER } from '../../../core/soil-sensor.provider';
@@ -49,7 +58,10 @@ export class SensorSectionComponent {
         : `Húmedo: ${pct(wet)} · toca regar: ${pct(dry)}. Marca el «húmedo» a la mañana siguiente de un riego profundo y el «seco» el día que la app diga que toca regar.`;
     }
     if (!cal.provisional) return `Húmedo (déficit 0): ${pct(cal.wet)} · toca regar (${this.form.threshold()} mm): ${pct(cal.dry)}.`;
-    const [missing, when] = wet === undefined ? ['húmedo', 'a la mañana siguiente de un riego profundo'] : ['toca regar', 'el día que la app diga que toca regar'];
+    const [missing, when] =
+      wet === undefined
+        ? ['húmedo', 'a la mañana siguiente de un riego profundo']
+        : ['toca regar', 'el día que la app diga que toca regar'];
     return `Provisional: húmedo ${pct(cal.wet)} · toca regar ${pct(cal.dry)} (el «${missing}» es estimado). Ya puedes usar el sensor; se afina cuando marques el «${missing}» ${when}.`;
   });
 
@@ -84,7 +96,9 @@ export class SensorSectionComponent {
         `✓ ${r.name}: humedad del suelo ${value(r.soilPct, ' %')} · ${value(r.tempC, ' °C')} · batería ${value(r.battery, ' %')}.`,
         `Último reporte: ${whenOf(r.at)} (hace ${ageText(age)})${age > SENSOR_MAX_AGE_MS ? ': viejo, revisa que tenga WiFi y pilas' : ''}.`,
         'Es a pilas: duerme y se conecta cada cierto rato o cuando la humedad cambia; Tuya entrega su último dato.',
-        r.deficitMm !== null ? `Con tu calibración equivale a ${value(r.deficitMm, ' mm')} de déficit.` : 'Falta calibrarlo para usarlo en el balance.',
+        r.deficitMm !== null
+          ? `Con tu calibración equivale a ${value(r.deficitMm, ' mm')} de déficit.`
+          : 'Falta calibrarlo para usarlo en el balance.',
       ],
       error: false,
     });
@@ -98,7 +112,9 @@ export class SensorSectionComponent {
     await this.form.saveSensor();
     const label = `${point === 'wet' ? 'Húmedo' : 'Toca regar'}: ${pct(r.soilPct)} (guardado).`;
     this.snackbar.show(
-      point === 'wet' && r.soilPct >= SATURATED_PCT ? `${label} Recién regado marca saturado: para afinar, vuelve a marcarlo mañana temprano.` : label,
+      point === 'wet' && r.soilPct >= SATURATED_PCT
+        ? `${label} Recién regado marca saturado: para afinar, vuelve a marcarlo mañana temprano.`
+        : label,
     );
   }
 

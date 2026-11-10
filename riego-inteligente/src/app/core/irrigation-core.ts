@@ -217,11 +217,7 @@ export function humidityPct(deficitMm: number): number {
  * por eso aquí no se resta de nuevo. Si falta clima de un día (app sin abrir > 2 días),
  * se usa el ETc promedio de los días conocidos y lluvia 0.
  */
-export function rollForward(
-  state: WaterState,
-  weather: DailyWeather[],
-  targetDate: ISODate,
-): { state: WaterState; days: DayRecord[] } {
+export function rollForward(state: WaterState, weather: DailyWeather[], targetDate: ISODate): { state: WaterState; days: DayRecord[] } {
   const byDate = new Map(weather.map((w) => [w.date, w]));
   const known = weather.filter((w) => w.date < targetDate);
   const avgEtc = known.length ? known.reduce((s, w) => s + etc(w.et0Mm, w.date), 0) / known.length : 0;
@@ -322,12 +318,7 @@ export function applyIrrigation(state: WaterState, mm?: number): WaterState {
   return { ...state, deficitMm: left, source: 'manual' };
 }
 
-export function evaluate(
-  state: WaterState,
-  weather: DailyWeather[],
-  settings: Settings,
-  date: ISODate,
-): Evaluation | null {
+export function evaluate(state: WaterState, weather: DailyWeather[], settings: Settings, date: ISODate): Evaluation | null {
   const today = weather.find((w) => w.date === date);
   if (!today) return null;
   const yesterday = weather.find((w) => w.date === addDays(date, -1));
@@ -433,7 +424,8 @@ export function forecastNextIrrigation(
     const rainMm = m ? Math.max(0, dayRain(w) - m.beforeReset) : w.precipitationMm;
     const current = m ? Math.max(0, deficit - effectiveRain(m.afterReset)) : deficit;
     const threshold = thresholdFor(state, settings, w.date);
-    let rainBlock = forecastPauses(m ? forecastToday(w) : w, current, threshold) || (!!m && ((m.measured ?? 0) >= RAIN_SUM_BLOCK_MM || m.rainingNow));
+    let rainBlock =
+      forecastPauses(m ? forecastToday(w) : w, current, threshold) || (!!m && ((m.measured ?? 0) >= RAIN_SUM_BLOCK_MM || m.rainingNow));
     const etcMm = etc(w.et0Mm, w.date);
     const seedbed = overseedActive(state, w.date) && overseedArea(state) === 'full';
     const waitForRain = !rainBlock && !seedbed && current >= threshold && rainTomorrowCovers(current, etcMm, future[i + 1], threshold);
@@ -540,9 +532,7 @@ export function clampToIrrigationWindow(at: Date): Date {
 }
 
 export function morningNotification(ev: Evaluation, at: Date): PlannedNotification {
-  const wind = ev.windWarning
-    ? ` 💨 Viento fuerte (${Math.round(ev.windMaxKmh)} km/h): riega temprano, antes de que suba el viento.`
-    : '';
+  const wind = ev.windWarning ? ` 💨 Viento fuerte (${Math.round(ev.windMaxKmh)} km/h): riega temprano, antes de que suba el viento.` : '';
   const base = {
     id: NOTIF_ID_MORNING,
     channelId: CHANNEL.morning,
@@ -750,12 +740,7 @@ export function monthSummary(today: ISODate, history: DayRecord[], irrigations: 
 
 // ───────────────────────── Gráfico de 7 días ─────────────────────────
 
-export function buildChart(
-  today: ISODate,
-  history: DayRecord[],
-  weather: DailyWeather[],
-  irrigations: IrrigationEvent[],
-): ChartDay[] {
+export function buildChart(today: ISODate, history: DayRecord[], weather: DailyWeather[], irrigations: IrrigationEvent[]): ChartDay[] {
   const hist = new Map(history.map((h) => [h.date, h]));
   const wx = new Map(weather.map((w) => [w.date, w]));
   const out: ChartDay[] = [];

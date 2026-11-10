@@ -31,7 +31,10 @@ test('no se espera la lluvia si es poco probable, poca, o el pasto no aguanta un
   const day0 = wx('2026-10-27');
   const status = (tomorrow, state = st()) => c.evaluate(state, [day0, wx('2026-10-28', tomorrow)], S, '2026-10-27').status;
   assert.equal(status({ precipitationMm: 12, precipitationProbMax: 60 }), 'irrigate'); // 60 % < 70 %: se riega
-  assert.equal(c.evaluate(st(), [day0, wx('2026-10-28', { precipitationMm: 12, precipitationProbMax: 60 })], S, '2026-10-27').rainBlockReason, null);
+  assert.equal(
+    c.evaluate(st(), [day0, wx('2026-10-28', { precipitationMm: 12, precipitationProbMax: 60 })], S, '2026-10-27').rainBlockReason,
+    null,
+  );
   assert.equal(status({ precipitationMm: 8, precipitationProbMax: 90 }), 'irrigate'); // 80 % de 8 mm = 6,4 < 8,5
   assert.equal(status({ precipitationMm: 20, precipitationProbMax: 90 }, st({ deficitMm: 9.5 })), 'irrigate'); // 9,5 + 2,4 > 8 + 3
   // Siembra de todo el jardín: la semilla no puede esperar
@@ -55,7 +58,17 @@ function series(fromUtc, minutes, rainAt, stepMin = 10) {
   return out;
 }
 const cfg = { code: '330160', name: 'El Milagro, Buin', distanceKm: 2.6, latitude: -33.75444, longitude: -70.76444, elevationM: 460 };
-const base = { cfg, lat: -33.7313, lon: -70.7663, elevationM: 470, modelDays: [], today: '2026-10-27', maxAgeMs: 4 * 60_000, primaryPrev: null, backupPrev: null };
+const base = {
+  cfg,
+  lat: -33.7313,
+  lon: -70.7663,
+  elevationM: 470,
+  modelDays: [],
+  today: '2026-10-27',
+  maxAgeMs: 4 * 60_000,
+  primaryPrev: null,
+  backupPrev: null,
+};
 
 test('la de respaldo es la siguiente más cercana dentro de 25 km', () => {
   assert.equal(dmc.backupStationFor('330160', -33.7313, -70.7663).code, '330071'); // Talagante, 10 km
@@ -142,8 +155,16 @@ test('cuando la elegida vuelve a publicar, los días que le faltaron siguen con 
   const urls = [];
   const now = Date.parse('2026-10-27T12:40:00Z'); // 09:40
   // El Milagro volvió hoy a las 06:00: el lunes 26 le falta. Talagante (guardado) tiene el lunes completo con 6 mm.
-  const backupPrev = dmc.mergeStore(null, '330071', { field: 'aguaCaida24Horas', kind: 'accumulated' },
-    dmc.rainPoints(series('2026-10-26T02:00:00Z', 1500, (t) => (t.toISOString().startsWith('2026-10-26T18:0') ? 6 : 0)), { field: 'aguaCaida24Horas', kind: 'accumulated' }), now - 3_600_000);
+  const backupPrev = dmc.mergeStore(
+    null,
+    '330071',
+    { field: 'aguaCaida24Horas', kind: 'accumulated' },
+    dmc.rainPoints(
+      series('2026-10-26T02:00:00Z', 1500, (t) => (t.toISOString().startsWith('2026-10-26T18:0') ? 6 : 0)),
+      { field: 'aguaCaida24Horas', kind: 'accumulated' },
+    ),
+    now - 3_600_000,
+  );
   try {
     globalThis.fetch = async (u) => {
       urls.push(String(u));
@@ -164,7 +185,11 @@ test('cuando la elegida vuelve a publicar, los días que le faltaron siguen con 
 test('esperar la lluvia tiene límite: si no llega, al día siguiente el pronóstico ya no basta para seguir sin regar', () => {
   // Umbral 10: hoy 10,5 + 2,5 de consumo = 13 (justo el límite de 10 + 3) → se espera la lluvia de mañana.
   const s10 = { ...S, thresholdMm: 10 };
-  const w = [wx('2026-10-27', { et0Mm: 3.125 }), wx('2026-10-28', { precipitationMm: 12, precipitationProbMax: 80, et0Mm: 3.125 }), wx('2026-10-29', { precipitationMm: 12, precipitationProbMax: 80 })];
+  const w = [
+    wx('2026-10-27', { et0Mm: 3.125 }),
+    wx('2026-10-28', { precipitationMm: 12, precipitationProbMax: 80, et0Mm: 3.125 }),
+    wx('2026-10-29', { precipitationMm: 12, precipitationProbMax: 80 }),
+  ];
   assert.equal(c.evaluate(st({ deficitMm: 10.5 }), w, s10, '2026-10-27').rainBlockReason, 'tomorrow');
   // Mañana (13 mm) el pronóstico todavía pausa: 13 no supera 10 + 3.
   assert.equal(c.evaluate(st({ deficitMm: 13, asOf: '2026-10-28' }), w, s10, '2026-10-28').status, 'paused_rain');
@@ -178,14 +203,18 @@ test('esperar la lluvia tiene límite: si no llega, al día siguiente el pronós
 test('sin consultar (fetch: false): la lluvia de hoy guardada usa el respaldo solo si es el vigente y está al día', async () => {
   const orig = globalThis.fetch;
   let calls = 0;
-  globalThis.fetch = async () => { calls++; throw new Error('no debería consultar'); };
+  globalThis.fetch = async () => {
+    calls++;
+    throw new Error('no debería consultar');
+  };
   try {
     const now = Date.parse('2026-10-27T12:40:00Z');
     const rf = { field: 'aguaCaida24Horas', kind: 'accumulated' };
     const store = (code, from, minutes, rain) => dmc.mergeStore(null, code, rf, dmc.rainPoints(series(from, minutes, rain), rf), now);
     const oldPrimary = store('330160', '2026-10-24T08:00:00Z', 600, () => 0);
     const wetBackup = store('330071', '2026-10-27T03:00:00Z', 560, (t) => (t.toISOString().startsWith('2026-10-27T11:') ? 0.2 : 0));
-    const live = async (o) => (await dmc.loadStationData({ ...base, now, maxAgeMs: 0, fetch: false, primaryPrev: oldPrimary, backupPrev: wetBackup, ...o })).live;
+    const live = async (o) =>
+      (await dmc.loadStationData({ ...base, now, maxAgeMs: 0, fetch: false, primaryPrev: oldPrimary, backupPrev: wetBackup, ...o })).live;
     assert.ok((await live({})).mm > 0);
     // Un respaldo de otra estación (p. ej. tras mudarse) no se usa
     assert.equal((await live({ backupPrev: { ...wetBackup, code: '330113' } })).sinceMs, null);
@@ -208,7 +237,10 @@ test('avisos sin sonido los días que no toca regar (si se pidió); los de riego
   assert.equal(ok.channelId, 'riego-info');
   const water = c.planNotifications({ state: st({ deficitMm: 9.5 }), weather: w, settings: quiet, now }).notifications[0];
   assert.equal(water.channelId, 'riego-matutino');
-  assert.equal(c.planNotifications({ state: st({ deficitMm: 2 }), weather: w, settings: S, now }).notifications[0].channelId, 'riego-matutino');
+  assert.equal(
+    c.planNotifications({ state: st({ deficitMm: 2 }), weather: w, settings: S, now }).notifications[0].channelId,
+    'riego-matutino',
+  );
 });
 
 test('con el pasto muy seco, una lluvia casi segura y abundante hoy igual pausa; una dudosa no', () => {
@@ -229,7 +261,12 @@ import { parseForecast } from '../src/app/core/open-meteo.ts';
 test('pronóstico por hora: cada valor es la lluvia de la hora anterior (mediana de los modelos)', () => {
   const time = ['2026-10-26T00:00', '2026-10-26T14:00', '2026-10-26T15:00', '2026-10-27T00:00'];
   const days = parseForecast({
-    daily: { time: ['2026-10-26'], precipitation_sum_ecmwf_ifs025: [3], precipitation_sum_gfs_seamless: [3], precipitation_sum_icon_seamless: [9] },
+    daily: {
+      time: ['2026-10-26'],
+      precipitation_sum_ecmwf_ifs025: [3],
+      precipitation_sum_gfs_seamless: [3],
+      precipitation_sum_icon_seamless: [9],
+    },
     hourly: {
       time,
       precipitation_ecmwf_ifs025: [0.5, 1, 2, 0.4],
@@ -260,7 +297,8 @@ test('lluvia fantasma: pronóstico de 8,6 mm por la tarde, la estación midió 0
   assert.ok(Math.abs(c.dayRain(morning) - 8.6) < 0.05);
   assert.equal(c.evaluate(st({ deficitMm: 9, asOf: '2026-10-26' }), [morning, wx('2026-10-27')], S, '2026-10-26').status, 'paused_rain');
   // Lecturas recién desde las 06:49: la lluvia pronosticada de madrugada (sin medir) sí cuenta
-  const early = hourly.slice(); early[3] = 2;
+  const early = hourly.slice();
+  early[3] = 2;
   const late = { ...today, hourlyRainMm: early, live: { ...live, sinceMs: at(6, 49) } };
   assert.equal(c.dayRain(late), 2);
 });

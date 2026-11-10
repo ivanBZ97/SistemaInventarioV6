@@ -300,10 +300,13 @@ export class DashboardPage implements OnInit, OnDestroy {
     this.hero()?.water();
     const left = await this.engine.registerIrrigation('manual', full ? undefined : minutes);
     await this.syncAlerts();
-    this.snackbar.show(`Riego de ${minutes} min registrado. ${left > 0 ? `Quedan ${fmt(left)} mm de déficit.` : 'El suelo quedó húmedo.'}`, {
-      duration: 6000,
-      action: { text: 'Deshacer', run: () => void this.undoIrrigation() },
-    });
+    this.snackbar.show(
+      `Riego de ${minutes} min registrado. ${left > 0 ? `Quedan ${fmt(left)} mm de déficit.` : 'El suelo quedó húmedo.'}`,
+      {
+        duration: 6000,
+        action: { text: 'Deshacer', run: () => void this.undoIrrigation() },
+      },
+    );
   }
 
   private async undoIrrigation(): Promise<void> {
@@ -324,7 +327,9 @@ export class DashboardPage implements OnInit, OnDestroy {
       header: 'Corregir lluvia',
       subHeader: longDate(date),
       message: 'Ingresa los milímetros que realmente cayeron, por ejemplo los de agrometeorologia.cl o tu pluviómetro.',
-      inputs: [{ name: 'mm', type: 'number', min: 0, max: 200, placeholder: 'mm de lluvia', value: this.snap()?.rainOverrides[date] ?? '' }],
+      inputs: [
+        { name: 'mm', type: 'number', min: 0, max: 200, placeholder: 'mm de lluvia', value: this.snap()?.rainOverrides[date] ?? '' },
+      ],
       buttons: [
         { text: 'Cancelar', role: 'cancel' },
         { text: 'Guardar', role: 'confirm' },
@@ -400,7 +405,8 @@ export class DashboardPage implements OnInit, OnDestroy {
   private async askLocation(): Promise<void> {
     const alert = await this.alerts.create({
       header: '¿Dónde está tu jardín?',
-      message: 'El riego se calcula con el clima de tu ubicación. Por ahora se usa Santiago de Chile. Solo se usa una ubicación aproximada (~1 km).',
+      message:
+        'El riego se calcula con el clima de tu ubicación. Por ahora se usa Santiago de Chile. Solo se usa una ubicación aproximada (~1 km).',
       backdropDismiss: false,
       buttons: [
         { text: 'Mantener Santiago', role: 'keep' },
@@ -418,7 +424,13 @@ export class DashboardPage implements OnInit, OnDestroy {
   private async useGps(): Promise<void> {
     const fix = await this.location.detect();
     if (!fix) return this.snackbar.show('No se pudo obtener la ubicación. Búscala por ciudad en Ajustes.');
-    await this.engine.saveSettings({ latitude: fix.latitude, longitude: fix.longitude, placeName: fix.placeName ?? undefined, useGps: true, locationSet: true });
+    await this.engine.saveSettings({
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      placeName: fix.placeName ?? undefined,
+      useGps: true,
+      locationSet: true,
+    });
     await this.syncAlerts();
   }
 }

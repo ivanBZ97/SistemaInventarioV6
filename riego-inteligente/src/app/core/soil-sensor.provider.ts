@@ -1,7 +1,18 @@
 import { InjectionToken, Injectable, inject } from '@angular/core';
 import { StorageService } from './storage.service';
 import { STORAGE } from './storage-keys';
-import { NO_HUMIDITY, type SoilStatus, TuyaError, type TuyaToken, normSoil, normTemp, readTuyaReportLogs, readTuyaSoil, tuyaErrorText, tuyaToken } from './tuya';
+import {
+  NO_HUMIDITY,
+  type SoilStatus,
+  TuyaError,
+  type TuyaToken,
+  normSoil,
+  normTemp,
+  readTuyaReportLogs,
+  readTuyaSoil,
+  tuyaErrorText,
+  tuyaToken,
+} from './tuya';
 import { deficitFromSensor } from './soil-sensor';
 import { type SensorSample, mergeSamples, samplesFromLogs } from './sensor-history';
 import type { Settings, SoilReading, SoilSensorConfig } from './models';
@@ -80,11 +91,14 @@ export class TuyaSoilSensorProvider implements SoilSensorProvider {
     const r = await readTuyaSoil(cfg, now, token);
     if (r.token !== token) await this.storage.set(STORAGE.tuyaToken, r.token);
     const { soilPct } = r.status;
-    if (soilPct === null) throw new TuyaError(NO_HUMIDITY, `el sensor no informa humedad (códigos: ${r.status.codes.join(', ') || 'ninguno'})`);
+    if (soilPct === null)
+      throw new TuyaError(NO_HUMIDITY, `el sensor no informa humedad (códigos: ${r.status.codes.join(', ') || 'ninguno'})`);
     const status = { ...r.status, soilPct };
     this.last = { at: now, key, status };
     // Sin almacenamiento disponible la lectura igual sirve: el historial es secundario.
-    await appendSensorSamples(this.storage, [{ t: status.updatedAt ?? now, soil: soilPct, tempC: status.tempC, battery: status.battery }]).catch(() => undefined);
+    await appendSensorSamples(this.storage, [
+      { t: status.updatedAt ?? now, soil: soilPct, tempC: status.tempC, battery: status.battery },
+    ]).catch(() => undefined);
     return status;
   }
 

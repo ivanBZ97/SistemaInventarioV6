@@ -30,21 +30,36 @@ export function lawnMessages(
     | null,
 ): string[] {
   const base: Record<Mood, string[]> = {
-    happy: ['¡Estoy feliz! 😄 Tengo toda el agua que necesito.', 'Hoy no me riegues, ¡estoy hidratado! 💚', 'Mis raíces están contentas 🌱'],
+    happy: [
+      '¡Estoy feliz! 😄 Tengo toda el agua que necesito.',
+      'Hoy no me riegues, ¡estoy hidratado! 💚',
+      'Mis raíces están contentas 🌱',
+    ],
     content: ['Estoy bien 🙂 Todavía me queda reserva.', 'Aguanto unos días más sin riego 👍', 'Vigilo mi humedad por ti 🔍'],
     thirsty:
       ev?.status === 'ok'
-        ? ['Me estoy secando 🌤️ Pronto me tocará riego.', 'Todavía aguanto, pero no por mucho 💧', 'Mira "Próximo riego" para saber cuándo 📅']
+        ? [
+            'Me estoy secando 🌤️ Pronto me tocará riego.',
+            'Todavía aguanto, pero no por mucho 💧',
+            'Mira "Próximo riego" para saber cuándo 📅',
+          ]
         : ev?.status === 'paused_rain'
           ? ['Tengo algo de sed, pero la lluvia me va a ayudar 🌧️', 'Mejor espera la lluvia antes de regar ☔', 'Gracias por cuidarme 💧']
-          : [`Tengo sed 🥵 ¿Me das ${ev?.minutes ?? '?'} min de riego?`, 'Riégame temprano, entre 06:30 y 08:30 🌅', 'Gracias por cuidarme 💧'],
+          : [
+              `Tengo sed 🥵 ¿Me das ${ev?.minutes ?? '?'} min de riego?`,
+              'Riégame temprano, entre 06:30 y 08:30 🌅',
+              'Gracias por cuidarme 💧',
+            ],
     wilted: ['Estoy muy seco… 😞 ¡Necesito agua pronto!', 'Mis hojas se están poniendo tristes 🥀', 'Un buen riego y me recupero 💪'],
   };
   const extra: string[] = [];
   const fell = ev?.rainMeasuredMm ?? 0;
   if (ev?.rainingNow) extra.push('🌧️ ¡Está lloviendo en el sector! Me estoy dando un buen trago.');
   else if (fell >= 1) extra.push(`💧 Hoy ya me cayeron ${fell.toLocaleString('es-CL', { maximumFractionDigits: 1 })} mm de lluvia.`);
-  if (scene === 'rain' && !ev?.rainingNow) extra.push(`🌧️ ¡Viene lluvia (${(ev?.rainForecastMm ?? 0).toLocaleString('es-CL', { maximumFractionDigits: 1 })} mm)! Yo me encargo de beberla.`);
+  if (scene === 'rain' && !ev?.rainingNow)
+    extra.push(
+      `🌧️ ¡Viene lluvia (${(ev?.rainForecastMm ?? 0).toLocaleString('es-CL', { maximumFractionDigits: 1 })} mm)! Yo me encargo de beberla.`,
+    );
   if (scene === 'wind') extra.push(`💨 Hay viento de ${Math.round(ev?.windMaxKmh ?? 0)} km/h: riega temprano.`);
   return [...base[mood], ...extra];
 }

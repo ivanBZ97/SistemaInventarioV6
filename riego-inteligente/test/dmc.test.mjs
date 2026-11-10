@@ -15,7 +15,13 @@ test('valores con unidad', () => {
 });
 
 test('la estación más cercana a tu jardín en Buin es El Milagro (330160)', () => {
-  const stations = DMC_STATIONS_FALLBACK.map(([code, name, latitude, longitude, elevationM]) => ({ code, name, latitude, longitude, elevationM }));
+  const stations = DMC_STATIONS_FALLBACK.map(([code, name, latitude, longitude, elevationM]) => ({
+    code,
+    name,
+    latitude,
+    longitude,
+    elevationM,
+  }));
   const st = dmc.nearestDmcStation(stations, -33.7313, -70.7663);
   assert.equal(st.code, '330160');
   assert.ok(st.distanceKm > 2 && st.distanceKm < 3); // como mostró tu teléfono: 2,6 km
@@ -58,8 +64,14 @@ test('lluvia diaria desde el acumulado (con reinicio a las 12 UTC)', () => {
 });
 
 test('un hueco de horas sin lecturas no cuenta como cobertura', () => {
-  const all = dmc.rainPoints(series('2026-10-24T03:00:00Z', 24, () => 0), RF);
-  const holed = all.filter(([t]) => { const h = new Date(t).getHours(); return h < 6 || h > 17; }); // falta de 06 a 17 h
+  const all = dmc.rainPoints(
+    series('2026-10-24T03:00:00Z', 24, () => 0),
+    RF,
+  );
+  const holed = all.filter(([t]) => {
+    const h = new Date(t).getHours();
+    return h < 6 || h > 17;
+  }); // falta de 06 a 17 h
   const d = dmc.dailyRainFromPoints(holed, 'accumulated').get('2026-10-24');
   assert.ok(d.coveredHours < 14);
 });
@@ -70,7 +82,10 @@ test('el almacén junta consultas de 24 h y arma días completos', async () => {
   try {
     // 1ª consulta: sábado 24 a las 08:00 → trae desde el viernes 08:00
     let samples = series('2026-10-23T11:00:00Z', 24, () => 0, 10);
-    globalThis.fetch = async (u) => { urls.push(String(u)); return { ok: true, status: 200, json: async () => ({ datos: samples }) }; };
+    globalThis.fetch = async (u) => {
+      urls.push(String(u));
+      return { ok: true, status: 200, json: async () => ({ datos: samples }) };
+    };
     let r = await dmc.refreshDmcStore(null, '330160', Date.parse('2026-10-24T11:00:00Z'), 3_600_000);
     assert.equal(dmc.observedFromStore(r.store, '330160', '2026-10-25').has('2026-10-24'), false); // sábado aún incompleto
     // 2ª consulta: domingo 25 a las 07:00 → trae desde el sábado 07:00
@@ -88,9 +103,19 @@ test('si la DMC falla no se reintenta cada 15 min, y se conservan las lecturas',
   const orig = globalThis.fetch;
   let calls = 0;
   try {
-    globalThis.fetch = async () => { calls++; return { ok: false, status: 404, json: async () => ({}) }; };
+    globalThis.fetch = async () => {
+      calls++;
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
     const t0 = Date.parse('2026-10-25T13:00:00Z');
-    const prev = { code: '330160', field: 'aguaCaida24Horas', kind: 'accumulated', attemptAt: t0 - 7 * 3_600_000, ok: true, pts: [[t0 - 3_600_000, 0]] };
+    const prev = {
+      code: '330160',
+      field: 'aguaCaida24Horas',
+      kind: 'accumulated',
+      attemptAt: t0 - 7 * 3_600_000,
+      ok: true,
+      pts: [[t0 - 3_600_000, 0]],
+    };
     let r = await dmc.refreshDmcStore(prev, '330160', t0, 6 * 3_600_000);
     assert.equal(r.store.ok, false);
     assert.equal(r.store.pts.length, 1);
@@ -104,8 +129,19 @@ test('si la DMC falla no se reintenta cada 15 min, y se conservan las lecturas',
 test('la lluvia medida reemplaza al modelo solo en días pasados', () => {
   const day = (date, p) => ({ date, et0Mm: 4, precipitationMm: p, precipitationProbMax: 0, tempMaxC: 20, windMaxKmh: 5 });
   const cfg = { code: '330160', name: 'El Milagro, Buin', distanceKm: 2.6 };
-  const r = dmc.withDmcRain([day('2026-10-24', 2.75), day('2026-10-25', 3)], new Map([['2026-10-24', 0], ['2026-10-25', 9]]), cfg, '2026-10-25');
-  assert.deepEqual(r.days.map((d) => d.precipitationMm), [0, 3]);
+  const r = dmc.withDmcRain(
+    [day('2026-10-24', 2.75), day('2026-10-25', 3)],
+    new Map([
+      ['2026-10-24', 0],
+      ['2026-10-25', 9],
+    ]),
+    cfg,
+    '2026-10-25',
+  );
+  assert.deepEqual(
+    r.days.map((d) => d.precipitationMm),
+    [0, 3],
+  );
   assert.equal(r.source, 'El Milagro, Buin (2,6 km) · DMC');
   assert.equal(dmc.withDmcRain([day('2026-10-24', 2.75)], new Map(), cfg, '2026-10-25').source, null);
 });
@@ -133,7 +169,10 @@ test('"Probar" consulta aunque la consulta automática haya fallado hace poco', 
   const orig = globalThis.fetch;
   let calls = 0;
   try {
-    globalThis.fetch = async () => { calls++; return { ok: false, status: 404, json: async () => ({}) }; };
+    globalThis.fetch = async () => {
+      calls++;
+      return { ok: false, status: 404, json: async () => ({}) };
+    };
     const t0 = Date.parse('2026-10-25T13:00:00Z');
     const justFailed = { code: '330160', attemptAt: t0 - 60_000, ok: false, pts: [] };
     const d = await dmc.diagnoseDmc('330160', justFailed, '2026-10-25', t0);
@@ -156,7 +195,8 @@ test('con usuario y token se usa el servicio oficial, y el diagnóstico nunca mu
   try {
     globalThis.fetch = async (u) => {
       urls.push(String(u));
-      if (String(u).includes('wischile')) return { ok: true, status: 200, json: async () => ({ collections: [{ id: 'urn:a' }, { id: 'urn:b' }] }) };
+      if (String(u).includes('wischile'))
+        return { ok: true, status: 200, json: async () => ({ collections: [{ id: 'urn:a' }, { id: 'urn:b' }] }) };
       // servidor que devuelve un error que repite el usuario y el token
       return { ok: true, status: 200, json: async () => ({ mensaje: 'token no válido para ivan@example.com / tok-SECRETO-123' }) };
     };
@@ -183,24 +223,58 @@ test('fechas de la DMC', () => {
 test('resumen diario: lee aguaCaidaDiaria en sus variantes probables (y no aguaCaidaDiariaEstacion)', () => {
   const base = { pais: 'Chile', timezone: 'UTC', producto: 'Resumen diario de la estación', datosEstacion: { codigoNacional: '330160' } };
   // objeto único
-  let m = dmc.parseDailySummary({ ...base, datos: [{ aguaCaidaDiaria: { fecha: '24-10-2026', valor: '0.0 mm' }, aguaCaidaDiariaEstacion: { fecha: '24-10-2026', valor: '9.9' } }] });
+  let m = dmc.parseDailySummary({
+    ...base,
+    datos: [{ aguaCaidaDiaria: { fecha: '24-10-2026', valor: '0.0 mm' }, aguaCaidaDiariaEstacion: { fecha: '24-10-2026', valor: '9.9' } }],
+  });
   assert.deepEqual([...m], [['2026-10-24', 0]]);
   // arreglo de días
-  m = dmc.parseDailySummary({ ...base, datos: { aguaCaidaDiaria: [{ fecha: '23-10-2026', valor: '1.2' }, { fecha: '24-10-2026', valor: '0' }] } });
-  assert.deepEqual([...m].sort(), [['2026-10-23', 1.2], ['2026-10-24', 0]]);
+  m = dmc.parseDailySummary({
+    ...base,
+    datos: {
+      aguaCaidaDiaria: [
+        { fecha: '23-10-2026', valor: '1.2' },
+        { fecha: '24-10-2026', valor: '0' },
+      ],
+    },
+  });
+  assert.deepEqual([...m].sort(), [
+    ['2026-10-23', 1.2],
+    ['2026-10-24', 0],
+  ]);
   // objeto por fecha
   m = dmc.parseDailySummary({ ...base, datos: { aguaCaidaDiaria: { '23-10-2026': '1.2 mm', '24-10-2026': { valor: 0 } } } });
-  assert.deepEqual([...m].sort(), [['2026-10-23', 1.2], ['2026-10-24', 0]]);
+  assert.deepEqual([...m].sort(), [
+    ['2026-10-23', 1.2],
+    ['2026-10-24', 0],
+  ]);
   // hoy / ayer anidados
-  m = dmc.parseDailySummary({ ...base, datos: [{ aguaCaidaDiaria: { hoy: { fecha: '25-10-2026', valor: '0.2' }, ayer: { fecha: '24-10-2026', valor: '0.0' } } }] });
-  assert.deepEqual([...m].sort(), [['2026-10-24', 0], ['2026-10-25', 0.2]]);
+  m = dmc.parseDailySummary({
+    ...base,
+    datos: [{ aguaCaidaDiaria: { hoy: { fecha: '25-10-2026', valor: '0.2' }, ayer: { fecha: '24-10-2026', valor: '0.0' } } }],
+  });
+  assert.deepEqual([...m].sort(), [
+    ['2026-10-24', 0],
+    ['2026-10-25', 0.2],
+  ]);
   assert.equal(dmc.parseDailySummary({ ...base, datos: [{ temperaturaMaxima: '20 °C' }] }).size, 0);
 });
 
 test('las lecturas minuto a minuto mandan; el resumen diario completa los días que faltan', () => {
-  const store = { code: '330160', field: 'aguaCaida24Horas', kind: 'accumulated', attemptAt: 0, ok: true, pts: [], daily: { '2026-10-23': 1.2, '2026-10-24': 0, '2026-10-25': 0.2 } };
+  const store = {
+    code: '330160',
+    field: 'aguaCaida24Horas',
+    kind: 'accumulated',
+    attemptAt: 0,
+    ok: true,
+    pts: [],
+    daily: { '2026-10-23': 1.2, '2026-10-24': 0, '2026-10-25': 0.2 },
+  };
   const obs = dmc.observedFromStore(store, '330160', '2026-10-25');
-  assert.deepEqual([...obs].sort(), [['2026-10-23', 1.2], ['2026-10-24', 0]]); // hoy (incompleto) no se usa
+  assert.deepEqual([...obs].sort(), [
+    ['2026-10-23', 1.2],
+    ['2026-10-24', 0],
+  ]); // hoy (incompleto) no se usa
 });
 
 test('con token se pide también el resumen diario y queda guardado', async () => {
@@ -210,7 +284,8 @@ test('con token se pide también el resumen diario y queda guardado', async () =
   try {
     globalThis.fetch = async (u) => {
       const url = String(u);
-      if (url.includes('getEmaResumenDiario')) return { ok: true, status: 200, json: async () => ({ datos: [{ aguaCaidaDiaria: { fecha: '24-10-2026', valor: '0.0' } }] }) };
+      if (url.includes('getEmaResumenDiario'))
+        return { ok: true, status: 200, json: async () => ({ datos: [{ aguaCaidaDiaria: { fecha: '24-10-2026', valor: '0.0' } }] }) };
       return { ok: true, status: 200, json: async () => ({ datos: samples }) };
     };
     const r = await dmc.refreshDmcStore(null, '330160', Date.parse('2026-10-25T14:00:00Z'), 3_600_000, false, auth);

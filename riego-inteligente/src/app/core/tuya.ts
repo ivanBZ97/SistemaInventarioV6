@@ -81,7 +81,7 @@ export interface TuyaToken {
 
 export async function tuyaToken(cfg: SoilSensorConfig, now: number): Promise<TuyaToken> {
   const r = await call(cfg, '/v1.0/token?grant_type=1', now);
-  const ttl = typeof r['expire_time'] === 'number' ? (r['expire_time']) : 7200;
+  const ttl = typeof r['expire_time'] === 'number' ? r['expire_time'] : 7200;
   return { accessToken: String(r['access_token']), expiresAt: now + ttl * 1000 - 120_000 };
 }
 
@@ -100,7 +100,11 @@ export interface SoilStatus {
   codes: string[];
 }
 
-interface TuyaDp { code?: string; value?: unknown; time?: unknown }
+interface TuyaDp {
+  code?: string;
+  value?: unknown;
+  time?: unknown;
+}
 
 const SOIL_CODES = ['humidity', 'soil_humidity', 'soil_moisture', 'moisture', 'humidity_value', 'va_humidity'];
 const TEMP_CODES = ['temp_current', 'soil_temp', 'temperature', 'temp_value', 'va_temperature'];
@@ -129,13 +133,16 @@ export function parseSoilDevice(result: Record<string, unknown>, shadow?: TuyaDp
   // Último reporte del sensor: el dato más nuevo de cualquier código. Muchos sensores solo envían lo que cambió,
   // así que la humedad puede seguir igual (y con su hora vieja) mientras la temperatura se informa cada rato.
   const measured = new Set([...SOIL_CODES, ...TEMP_CODES, 'battery_percentage', 'battery', 'va_battery']);
-  const times = status.filter((dp) => measured.has(String(dp.code))).map((dp) => toMs(dp.time)).filter((t): t is number => t !== null);
+  const times = status
+    .filter((dp) => measured.has(String(dp.code)))
+    .map((dp) => toMs(dp.time))
+    .filter((t): t is number => t !== null);
   const lastReport = times.length ? Math.max(...times) : null;
   const soil = soilDp ? (soilDp.value as number) : null;
   const tempDp = find(TEMP_CODES);
   const temp = tempDp ? (tempDp.value as number) : null;
   return {
-    name: typeof result['name'] === 'string' ? (result['name']) : 'Sensor de suelo',
+    name: typeof result['name'] === 'string' ? result['name'] : 'Sensor de suelo',
     online: result['online'] === true,
     updatedAt: lastReport ?? toMs(result['update_time']),
     soilPct: soil === null ? null : normSoil(soil),
@@ -148,7 +155,11 @@ export function parseSoilDevice(result: Record<string, unknown>, shadow?: TuyaDp
 }
 
 /** Estado del sensor. Reutiliza el token mientras no venza; si Tuya lo rechaza, pide uno nuevo una vez. */
-export async function readTuyaSoil(cfg: SoilSensorConfig, now: number, token?: TuyaToken | null): Promise<{ status: SoilStatus; token: TuyaToken }> {
+export async function readTuyaSoil(
+  cfg: SoilSensorConfig,
+  now: number,
+  token?: TuyaToken | null,
+): Promise<{ status: SoilStatus; token: TuyaToken }> {
   let tk = token && token.expiresAt > now ? token : await tuyaToken(cfg, now);
   const device = `/v1.0/devices/${encodeURIComponent(cfg.deviceId.trim())}`;
   let result: Record<string, unknown>;
@@ -174,7 +185,11 @@ export async function readTuyaSoil(cfg: SoilSensorConfig, now: number, token?: T
   return { status: parseSoilDevice(result, shadow), token: tk };
 }
 
-interface TuyaLog { code?: string; value?: unknown; event_time?: unknown }
+interface TuyaLog {
+  code?: string;
+  value?: unknown;
+  event_time?: unknown;
+}
 
 /**
  * Formas de pedir el historial de reportes (según el proyecto y el plan, Tuya acepta una u otra). Cada una arma
@@ -189,19 +204,19 @@ const LOG_VARIANTS: {
     id: 'thing-report-logs',
     url: (id, code, start, end, row) =>
       `/v2.0/cloud/thing/${id}/report-logs?codes=${code}&end_time=${end}${row ? `&last_row_key=${encodeURIComponent(row)}` : ''}&size=20&start_time=${start}`,
-    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? (r['last_row_key']) : null }),
+    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? r['last_row_key'] : null }),
   },
   {
     id: 'iot03-report-logs',
     url: (id, code, start, end, row) =>
       `/v1.0/iot-03/devices/${id}/report-logs?codes=${code}&end_time=${end}${row ? `&last_row_key=${encodeURIComponent(row)}` : ''}&size=20&start_time=${start}`,
-    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? (r['last_row_key']) : null }),
+    page: (r) => ({ logs: logsOf(r), next: r['has_more'] && typeof r['last_row_key'] === 'string' ? r['last_row_key'] : null }),
   },
   {
     id: 'device-logs',
     url: (id, code, start, end, row) =>
       `/v1.0/devices/${id}/logs?codes=${code}&end_time=${end}&size=100${row ? `&start_row_key=${encodeURIComponent(row)}` : ''}&start_time=${start}&type=7`,
-    page: (r) => ({ logs: logsOf(r), next: r['has_next'] && typeof r['next_row_key'] === 'string' ? (r['next_row_key']) : null }),
+    page: (r) => ({ logs: logsOf(r), next: r['has_next'] && typeof r['next_row_key'] === 'string' ? r['next_row_key'] : null }),
   },
 ];
 

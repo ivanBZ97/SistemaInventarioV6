@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import * as c from '../src/app/core/irrigation-core.ts';
 
 const wx = (date, o = {}) => ({
-  date, et0Mm: 4, precipitationMm: 0, precipitationProbMax: 0, tempMaxC: 28, windMaxKmh: 10, ...o,
+  date,
+  et0Mm: 4,
+  precipitationMm: 0,
+  precipitationProbMax: 0,
+  tempMaxC: 28,
+  windMaxKmh: 10,
+  ...o,
 });
 const state = (o = {}) => ({ deficitMm: 0, asOf: '2026-01-10', source: 'model', ...o });
 const S = c.DEFAULT_SETTINGS;
@@ -55,11 +61,11 @@ test('bloqueo por lluvia (prob ≥ 50 % o ≥ 4 mm) y aviso de viento', () => {
 test('proyección de mañana descuenta la lluvia prevista de hoy', () => {
   const w = [wx('2026-01-12'), wx('2026-01-13', { precipitationMm: 10 })];
   const ev = c.evaluate(state({ asOf: '2026-01-13', deficitMm: 6 }), w, S, '2026-01-13');
-  assert.equal(ev.deficitMm, 6);                       // hoy aún no cuenta la lluvia de hoy
+  assert.equal(ev.deficitMm, 6); // hoy aún no cuenta la lluvia de hoy
   assert.equal(ev.effectiveRainTodayMm, 8);
   assert.ok(Math.abs(ev.projectedDeficitMm - (6 + 3.4 - 8)) < 1e-9);
   const small = c.evaluate(state({ asOf: '2026-01-13', deficitMm: 6 }), [wx('2026-01-13', { precipitationMm: 1.5 })], S, '2026-01-13');
-  assert.equal(small.effectiveRainTodayMm, 0);         // < 2 mm no cuenta
+  assert.equal(small.effectiveRainTodayMm, 0); // < 2 mm no cuenta
 });
 
 test('humedad útil: 0 mm → 100 %, 12 mm → 20 %', () => {
@@ -79,9 +85,11 @@ test('notificación matutina usa los textos pedidos', () => {
 
 test('nunca se programa riego fuera de 06:30–08:30', () => {
   const late = c.clampToIrrigationWindow(new Date(2026, 0, 13, 22, 0));
-  assert.equal(late.getHours(), 8); assert.equal(late.getMinutes(), 30);
+  assert.equal(late.getHours(), 8);
+  assert.equal(late.getMinutes(), 30);
   const early = c.clampToIrrigationWindow(new Date(2026, 0, 13, 3, 0));
-  assert.equal(early.getHours(), 6); assert.equal(early.getMinutes(), 30);
+  assert.equal(early.getHours(), 6);
+  assert.equal(early.getMinutes(), 30);
 });
 
 test('planificación: antes de las 06:30 → hoy; después de la ventana → mañana', () => {
@@ -97,7 +105,10 @@ test('planificación: antes de las 06:30 → hoy; después de la ventana → ma�
   assert.equal(p3.morningFor, '2026-01-13');
   // posponer silencia el día
   const p4 = c.planNotifications({
-    state: { ...st, snoozedDate: '2026-01-13' }, weather: w, settings: S, now: new Date(2026, 0, 13, 5, 0),
+    state: { ...st, snoozedDate: '2026-01-13' },
+    weather: w,
+    settings: S,
+    now: new Date(2026, 0, 13, 5, 0),
   });
   assert.equal(p4.notifications.filter((n) => n.id === c.NOTIF_ID_MORNING).length, 0);
 });
@@ -111,7 +122,8 @@ test('modo resiembra: 10 días y alerta 13:00 solo si tmax ≥ 20 °C', () => {
   const hot = [wx('2026-01-12'), wx('2026-01-13', { tempMaxC: 21 }), wx('2026-01-14')];
   const p = c.planNotifications({ state: st, weather: hot, settings: S, now });
   const n = p.notifications.find((x) => x.id === c.NOTIF_ID_OVERSEED);
-  assert.ok(n); assert.equal(n.at.getHours(), 13);
+  assert.ok(n);
+  assert.equal(n.at.getHours(), 13);
   const cold = [wx('2026-01-12'), wx('2026-01-13', { tempMaxC: 15 }), wx('2026-01-14')];
   assert.ok(!c.planNotifications({ state: st, weather: cold, settings: S, now }).notifications.some((x) => x.id === c.NOTIF_ID_OVERSEED));
 });
@@ -176,7 +188,12 @@ test('próximo riego: hoy si ya toca; extrapola fuera del pronóstico', () => {
 
 test('aviso "no regar" incluye el próximo riego estimado', () => {
   const w = ['13', '14', '15', '16'].map((d) => wx(`2026-01-${d}`));
-  const p = c.planNotifications({ state: state({ asOf: '2026-01-13', deficitMm: 1 }), weather: w, settings: S, now: new Date(2026, 0, 13, 5, 0) });
+  const p = c.planNotifications({
+    state: state({ asOf: '2026-01-13', deficitMm: 1 }),
+    weather: w,
+    settings: S,
+    now: new Date(2026, 0, 13, 5, 0),
+  });
   assert.match(p.notifications[0].body, /Próximo riego estimado: (jueves|viernes)\./);
 });
 
@@ -192,7 +209,12 @@ test('hora del aviso configurable, siempre dentro de 06:30–08:30', () => {
   const before = c.planNotifications({ state: st, weather: w, settings: s, now: new Date(2026, 0, 13, 7, 0) });
   assert.equal(before.morningFor, '2026-01-13');
   assert.deepEqual([before.notifications[0].at.getHours(), before.notifications[0].at.getMinutes()], [7, 45]);
-  const after = c.planNotifications({ state: { ...st, lastMorningScheduledFor: '2026-01-13' }, weather: w, settings: s, now: new Date(2026, 0, 13, 9, 0) });
+  const after = c.planNotifications({
+    state: { ...st, lastMorningScheduledFor: '2026-01-13' },
+    weather: w,
+    settings: s,
+    now: new Date(2026, 0, 13, 9, 0),
+  });
   assert.equal(after.morningFor, '2026-01-14');
   assert.deepEqual([after.notifications[0].at.getHours(), after.notifications[0].at.getMinutes()], [7, 45]);
 });
@@ -209,8 +231,15 @@ test('corregir lluvia de un día pasado recalcula el déficit', () => {
   // un día aún no contabilizado no toca el déficit (se aplicará al avanzar el balance)
   const later = c.correctPastRain(state({ asOf: '2026-10-24', deficitMm: 4 }), [], '2026-10-24', 0, 5);
   assert.equal(later.state.deficitMm, 4);
-  const days = c.applyRainOverrides([wx('2026-10-24', { precipitationMm: 3 }), wx('2026-10-25', { precipitationMm: 3 })], { '2026-10-24': 0, '2026-10-25': 0 }, '2026-10-25');
-  assert.deepEqual(days.map((d) => d.precipitationMm), [0, 3]); // hoy no se pisa
+  const days = c.applyRainOverrides(
+    [wx('2026-10-24', { precipitationMm: 3 }), wx('2026-10-25', { precipitationMm: 3 })],
+    { '2026-10-24': 0, '2026-10-25': 0 },
+    '2026-10-25',
+  );
+  assert.deepEqual(
+    days.map((d) => d.precipitationMm),
+    [0, 3],
+  ); // hoy no se pisa
 });
 
 test('lluvia medida reconcilia días ya contados con la del modelo', () => {
@@ -234,7 +263,7 @@ test('tras un riego o ajuste manual, la lluvia de días anteriores ya no cambia 
   const history = [{ date: '2026-10-23', etcMm: 3, effectiveRainMm: 4 }];
   const st = state({ asOf: '2026-10-25', deficitMm: 1, resetDate: '2026-10-24' }); // regó el 24
   const r = c.reconcileObservedRain(st, history, { '2026-10-23': 0 }, {});
-  assert.equal(r.state.deficitMm, 1);           // no se toca el déficit
+  assert.equal(r.state.deficitMm, 1); // no se toca el déficit
   assert.equal(r.history[0].effectiveRainMm, 0); // pero el gráfico sí se corrige
   const m = c.correctPastRain(st, history, '2026-10-23', 0);
   assert.equal(m.state.deficitMm, 1);

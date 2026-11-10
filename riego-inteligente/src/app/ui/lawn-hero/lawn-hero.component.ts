@@ -34,8 +34,7 @@ export class LawnHeroComponent implements OnDestroy {
   readonly bouncing = signal(false);
   private timers: ReturnType<typeof setTimeout>[] = [];
 
-  readonly reduceMotion =
-    typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  readonly reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   readonly shownMood = computed<Mood>(() => (this.watering() ? 'happy' : this.mood()));
   readonly message = computed(() => {
@@ -51,8 +50,13 @@ export class LawnHeroComponent implements OnDestroy {
   readonly blades = computed<Blade[]>(() => {
     const droop = DROOP[this.shownMood()];
     const defs = [
-      { x: -50, h: 44, lean: -24 }, { x: -34, h: 62, lean: -14 }, { x: -17, h: 76, lean: -6 },
-      { x: 0, h: 86, lean: 0 }, { x: 17, h: 74, lean: 6 }, { x: 34, h: 60, lean: 14 }, { x: 50, h: 42, lean: 24 },
+      { x: -50, h: 44, lean: -24 },
+      { x: -34, h: 62, lean: -14 },
+      { x: -17, h: 76, lean: -6 },
+      { x: 0, h: 86, lean: 0 },
+      { x: 17, h: 74, lean: 6 },
+      { x: 34, h: 60, lean: 14 },
+      { x: 50, h: 42, lean: 24 },
     ];
     return defs.map((b, i) => {
       const baseY = BODY.cy - BODY.ry * Math.sqrt(1 - (b.x / BODY.rx) ** 2) + 8;
@@ -65,7 +69,7 @@ export class LawnHeroComponent implements OnDestroy {
         y: baseY,
         rot: fall,
         dur: `${2.6 + (i % 4) * 0.5}s`,
-        tone: (i % 2 === 0 ? 1 : 2),
+        tone: i % 2 === 0 ? 1 : 2,
       };
     });
   });

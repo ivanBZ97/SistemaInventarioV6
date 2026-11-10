@@ -1,7 +1,17 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { AlertController, IonIcon, IonInput, IonInputPasswordToggle } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { checkmarkOutline, closeOutline, copyOutline, eyeOffOutline, eyeOutline, pulseOutline, radioOutline, searchOutline, syncOutline } from 'ionicons/icons';
+import {
+  checkmarkOutline,
+  closeOutline,
+  copyOutline,
+  eyeOffOutline,
+  eyeOutline,
+  pulseOutline,
+  radioOutline,
+  searchOutline,
+  syncOutline,
+} from 'ionicons/icons';
 import { fetchObservedRain, findRainVariable, listStations, nearestStations } from '../../../core/agromet';
 import {
   BACKUP_MAX_KM,
@@ -43,11 +53,25 @@ const errorText = (e: unknown, fallback: string) => (e instanceof Error ? e.mess
   templateUrl: './station-section.component.html',
   styleUrl: '../../../ui/list.scss',
   styles: `
-    .stations { padding: 4px 0 8px; }
-    .row.station { cursor: pointer; min-height: 64px; }
-    .row.station:disabled { cursor: default; opacity: .6; }
-    .row.station.sel { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
-    .row.station .check { font-size: 22px; color: var(--md-primary); }
+    .stations {
+      padding: 4px 0 8px;
+    }
+    .row.station {
+      cursor: pointer;
+      min-height: 64px;
+    }
+    .row.station:disabled {
+      cursor: default;
+      opacity: 0.6;
+    }
+    .row.station.sel {
+      background: var(--md-secondary-container);
+      color: var(--md-on-secondary-container);
+    }
+    .row.station .check {
+      font-size: 22px;
+      color: var(--md-primary);
+    }
   `,
 })
 export class StationSectionComponent {
@@ -83,7 +107,17 @@ export class StationSectionComponent {
   });
 
   constructor() {
-    addIcons({ checkmarkOutline, closeOutline, copyOutline, eyeOffOutline, eyeOutline, pulseOutline, radioOutline, searchOutline, syncOutline });
+    addIcons({
+      checkmarkOutline,
+      closeOutline,
+      copyOutline,
+      eyeOffOutline,
+      eyeOutline,
+      pulseOutline,
+      radioOutline,
+      searchOutline,
+      syncOutline,
+    });
   }
 
   // ───────────── DMC ─────────────
@@ -105,7 +139,9 @@ export class StationSectionComponent {
     }
     this.useStation(station);
     if (station.distanceKm > BACKUP_MAX_KM) {
-      this.snackbar.show(`La estación más cercana está a ${station.distanceKm.toFixed(0)} km: puede no representar la lluvia de tu jardín.`);
+      this.snackbar.show(
+        `La estación más cercana está a ${station.distanceKm.toFixed(0)} km: puede no representar la lluvia de tu jardín.`,
+      );
     }
     await this.testDmc();
   }
@@ -125,13 +161,17 @@ export class StationSectionComponent {
       const near = stationsToCheck(await listDmcStations(), lat, lon);
       this.checks.set(near.map((s) => ({ ...s, health: 'checking', newest: null, readings: 0 })));
       const now = Date.now();
-      const done = await checkStations(near, auth, now, (c) => this.checks.update((list) => list?.map((r) => (r.code === c.code ? c : r)) ?? null));
+      const done = await checkStations(near, auth, now, (c) =>
+        this.checks.update((list) => list?.map((r) => (r.code === c.code ? c : r)) ?? null),
+      );
       this.checks.set(done);
       this.checkedAt.set(now);
       const best = bestStation(done);
       if (!best) {
         const said = done.find((c) => c.snippet)?.snippet;
-        return this.snackbar.show(said ? `Ninguna estación respondió. La DMC dice: ${said}` : 'Ninguna estación cercana está enviando datos ahora.');
+        return this.snackbar.show(
+          said ? `Ninguna estación respondió. La DMC dice: ${said}` : 'Ninguna estación cercana está enviando datos ahora.',
+        );
       }
       if (this.form.dmc()) return;
       this.useStation(best);
@@ -181,7 +221,11 @@ export class StationSectionComponent {
     this.dmcReport.set({ lines: ['Consultando la estación…'], error: false });
     try {
       const { lat, lon } = this.spot();
-      const r = await this.weather.diagnoseStation({ dmcAuth: this.form.dmcAuth(), latitude: lat, longitude: lon }, cfg, this.form.elevation());
+      const r = await this.weather.diagnoseStation(
+        { dmcAuth: this.form.dmcAuth(), latitude: lat, longitude: lon },
+        cfg,
+        this.form.elevation(),
+      );
       const hint = !r.ok
         ? 'Mientras tanto, la app sigue usando el pronóstico.'
         : this.form.saved.dmc?.code === cfg.code
@@ -226,7 +270,12 @@ export class StationSectionComponent {
     const alert = await this.alerts.create({
       header: 'Estación de la DMC',
       message: 'Elige la estación. La más cercana representa mejor la lluvia de tu jardín.',
-      inputs: options.map((o) => ({ type: 'radio' as const, label: `${o.name} · ${km(o.distanceKm)} km`, value: o.code, checked: o.code === this.form.dmc()?.code })),
+      inputs: options.map((o) => ({
+        type: 'radio' as const,
+        label: `${o.name} · ${km(o.distanceKm)} km`,
+        value: o.code,
+        checked: o.code === this.form.dmc()?.code,
+      })),
       buttons: [
         { text: 'Cancelar', role: 'cancel' },
         { text: 'Elegir', role: 'confirm' },
@@ -251,7 +300,13 @@ export class StationSectionComponent {
       for (const st of near) {
         const rainVariableId = await findRainVariable(apiKey, st.id);
         if (!rainVariableId) continue; // estación sin pluviómetro
-        this.form.agromet.set({ apiKey, stationId: st.id, stationName: st.comuna ? `${st.name}, ${st.comuna}` : st.name, distanceKm: st.distanceKm, rainVariableId });
+        this.form.agromet.set({
+          apiKey,
+          stationId: st.id,
+          stationName: st.comuna ? `${st.name}, ${st.comuna}` : st.name,
+          distanceKm: st.distanceKm,
+          rainVariableId,
+        });
         return this.snackbar.show(`Estación: ${st.name} a ${km(st.distanceKm)} km. Pulsa «Guardar cambios».`);
       }
       this.snackbar.show('Las estaciones cercanas no miden lluvia');

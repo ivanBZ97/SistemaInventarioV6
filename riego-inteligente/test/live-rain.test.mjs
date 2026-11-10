@@ -75,8 +75,15 @@ const at = (h, m = 0) => new Date(2026, 0, 13, h, m).getTime();
 const liveOf = (steps, o = {}) => {
   const st = steps.map(([h, mm]) => [at(h), mm]);
   return {
-    date: '2026-01-13', mm: st.reduce((s, [, mm]) => s + mm, 0), sinceMs: at(0), lastAtMs: at(6, 5), lastHourMm: 0,
-    rainingNow: false, hourly: new Array(24).fill(0), steps: st, ...o,
+    date: '2026-01-13',
+    mm: st.reduce((s, [, mm]) => s + mm, 0),
+    sinceMs: at(0),
+    lastAtMs: at(6, 5),
+    lastHourMm: 0,
+    rainingNow: false,
+    hourly: new Array(24).fill(0),
+    steps: st,
+    ...o,
   };
 };
 const st = (o = {}) => ({ deficitMm: 9, asOf: '2026-01-13', source: 'model', ...o });
@@ -99,7 +106,19 @@ test('la lluvia que ya cayó hoy baja el déficit: 9 mm − 80 % de 3 mm = 6,6 m
 });
 
 test('con 4 mm ya medidos se pausa aunque el pronóstico diga 0 %', () => {
-  const ev = c.evaluate(st({ deficitMm: 14 }), [wx('2026-01-13', { live: liveOf([[3, 2], [4, 3]]) })], S, '2026-01-13');
+  const ev = c.evaluate(
+    st({ deficitMm: 14 }),
+    [
+      wx('2026-01-13', {
+        live: liveOf([
+          [3, 2],
+          [4, 3],
+        ]),
+      }),
+    ],
+    S,
+    '2026-01-13',
+  );
   assert.equal(ev.status, 'paused_rain');
   assert.equal(ev.rainBlockReason, 'measured');
   const n = c.morningNotification(ev, c.atTime('2026-01-13', c.MORNING));
@@ -115,7 +134,11 @@ test('si está lloviendo se pausa, aunque haya caído poco', () => {
   const n = c.morningNotification(ev, c.atTime('2026-01-13', c.MORNING));
   assert.equal(n.title, '🌧️ Riego pausado: está lloviendo');
   assert.match(n.body, /está lloviendo en tu sector \(1 mm hasta ahora\)/);
-  assert.equal(c.forecastNextIrrigation(st(), [wx('2026-01-13', { live: liveOf([[6, 1]], { rainingNow: true }) })], S, '2026-01-13').timeline[0].rainBlock, true);
+  assert.equal(
+    c.forecastNextIrrigation(st(), [wx('2026-01-13', { live: liveOf([[6, 1]], { rainingNow: true }) })], S, '2026-01-13').timeline[0]
+      .rainBlock,
+    true,
+  );
   assert.equal(lm.lawnScene(ev), 'rain');
   assert.ok(lm.lawnMessages('thirsty', 'rain', ev).some((m) => m.includes('Está lloviendo')));
 });
@@ -127,7 +150,14 @@ test('el pronóstico sigue pausando como antes, con su texto', () => {
 });
 
 test('tras un riego o ajuste de hoy solo cuenta la lluvia caída después', () => {
-  const w = [wx('2026-01-13', { live: liveOf([[2, 3], [5, 3]]) })];
+  const w = [
+    wx('2026-01-13', {
+      live: liveOf([
+        [2, 3],
+        [5, 3],
+      ]),
+    }),
+  ];
   // Ajuste a las 04:00 a 9 mm: la lluvia de las 02:00 ya estaba considerada, la de las 05:00 no.
   const ev = c.evaluate(st({ resetDate: '2026-01-13', resetAt: at(4) }), w, S, '2026-01-13');
   assert.ok(Math.abs(ev.deficitMm - 6.6) < 1e-9);
@@ -142,7 +172,12 @@ test('el aviso de la mañana usa la lluvia de la madrugada', () => {
   const w = [wx('2026-01-13', { live: liveOf([[3, 6]]) }), wx('2026-01-14')];
   const p = c.planNotifications({ state: st({ deficitMm: 13 }), weather: w, settings: S, now: new Date(2026, 0, 13, 5, 0) });
   assert.equal(p.notifications[0].title, '🌧️ Riego pausado por lluvia');
-  const ok = c.planNotifications({ state: st({ deficitMm: 9 }), weather: [wx('2026-01-13', { live: liveOf([[3, 3]]) }), wx('2026-01-14')], settings: S, now: new Date(2026, 0, 13, 5, 0) });
+  const ok = c.planNotifications({
+    state: st({ deficitMm: 9 }),
+    weather: [wx('2026-01-13', { live: liveOf([[3, 3]]) }), wx('2026-01-14')],
+    settings: S,
+    now: new Date(2026, 0, 13, 5, 0),
+  });
   assert.equal(ok.notifications[0].title, '✅ Hoy no hace falta regar');
   assert.match(ok.notifications[0].body, /Hoy ya llovieron 3 mm\./);
 });
@@ -163,7 +198,16 @@ test('en segundo plano consulta cada 30 min si llueve o se pronostica lluvia, y 
   assert.equal(dmc.backgroundStationMaxAgeMs(noon, null, { ...dry, precipitationMm: 2 }, morning), 30 * 60_000);
   assert.equal(dmc.backgroundStationMaxAgeMs(new Date(2026, 9, 25, 6, 0).getTime(), null, dry, morning), 30 * 60_000);
   assert.equal(dmc.backgroundStationMaxAgeMs(new Date(2026, 9, 25, 7, 30).getTime(), null, dry, morning), 3 * 3_600_000);
-  const wet = { date: '2026-10-25', mm: 2, sinceMs: 0, lastAtMs: noon - 30 * 60_000, lastHourMm: 0, rainingNow: false, hourly: [], steps: [[noon - 2 * 3_600_000, 2]] };
+  const wet = {
+    date: '2026-10-25',
+    mm: 2,
+    sinceMs: 0,
+    lastAtMs: noon - 30 * 60_000,
+    lastHourMm: 0,
+    rainingNow: false,
+    hourly: [],
+    steps: [[noon - 2 * 3_600_000, 2]],
+  };
   assert.equal(dmc.backgroundStationMaxAgeMs(noon, wet, dry, morning), 30 * 60_000);
 });
 
@@ -200,7 +244,10 @@ test('el diagnóstico muestra la lluvia de hoy, el atraso y el tamaño de cada c
     const d = await dmc.diagnoseDmc('330160', null, '2026-10-25', Date.parse('2026-10-25T22:10:00Z'));
     assert.match(d.lines[1], /✓ Datos recientes: 721 lecturas \(≈ \d+ KB\)/);
     // El almacén guarda la última lectura de cada bloque de 10 min: la primera queda a las 06:49.
-    assert.ok(d.lines.some((l) => /Lluvia de hoy: 24 mm desde las 06:49 hasta las 18:45 \(25 min de atraso\) · está lloviendo\./.test(l)), d.lines.join('\n'));
+    assert.ok(
+      d.lines.some((l) => /Lluvia de hoy: 24 mm desde las 06:49 hasta las 18:45 \(25 min de atraso\) · está lloviendo\./.test(l)),
+      d.lines.join('\n'),
+    );
   } finally {
     globalThis.fetch = orig;
   }
@@ -210,7 +257,10 @@ test('con la app abierta, un fallo de la estación se reintenta en la siguiente 
   const orig = globalThis.fetch;
   let calls = 0;
   try {
-    globalThis.fetch = async () => { calls++; return { ok: false, status: 503, json: async () => ({}) }; };
+    globalThis.fetch = async () => {
+      calls++;
+      return { ok: false, status: 503, json: async () => ({}) };
+    };
     const t0 = Date.parse('2026-10-25T22:00:00Z');
     const failed = { code: '330160', attemptAt: t0, ok: false, pts: [] };
     await dmc.refreshDmcStore(failed, '330160', t0 + 5 * 60_000, 4 * 60_000);
@@ -227,7 +277,15 @@ test('si la estación no entrega lecturas, el almacén guarda el motivo (sin cre
   const auth = { user: 'u@example.com', token: 'SECRETO' };
   try {
     const t0 = Date.parse('2026-10-26T09:39:00Z');
-    const prev = { code: '330160', field: 'aguaCaida24Horas', kind: 'accumulated', attemptAt: t0 - 3_600_000, ok: true, pts: [[t0 - 14 * 3_600_000, 0]], summaryAt: t0 };
+    const prev = {
+      code: '330160',
+      field: 'aguaCaida24Horas',
+      kind: 'accumulated',
+      attemptAt: t0 - 3_600_000,
+      ok: true,
+      pts: [[t0 - 14 * 3_600_000, 0]],
+      summaryAt: t0,
+    };
     globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ datosEstaciones: { datos: [] } }) });
     let r = await dmc.refreshDmcStore(prev, '330160', t0, 4 * 60_000, false, auth);
     assert.equal(r.store.ok, false);
@@ -236,11 +294,17 @@ test('si la estación no entrega lecturas, el almacén guarda el motivo (sin cre
     globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
     r = await dmc.refreshDmcStore(r.store, '330160', t0 + 5 * 60_000, 4 * 60_000, false, auth);
     assert.equal(r.store.error, 'HTTP 503');
-    globalThis.fetch = async () => { throw new Error('Unable to resolve host SECRETO'); };
+    globalThis.fetch = async () => {
+      throw new Error('Unable to resolve host SECRETO');
+    };
     r = await dmc.refreshDmcStore(r.store, '330160', t0 + 10 * 60_000, 4 * 60_000, false, auth);
     assert.equal(r.store.error, 'sin conexión');
     // Al volver los datos, el motivo desaparece
-    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ datos: series('2026-10-25T22:00:00Z', 600, () => 0, 10) }) });
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ datos: series('2026-10-25T22:00:00Z', 600, () => 0, 10) }),
+    });
     r = await dmc.refreshDmcStore(r.store, '330160', t0 + 15 * 60_000, 4 * 60_000, false, auth);
     assert.equal(r.store.ok, true);
     assert.equal(r.store.error, undefined);
@@ -262,12 +326,18 @@ test('si la estación dejó de publicar, el diagnóstico lo dice y prueba las es
       if (url.includes('/330113')) return { ok: false, status: 500, json: async () => ({}) };
       return { ok: true, status: 200, json: async () => ({}) };
     };
-    const alts = [{ code: '330071', name: 'Talagante', distanceKm: 10.3 }, { code: '330113', name: 'El Paico', distanceKm: 22.5 }];
+    const alts = [
+      { code: '330071', name: 'Talagante', distanceKm: 10.3 },
+      { code: '330113', name: 'El Paico', distanceKm: 22.5 },
+    ];
     const d = await dmc.diagnoseDmc('330160', null, '2026-10-26', now, undefined, undefined, alts);
     const text = d.lines.join('\n');
     assert.match(text, /✓ Datos recientes: 5 lecturas/);
     assert.match(text, /⚠ La lectura más nueva es del 24\/10 16:00 \(hace 40 h\): la DMC no está recibiendo datos de esta estación\./);
-    assert.match(text, /Otras estaciones DMC cercanas · Talagante \(10 km\): última lectura 26\/10 07:00 \(hace 30 min\) · El Paico \(23 km\): HTTP 500\./);
+    assert.match(
+      text,
+      /Otras estaciones DMC cercanas · Talagante \(10 km\): última lectura 26\/10 07:00 \(hace 30 min\) · El Paico \(23 km\): HTTP 500\./,
+    );
     // Con datos al día no se prueban las demás
     globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ datos: fresh }) });
     const ok = await dmc.diagnoseDmc('330160', null, '2026-10-26', now, undefined, undefined, alts);
@@ -282,7 +352,10 @@ test('estaciones cercanas ordenadas por distancia', () => {
     { code: 'a', name: 'Lejos', latitude: -33.4, longitude: -70.6, elevationM: 0 },
     { code: 'b', name: 'Cerca', latitude: -33.74, longitude: -70.76, elevationM: 0 },
   ];
-  assert.deepEqual(dmc.nearbyDmcStations(st, -33.7313, -70.7663, 1).map((s) => s.code), ['b']);
+  assert.deepEqual(
+    dmc.nearbyDmcStations(st, -33.7313, -70.7663, 1).map((s) => s.code),
+    ['b'],
+  );
 });
 
 // ───────────── Lista de estaciones al conectar ─────────────
@@ -302,9 +375,18 @@ test('al conectar: revisa las estaciones cercanas, dice cuáles responden y elig
       return { ok: true, status: 200, json: async () => ({ datos: byCode[code] ?? live }) };
     };
     const { DMC_STATIONS_FALLBACK } = await import('../src/app/core/dmc/station-catalog.ts');
-    const all = DMC_STATIONS_FALLBACK.map(([code, name, latitude, longitude, elevationM]) => ({ code, name, latitude, longitude, elevationM }));
+    const all = DMC_STATIONS_FALLBACK.map(([code, name, latitude, longitude, elevationM]) => ({
+      code,
+      name,
+      latitude,
+      longitude,
+      elevationM,
+    }));
     const near = dmc.stationsToCheck(all, -33.7313, -70.7663);
-    assert.deepEqual(near.map((s) => s.code), ['330160', '330071', '330113', '330122', '330114', '330020']); // 6 dentro de 40 km
+    assert.deepEqual(
+      near.map((s) => s.code),
+      ['330160', '330071', '330113', '330122', '330114', '330020'],
+    ); // 6 dentro de 40 km
     const seen = [];
     const checks = await dmc.checkStations(near, { user: 'u@example.com', token: 'tok-123' }, now, (c) => seen.push(c.code));
     assert.equal(seen.length, 6);
@@ -325,11 +407,18 @@ test('si la estación manda la lluvia pero no la temperatura, el diagnóstico lo
   const orig = globalThis.fetch;
   try {
     const rows = series('2026-10-26T13:41:00Z', 690, () => 0, 10).map((r) => ({
-      ...r, temperatura: null, humedadRelativa: null, radiacionGlobalInst: null, fuerzaDelVientoPromedio10Minutos: null,
+      ...r,
+      temperatura: null,
+      humedadRelativa: null,
+      radiacionGlobalInst: null,
+      fuerzaDelVientoPromedio10Minutos: null,
     }));
     globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ datos: rows }) });
     const d = await dmc.diagnoseDmc('330160', null, '2026-10-26', Date.parse('2026-10-27T01:44:00Z'));
-    assert.ok(d.lines.some((l) => /⚠ ET0 · ninguna de las 70 lecturas trae temperatura, humedad, radiación, viento \(llega null\)/.test(l)), d.lines.join('\n'));
+    assert.ok(
+      d.lines.some((l) => /⚠ ET0 · ninguna de las 70 lecturas trae temperatura, humedad, radiación, viento \(llega null\)/.test(l)),
+      d.lines.join('\n'),
+    );
   } finally {
     globalThis.fetch = orig;
   }

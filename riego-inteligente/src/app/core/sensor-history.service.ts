@@ -39,7 +39,11 @@ export class SensorHistoryService {
     const incoming: SensorSample[] = [];
     if (Capacitor.isNativePlatform()) {
       try {
-        const r = await BackgroundRunner.dispatchEvent<Partial<RunnerSensorHistory>>({ label: RUNNER_LABEL, event: RUNNER_EVENT.getSensorHistory, details: {} });
+        const r = await BackgroundRunner.dispatchEvent<Partial<RunnerSensorHistory>>({
+          label: RUNNER_LABEL,
+          event: RUNNER_EVENT.getSensorHistory,
+          details: {},
+        });
         if (Array.isArray(r?.samples)) incoming.push(...r.samples);
       } catch {
         /* worker sin datos: no importa */

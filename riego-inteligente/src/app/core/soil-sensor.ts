@@ -23,7 +23,9 @@ export const PROVISIONAL_SPAN_PCT = 30;
  * (provisional: así el sensor se puede usar desde ya y se afina al marcar el segundo). null si no hay ninguno o
  * los dos están demasiado juntos para distinguir.
  */
-export function calibrationPoints(cfg: Pick<SoilSensorConfig, 'wetPct' | 'dryPct'>): { wet: number; dry: number; provisional: boolean } | null {
+export function calibrationPoints(
+  cfg: Pick<SoilSensorConfig, 'wetPct' | 'dryPct'>,
+): { wet: number; dry: number; provisional: boolean } | null {
   const { wetPct: w, dryPct: d } = cfg;
   if (w !== undefined && d !== undefined) return w - d >= 3 ? { wet: w, dry: d, provisional: false } : null;
   if (w !== undefined) return { wet: w, dry: Math.max(0, w - PROVISIONAL_SPAN_PCT), provisional: true };

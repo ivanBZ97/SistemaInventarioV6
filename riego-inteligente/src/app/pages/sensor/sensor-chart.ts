@@ -90,7 +90,12 @@ export function sensorChart(input: SensorChartInput): SensorChart {
   const prior = [...samples].reverse().find((s) => s.t < t0);
 
   // Escala vertical: de 10 en 10, ajustada a lo que hay que mostrar (al menos 20 puntos de alto).
-  const values = [...(prior ? [prior.soil] : []), ...visible.map((s) => s.soil), ...(cal.wet !== undefined ? [cal.wet] : []), ...(cal.dry !== undefined ? [cal.dry] : [])];
+  const values = [
+    ...(prior ? [prior.soil] : []),
+    ...visible.map((s) => s.soil),
+    ...(cal.wet !== undefined ? [cal.wet] : []),
+    ...(cal.dry !== undefined ? [cal.dry] : []),
+  ];
   const lo = Math.max(0, values.length ? Math.floor((Math.min(...values) - 3) / 10) * 10 : 0);
   const hi = Math.min(100, Math.max(values.length ? Math.ceil((Math.max(...values) + 3) / 10) * 10 : 100, lo + 20));
   const x = (t: number) => X0 + ((t - t0) / (t1 - t0)) * (X1 - X0);

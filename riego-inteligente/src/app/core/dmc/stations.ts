@@ -43,13 +43,15 @@ async function fetchStationList(): Promise<DmcStation[]> {
         const longitude = unitNumber(r['longitud']);
         const code = textOf(r['codigoNacional']);
         if (latitude === null || longitude === null || !code) return [];
-        return [{
-          code,
-          name: textOf(r['nombreEstacion']),
-          latitude,
-          longitude,
-          elevationM: unitNumber(r['altura']),
-        }];
+        return [
+          {
+            code,
+            name: textOf(r['nombreEstacion']),
+            latitude,
+            longitude,
+            elevationM: unitNumber(r['altura']),
+          },
+        ];
       });
       if (live.length) return live;
     }
@@ -82,13 +84,29 @@ export function nearestDmcStation(stations: DmcStation[], lat: number, lon: numb
 }
 
 /** Estaciones a revisar al conectar: las `n` más cercanas dentro de `maxKm` (la más cercana siempre). */
-export function stationsToCheck(stations: DmcStation[], lat: number, lon: number, n = 6, maxKm = 40): (DmcStation & { distanceKm: number })[] {
+export function stationsToCheck(
+  stations: DmcStation[],
+  lat: number,
+  lon: number,
+  n = 6,
+  maxKm = 40,
+): (DmcStation & { distanceKm: number })[] {
   return nearbyDmcStations(stations, lat, lon, n).filter((s, i) => i === 0 || s.distanceKm <= maxKm);
 }
 
 /** Estación de respaldo: la más cercana al jardín después de la elegida, dentro de 25 km. */
-export function backupStationFor(code: string, lat: number, lon: number, stations = catalogStations()): (DmcStation & { distanceKm: number }) | null {
-  const [st] = nearbyDmcStations(stations.filter((s) => s.code !== code), lat, lon, 1);
+export function backupStationFor(
+  code: string,
+  lat: number,
+  lon: number,
+  stations = catalogStations(),
+): (DmcStation & { distanceKm: number }) | null {
+  const [st] = nearbyDmcStations(
+    stations.filter((s) => s.code !== code),
+    lat,
+    lon,
+    1,
+  );
   return st && st.distanceKm <= BACKUP_MAX_KM ? st : null;
 }
 

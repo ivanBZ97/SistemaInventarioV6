@@ -5,7 +5,15 @@ import type { DailyWeather, DmcAuth, DmcConfig, ISODate } from '../models';
 import { type RecentFetch, type SummaryFetch, fetchDailySummary, fetchRecent, hasAuth } from './api';
 import { KEEP_MS, STALE_STATION_MS } from './constants';
 import { type MetBucket, type MetFields, detectMetFields, mergeMetBuckets, metBuckets } from './met';
-import { type RainField, type RainKind, type RainPoint, dailyRainFromPoints, detectRainField, downsampleAccumulated, rainPoints } from './rain';
+import {
+  type RainField,
+  type RainKind,
+  type RainPoint,
+  dailyRainFromPoints,
+  detectRainField,
+  downsampleAccumulated,
+  rainPoints,
+} from './rain';
 
 export interface DmcStore {
   code: string;
@@ -39,7 +47,9 @@ export function mergeStore(prev: DmcStore | null, code: string, rf: RainField, p
   let merged: RainPoint[] = [...map].filter(([t]) => t >= now - KEEP_MS).sort((a, b) => a[0] - b[0]);
   if (rf.kind === 'accumulated') merged = downsampleAccumulated(merged);
   const keep =
-    prev?.code === code ? { daily: prev.daily, met: prev.met, metFields: prev.metFields, et0Pairs: prev.et0Pairs, summaryAt: prev.summaryAt } : {};
+    prev?.code === code
+      ? { daily: prev.daily, met: prev.met, metFields: prev.metFields, et0Pairs: prev.et0Pairs, summaryAt: prev.summaryAt }
+      : {};
   return { ...keep, code, field: rf.field, kind: rf.kind, attemptAt: now, ok: true, pts: merged };
 }
 
@@ -68,7 +78,13 @@ export async function refreshDmcStore(
   if (!force && current && now - current.attemptAt < wait) return { store: current };
   const fetched = await fetchRecent(code, auth);
   const rain = fetched.ok ? detectRainField(fetched.samples) : null;
-  const error = !fetched.ok ? (fetched.status ? `HTTP ${fetched.status}` : 'sin conexión') : !fetched.samples.length ? 'sin lecturas' : 'sin campo de lluvia';
+  const error = !fetched.ok
+    ? fetched.status
+      ? `HTTP ${fetched.status}`
+      : 'sin conexión'
+    : !fetched.samples.length
+      ? 'sin lecturas'
+      : 'sin campo de lluvia';
   let next: DmcStore =
     fetched.ok && rain
       ? mergeStore(current, code, rain, rainPoints(fetched.samples, rain), now)
@@ -127,7 +143,9 @@ export function storeIsStale(store: DmcStore | null, now: number): boolean {
 /** ¿Hay que guardar el almacén? Solo si hubo consulta nueva o cambiaron los pares de ET0 (evita escribir cada 5 min). */
 export function storeChanged(next: DmcStore | null, prev: DmcStore | null): boolean {
   if (!next) return false;
-  return !prev || next.attemptAt !== prev.attemptAt || next.code !== prev.code || JSON.stringify(next.et0Pairs) !== JSON.stringify(prev.et0Pairs);
+  return (
+    !prev || next.attemptAt !== prev.attemptAt || next.code !== prev.code || JSON.stringify(next.et0Pairs) !== JSON.stringify(prev.et0Pairs)
+  );
 }
 
 /** Guarda pares (ET0 estación, ET0 modelo) por día para medir el sesgo del modelo. */

@@ -17,16 +17,50 @@ test('SHA-256 y HMAC-SHA256 coinciden con node:crypto (incluye textos largos y c
 test('firma de Tuya: HMAC(client_id + [token] + t + nonce + stringToSign) en mayúsculas', () => {
   const emptyHash = createHash('sha256').update('').digest('hex');
   const expected = (str) => createHmac('sha256', 'SECRET').update(str).digest('hex').toUpperCase();
-  const tokenSign = tuya.tuyaSign({ accessId: 'ID', secret: 'SECRET', t: '1730000000000', method: 'GET', path: '/v1.0/token?grant_type=1' });
+  const tokenSign = tuya.tuyaSign({
+    accessId: 'ID',
+    secret: 'SECRET',
+    t: '1730000000000',
+    method: 'GET',
+    path: '/v1.0/token?grant_type=1',
+  });
   assert.equal(tokenSign, expected(`ID1730000000000GET\n${emptyHash}\n\n/v1.0/token?grant_type=1`));
-  const devSign = tuya.tuyaSign({ accessId: 'ID', secret: 'SECRET', t: '1730000000000', method: 'GET', path: '/v1.0/devices/abc', accessToken: 'TOK' });
+  const devSign = tuya.tuyaSign({
+    accessId: 'ID',
+    secret: 'SECRET',
+    t: '1730000000000',
+    method: 'GET',
+    path: '/v1.0/devices/abc',
+    accessToken: 'TOK',
+  });
   assert.equal(devSign, expected(`IDTOK1730000000000GET\n${emptyHash}\n\n/v1.0/devices/abc`));
 });
 
 test('lee humedad, temperatura y batería del sensor (y las variantes en décimas)', () => {
-  const s = tuya.parseSoilDevice({ name: 'Pasto', online: true, update_time: 1730000000,
-    status: [{ code: 'humidity', value: 32 }, { code: 'temp_current', value: 187 }, { code: 'battery_percentage', value: 90 }] });
-  assert.deepEqual({ ...s, codes: undefined }, { name: 'Pasto', online: true, updatedAt: 1730000000000, soilPct: 32, tempC: 18.7, battery: 90, soilCode: 'humidity', tempCode: 'temp_current', codes: undefined });
+  const s = tuya.parseSoilDevice({
+    name: 'Pasto',
+    online: true,
+    update_time: 1730000000,
+    status: [
+      { code: 'humidity', value: 32 },
+      { code: 'temp_current', value: 187 },
+      { code: 'battery_percentage', value: 90 },
+    ],
+  });
+  assert.deepEqual(
+    { ...s, codes: undefined },
+    {
+      name: 'Pasto',
+      online: true,
+      updatedAt: 1730000000000,
+      soilPct: 32,
+      tempC: 18.7,
+      battery: 90,
+      soilCode: 'humidity',
+      tempCode: 'temp_current',
+      codes: undefined,
+    },
+  );
   assert.equal(tuya.parseSoilDevice({ status: [{ code: 'soil_moisture', value: 355 }] }).soilPct, 35.5);
   assert.equal(tuya.parseSoilDevice({ status: [] }).soilPct, null);
 });
@@ -48,7 +82,10 @@ test('calibración: húmedo = déficit 0, toca regar = umbral; sin calibrar, nul
 });
 
 const cfg = { region: 'us', accessId: 'ID', accessSecret: 'SECRET', deviceId: 'dev1', enabled: true };
-const device = { success: true, result: { name: 'Pasto', online: true, update_time: 1730000000, status: [{ code: 'humidity', value: 30 }] } };
+const device = {
+  success: true,
+  result: { name: 'Pasto', online: true, update_time: 1730000000, status: [{ code: 'humidity', value: 30 }] },
+};
 
 test('lee el sensor: pide token, firma con él y lo reutiliza mientras no vence', async () => {
   const orig = globalThis.fetch;
@@ -56,7 +93,8 @@ test('lee el sensor: pide token, firma con él y lo reutiliza mientras no vence'
   try {
     globalThis.fetch = async (url, init) => {
       calls.push({ url: String(url), headers: init.headers });
-      if (String(url).includes('/token')) return { ok: true, status: 200, json: async () => ({ success: true, result: { access_token: 'TOK', expire_time: 7200 } }) };
+      if (String(url).includes('/token'))
+        return { ok: true, status: 200, json: async () => ({ success: true, result: { access_token: 'TOK', expire_time: 7200 } }) };
       return { ok: true, status: 200, json: async () => device };
     };
     const now = 1730000000000;
@@ -65,7 +103,10 @@ test('lee el sensor: pide token, firma con él y lo reutiliza mientras no vence'
     assert.equal(calls[0].url, 'https://openapi.tuyaus.com/v1.0/token?grant_type=1');
     assert.equal(calls[1].url, 'https://openapi.tuyaus.com/v1.0/devices/dev1');
     assert.equal(calls[1].headers.access_token, 'TOK');
-    assert.equal(calls[1].headers.sign, tuya.tuyaSign({ accessId: 'ID', secret: 'SECRET', t: String(now), method: 'GET', path: '/v1.0/devices/dev1', accessToken: 'TOK' }));
+    assert.equal(
+      calls[1].headers.sign,
+      tuya.tuyaSign({ accessId: 'ID', secret: 'SECRET', t: String(now), method: 'GET', path: '/v1.0/devices/dev1', accessToken: 'TOK' }),
+    );
     assert.equal(calls[2].url, 'https://openapi.tuyaus.com/v2.0/cloud/thing/dev1/shadow/properties');
     await tuya.readTuyaSoil(cfg, now + 60_000, r.token);
     assert.equal(calls.filter((c) => c.url.includes('/token')).length, 1); // token reutilizado
@@ -79,9 +120,14 @@ test('si Tuya rechaza el token guardado, pide otro una vez; los errores se expli
   let deviceCalls = 0;
   try {
     globalThis.fetch = async (url) => {
-      if (String(url).includes('/token')) return { ok: true, status: 200, json: async () => ({ success: true, result: { access_token: 'NEW', expire_time: 7200 } }) };
+      if (String(url).includes('/token'))
+        return { ok: true, status: 200, json: async () => ({ success: true, result: { access_token: 'NEW', expire_time: 7200 } }) };
       deviceCalls++;
-      return { ok: true, status: 200, json: async () => (deviceCalls === 1 ? { success: false, code: 1010, msg: 'token invalid' } : device) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => (deviceCalls === 1 ? { success: false, code: 1010, msg: 'token invalid' } : device),
+      };
     };
     const r = await tuya.readTuyaSoil(cfg, 1730000000000, { accessToken: 'OLD', expiresAt: 1730003600000 });
     assert.equal(r.token.accessToken, 'NEW');
@@ -96,10 +142,10 @@ test('si Tuya rechaza el token guardado, pide otro una vez; los errores se expli
 });
 
 test('la hora del reporte sale de la propiedad de humedad (shadow) si Tuya la entrega', () => {
-  const s = tuya.parseSoilDevice(
-    { name: 'Pasto', update_time: 1730000000, status: [{ code: 'humidity', value: 30 }] },
-    [{ code: 'humidity', value: 49, time: 1730007200123 }, { code: 'temp_current', value: 212, time: 1730000000000 }],
-  );
+  const s = tuya.parseSoilDevice({ name: 'Pasto', update_time: 1730000000, status: [{ code: 'humidity', value: 30 }] }, [
+    { code: 'humidity', value: 49, time: 1730007200123 },
+    { code: 'temp_current', value: 212, time: 1730000000000 },
+  ]);
   assert.equal(s.soilPct, 49);
   assert.equal(s.tempC, 21.2);
   assert.equal(s.updatedAt, 1730007200123);
@@ -118,5 +164,8 @@ test('la lectura del sensor reemplaza al balance solo si está activado, es reci
   assert.equal(soil.applySensorReading(state, { ...cfg, enabled: false }, { soilPct: 80, at: now - H }, 8, '2026-11-09', now), state);
   assert.equal(soil.applySensorReading(state, cfg, null, 8, '2026-11-09', now), state);
   assert.equal(soil.applySensorReading(state, cfg, { soilPct: 80, at: now - 7 * H }, 8, '2026-11-09', now), state);
-  assert.equal(soil.applySensorReading({ ...state, resetAt: now - 30 * 60_000 }, cfg, { soilPct: 80, at: now - H }, 8, '2026-11-09', now).deficitMm, 2);
+  assert.equal(
+    soil.applySensorReading({ ...state, resetAt: now - 30 * 60_000 }, cfg, { soilPct: 80, at: now - H }, 8, '2026-11-09', now).deficitMm,
+    2,
+  );
 });

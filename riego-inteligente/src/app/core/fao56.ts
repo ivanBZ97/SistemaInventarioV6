@@ -55,8 +55,6 @@ export function et0PenmanMonteith(m: DailyMet, latitudeDeg: number, elevationM: 
   const rnl = sigmaT4 * (0.34 - 0.14 * Math.sqrt(Math.max(0, eaKpa))) * (1.35 * relRs - 0.35);
   const rn = rns - rnl;
 
-  const et0 =
-    (0.408 * delta * rn + gamma * (900 / (tmean + 273)) * u2 * (es - eaKpa)) /
-    (delta + gamma * (1 + 0.34 * u2));
+  const et0 = (0.408 * delta * rn + gamma * (900 / (tmean + 273)) * u2 * (es - eaKpa)) / (delta + gamma * (1 + 0.34 * u2));
   return Math.max(0, et0);
 }
