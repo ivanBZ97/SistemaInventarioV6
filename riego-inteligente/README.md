@@ -1,37 +1,60 @@
 # 💧 Riego Inteligente (Android)
 
-App Ionic + Angular + Capacitor que calcula el balance hídrico diario de un césped residencial
-(ballica / festuca fina) con la ET0 FAO-56 de [Open-Meteo](https://open-meteo.com) (gratis, sin API key) y avisa
-por notificación **cuándo** y **cuántos minutos** regar. Todo se guarda en el teléfono (SharedPreferences).
+App Ionic + Angular + Capacitor que lleva el balance hídrico diario de un césped residencial (ballica / festuca)
+y avisa por notificación **cuándo** y **cuántos minutos** regar. Usa el pronóstico de
+[Open-Meteo](https://open-meteo.com) (gratis, sin clave) y, si se configuran, la lluvia y la evapotranspiración
+medidas por una estación de la Dirección Meteorológica de Chile y un sensor de humedad de suelo Tuya / Smart Life.
 
-## Estructura
+No tiene servidor: todos los datos y claves quedan en el teléfono.
+
+## Qué hace
+
+- **Balance hídrico** con ET0 FAO-56 × Kc estacional, lluvia efectiva y riegos registrados.
+- **Aviso de la mañana** (06:30–08:30, nunca de noche) con los minutos de riego, también con la app cerrada.
+- **Lluvia medida casi en tiempo real** por la estación más cercana, con estación de respaldo si deja de publicar.
+- **Sensor de suelo**: su lectura calibrada puede reemplazar al cálculo; se guarda un historial de un año.
+- **Próximo riego** proyectado con el pronóstico, modo **Resiembra** y resumen de agua de los últimos 30 días.
+
+## Arquitectura
 
 ```
 riego-inteligente/
-├── capacitor.config.ts            # appId, config del Background Runner (cada ~15 min)
-├── angular.json · tsconfig*.json · package.json
-├── runner/
-│   └── background.ts              # worker nativo (WorkManager) → runners/background.js (esbuild)
-├── src/
-│   ├── index.html · main.ts · global.scss     # tema claro/oscuro automático
-│   └── app/
-│       ├── app.component.ts · app.config.ts · app.routes.ts
-│       ├── core/
-│       │   ├── models.ts                      # tipos
-│       │   ├── irrigation-core.ts             # ⭐ motor agronómico (funciones puras, testeadas)
-│       │   ├── irrigation-engine.service.ts   # ⭐ IrrigationEngineService (estado + persistencia + acciones)
-│       │   ├── open-meteo.ts                  # ⭐ cliente Open-Meteo (compartido app/worker)
-│       │   ├── weather.service.ts             # caché de clima + GPS
-│       │   ├── notification.service.ts        # ⭐ canales, botones de acción, programación exacta
-│       │   ├── background.service.ts          # sincroniza estado con el worker
-│       │   ├── soil-sensor.provider.ts        # SoilSensorProvider (Fase 2: Tuya Zigbee)
-│       │   └── storage.service.ts
-│       └── pages/
-│           ├── dashboard/                     # ⭐ gauge, estado, acciones, resiembra, gráfico 7 días
-│           └── settings/                      # umbral 6–12 mm, tasa del aspersor, ubicación, permisos
-├── test/irrigation-core.test.mjs  # 10 tests del motor (npm test)
-└── android/                       # proyecto nativo (manifest ya configurado)
+├── capacitor.config.ts         # appId y worker en segundo plano (cada ~15 min)
+├── runner/background.ts        # worker nativo (WorkManager): mismo motor que la app, empaquetado con esbuild
+├── src/app/
+│   ├── core/                   # lógica sin interfaz
+│   │   ├── models.ts                    # tipos del dominio
+│   │   ├── irrigation-core.ts           # ⭐ motor agronómico: reglas puras (balance, decisión, avisos)
+│   │   ├── dates.ts · format.ts · geo.ts · parse.ts · http.ts   # utilidades puras
+│   │   ├── fao56.ts                     # ET0 Penman-Monteith
+│   │   ├── open-meteo.ts · agromet.ts   # clientes de pronóstico e INIA
+│   │   ├── dmc.ts + dmc/                # estaciones de la DMC (api, estaciones, lluvia, ET0, almacén, diagnóstico)
+│   │   ├── tuya.ts · sha256.ts          # nube de Tuya (firma HMAC propia)
+│   │   ├── soil-sensor.ts               # calibración del sensor y cuándo reemplaza al balance
+│   │   ├── sensor-history.ts            # historial de mediciones
+│   │   ├── runner-protocol.ts           # contrato app ↔ worker (eventos, claves, tipos)
+│   │   ├── storage-keys.ts              # claves del almacenamiento local
+│   │   └── *.service.ts                 # servicios Angular: motor, clima, avisos, worker, ubicación, sensor
+│   ├── pages/
+│   │   ├── dashboard/          # panel: dashboard.view.ts (textos y cifras, puro) + página
+│   │   ├── settings/           # settings-form.ts (borrador) + una sección por componente
+│   │   └── sensor/             # historial del sensor: sensor-chart.ts (geometría, pura) + página
+│   └── ui/                     # pasto ilustrado, snackbar, estilos y helpers compartidos
+├── test/                       # pruebas unitarias (node:test) de todo lo puro
+├── e2e/                        # pruebas de extremo a extremo (Playwright) sobre la app compilada
+└── android/                    # proyecto nativo
 ```
+
+Principios:
+
+- **Las reglas son funciones puras.** Lo que decide si se riega (`irrigation-core.ts`), lo que interpreta a la
+  estación (`dmc/`) y al sensor (`soil-sensor.ts`), y los textos del panel (`dashboard.view.ts`) no dependen de
+  Angular ni de Capacitor: se prueban solos y los comparte el worker en segundo plano.
+- **Un solo dueño del estado.** `IrrigationEngineService` es la única clase que modifica el balance guardado, y
+  ejecuta sus operaciones de a una (cada una lee, puede esperar a la red y escribe; en paralelo se pisarían).
+- **La red puede fallar.** Toda consulta tiene tiempo límite (`http.ts`); sin conexión se usa lo último guardado
+  y la interfaz lo dice. Las respuestas de servicios externos se leen de forma defensiva.
+- **La app y el worker hablan por un contrato explícito** (`runner-protocol.ts`); cada uno tiene su almacén.
 
 ## Reglas implementadas (`irrigation-core.ts`)
 
@@ -53,8 +76,8 @@ riego-inteligente/
 | Resiembra                        | 10 días; al activarlo se elige dónde se sembró. **Todo el jardín:** se riega al llegar a 2 mm de déficit (riego corto casi a diario, "🌱 Riego de siembra") y a las 13:00, si `tmax ≥ 20 °C`, un riego corto de todo el jardín. **Por sectores:** el pasto sigue su umbral, el aviso de la mañana recuerda rociar lo sembrado y a las 13:00 (`tmax ≥ 20 °C`) envía "🌱 Modo Resiembra: Rocía solo los parches…". Si la estación ya midió lluvia hoy, el aviso de las 13:00 dice que no hace falta regar |
 | Humedad útil                     | 0 mm = 100 %, 12 mm = 20 % (lineal)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-El riego registrado ("Ya regué", "Registrar Riego Ahora") baja el déficit a 0 mm en el momento (por eso el
-balance diario no lo vuelve a restar) y queda en el historial que alimenta el gráfico.
+El riego registrado ("Ya regué", "Registrar riego") descuenta el déficit en el momento (por eso el balance diario
+no lo vuelve a restar) y queda en el historial que alimenta el gráfico.
 
 ## Alertas con la app cerrada
 
@@ -72,36 +95,40 @@ mensaje "✅ Hoy no hace falta regar" que sobrescribe cualquier alerta obsoleta.
 notificaciones creadas por el worker dependen de que el tipo de acción esté registrado (la app lo registra
 al abrirse); si no aparecieran, el toque abre el Dashboard, que tiene las mismas acciones.
 
-## Comandos paso a paso
+## Desarrollo
 
-Requisitos: Node 20+/22, JDK 21 y Android SDK (Android Studio o `cmdline-tools`, `ANDROID_HOME` definido).
+Requisitos: Node 22, JDK 21 y Android SDK (Android Studio o `cmdline-tools`, con `ANDROID_HOME` definido).
 
 ```bash
 cd riego-inteligente
 npm install
 
-npm test                         # tests del motor agronómico
-npm run build                    # bundle del worker (runner/dist) + build Angular → www/
-npx cap sync android             # copia www/ y plugins al proyecto Android
-
-# Solo si regeneras el proyecto nativo desde cero (npx cap add android), vuelve a aplicar:
-#  - permisos del AndroidManifest (ver abajo)
-#  - en android/app/build.gradle, dentro de repositories { flatDir { ... } }:
-#      dirs '../../node_modules/@capacitor/background-runner/android/src/main/libs', 'libs'
-#  - el bloque signingConfigs.debug que usa android/app/debug.keystore
-
-cd android && ./gradlew assembleDebug
-# APK: android/app/build/outputs/apk/debug/app-debug.apk
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+npm start                # la interfaz en el navegador (avisos y worker solo funcionan en Android)
+npm run check            # formato + lint + tipos + pruebas (lo mismo que exige CI)
+npm run e2e              # compila y recorre las tres pantallas en un navegador (Playwright)
+npm run build            # worker (runner/dist) + Angular → www/
+npm run apk:debug        # build + cap sync + gradle → android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-El APK de depuración se firma con `android/app/debug.keystore`, que está en el repositorio a propósito
-(contraseña `android`, alias `androiddebugkey`). Así cada APK compilado en GitHub Actions se instala encima del
-anterior y conserva los datos; sin esa clave fija, cada compilación generaba una distinta y Android obligaba a
-desinstalar. Para publicar en Play Store se usa otra clave, privada.
+| Comando                | Qué revisa                                                         |
+| ---------------------- | ------------------------------------------------------------------ |
+| `npm test`             | pruebas unitarias (`node:test`, empaquetadas con esbuild)          |
+| `npm run lint`         | ESLint con reglas de tipos + angular-eslint (plantillas incluidas) |
+| `npm run typecheck`    | `tsc` sobre la app, el worker y la configuración de Capacitor      |
+| `npm run format:check` | Prettier (`npm run format` lo corrige)                             |
 
-Atajo: `npm run apk:debug`. Para depurar en un dispositivo: `npx cap run android`. Para ver la UI en el navegador:
-`npm start` (las notificaciones/worker solo funcionan en Android).
+**Integración continua** (`.github/workflows/build-apk.yml`): cada push y cada pull request pasan por
+`check` y por las pruebas de extremo a extremo (`e2e/`, con el reloj fijo y la red simulada). El APK de
+depuración solo se compila y publica en el release `apk-latest` ("build N") si `check` pasa; ese release es el
+que la app revisa para avisar de una versión nueva. Cada APK lleva N como `versionCode`.
+
+El APK se firma con `android/app/debug.keystore`, que está en el repositorio a propósito (contraseña `android`,
+alias `androiddebugkey`): así cada APK compilado en GitHub se instala encima del anterior y conserva los datos.
+Para publicar en Play Store se usaría otra clave, privada.
+
+Si se regenera el proyecto nativo (`npx cap add android`) hay que volver a aplicar: los permisos del manifiesto
+(abajo), el `flatDir` del background-runner y los bloques `signingConfigs.debug` y `versionCode` de
+`android/app/build.gradle`.
 
 ### Permisos (`android/app/src/main/AndroidManifest.xml`, ya incluidos)
 
@@ -201,5 +228,20 @@ centro de datos de la cuenta; Chile = América oeste) con la API IoT Core y la c
 
 Calibración en dos puntos: "Ahora está recién regado" (déficit 0) y "Ahora toca regar" (déficit = umbral); entre
 ambos, proporcional. Con el sensor activado, una lectura de menos de 6 h y posterior al último riego/ajuste
-reemplaza al déficit del balance (en la app cada 10 min como máximo y en el worker cada hora). El panel muestra lo
-que marca el sensor y si está en uso.
+reemplaza al déficit del balance (en la app cada 10 min como máximo y en el worker cada hora). Con un solo punto
+marcado, el otro se estima a 30 puntos de distancia (calibración provisional). El panel muestra lo que marca el
+sensor y si está en uso.
+
+**Historial** (panel → etiqueta del sensor, o Ajustes → Ver historial): cada reporte queda guardado un año en el
+teléfono. Se alimenta de las lecturas de la app, de las del worker (que la app recoge al abrirse) y, si el proyecto
+de Tuya lo permite, de los reportes de los últimos 7 días que guarda su nube. Se ve por periodo (24 h, 7 y 30 días,
+todo) en un gráfico en escalones con los niveles de calibración y los riegos, una tabla por día y copia en CSV.
+
+## Privacidad y seguridad
+
+- No hay servidor ni analítica: el estado, el historial y las claves (token de la DMC, clave de INIA, Access
+  Secret de Tuya) se guardan solo en el almacenamiento privado de la app (Capacitor Preferences). Android puede
+  incluirlo en la copia de seguridad de la cuenta de Google del teléfono (`allowBackup`).
+- Las claves viajan únicamente al servicio al que pertenecen, por HTTPS. Los diagnósticos que se pueden copiar
+  ocultan usuario y token (`redact`).
+- El APK es de depuración y se instala fuera de Play Store: está pensado para uso personal.

@@ -36,6 +36,24 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  # La app compilada en un navegador real: los recorridos principales de las tres pantallas. Corre en paralelo
+  # con el APK y no lo bloquea (si falla, queda a la vista en el resumen).
+  e2e:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: riego-inteligente/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+
   apk:
     needs: check
     if: github.event_name != 'pull_request'

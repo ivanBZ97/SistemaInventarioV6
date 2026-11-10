@@ -38,8 +38,19 @@ export default tseslint.config(
     extends: [...angular.configs.templateRecommended, ...angular.configs.templateAccessibility],
   },
   {
-    files: ['test/**/*.mjs', '*.mjs'],
+    files: ['test/**/*.mjs', 'e2e/**/*.mjs', '*.mjs'],
     extends: [eslint.configs.recommended, prettier],
-    languageOptions: { globals: { process: 'readonly', globalThis: 'readonly', console: 'readonly', URL: 'readonly' } },
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        globalThis: 'readonly',
+        console: 'readonly',
+        URL: 'readonly',
+        // En las pruebas de extremo a extremo, las funciones que se evalúan dentro de la página.
+        localStorage: 'readonly',
+        sessionStorage: 'readonly',
+        navigator: 'readonly',
+      },
+    },
   },
 );
