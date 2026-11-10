@@ -18,10 +18,9 @@ const SPRINKLE_X = Array.from({ length: 14 }, (_, i) => 70 + i * 14);
 /** Pasto mascota: su cara, color y postura reflejan la humedad; el fondo refleja el clima. */
 @Component({
   selector: 'app-lawn-hero',
-  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './lawn-hero.component.html',
-  styleUrls: ['./lawn-hero.component.scss'],
+  styleUrl: './lawn-hero.component.scss',
   host: { '[class]': '"mood-" + shownMood() + " scene-" + scene() + (compact() ? " compact" : "")' },
 })
 export class LawnHeroComponent implements OnDestroy {

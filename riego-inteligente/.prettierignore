@@ -1,0 +1,9 @@
+node_modules
+www
+android
+.angular
+.test-dist
+runner/dist
+package-lock.json
+# Catastro de estaciones: una fila por estación, alineada a mano.
+src/app/core/dmc/station-catalog.ts

@@ -22,7 +22,18 @@ export interface StationSource {
   distanceKm: number;
 }
 
-export async function listDmcStations(): Promise<DmcStation[]> {
+let stationList: Promise<DmcStation[]> | null = null;
+
+/**
+ * Catastro de estaciones automáticas: el que publica la DMC y, si no responde, el incluido en la app. Se pide una
+ * sola vez por sesión (elegir una estación lo consulta varias veces).
+ */
+export function listDmcStations(): Promise<DmcStation[]> {
+  stationList ??= fetchStationList();
+  return stationList;
+}
+
+async function fetchStationList(): Promise<DmcStation[]> {
   try {
     const res = await fetchWithTimeout(`${BASE}/estacionesRedEma`);
     if (res.ok) {
@@ -45,7 +56,7 @@ export async function listDmcStations(): Promise<DmcStation[]> {
   } catch {
     /* sin servicio: se usa el catastro incluido en la app */
   }
-  return DMC_STATIONS_FALLBACK.map(([code, name, latitude, longitude, elevationM]) => ({ code, name, latitude, longitude, elevationM }));
+  return catalogStations();
 }
 
 /** Estaciones del catastro incluido en la app (no necesita red). */

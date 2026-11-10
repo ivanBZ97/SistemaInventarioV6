@@ -65,7 +65,7 @@ test('proyección de mañana descuenta la lluvia prevista de hoy', () => {
 test('humedad útil: 0 mm → 100 %, 12 mm → 20 %', () => {
   assert.equal(c.humidityPct(0), 100);
   assert.equal(c.humidityPct(12), 20);
-  assert.ok(Math.abs(c.deficitFromHumidity(c.humidityPct(7)) - 7) < 1e-9);
+  assert.equal(c.humidityPct(40), 0); // nunca bajo cero
 });
 
 test('notificación matutina usa los textos pedidos', () => {

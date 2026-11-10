@@ -210,11 +210,6 @@ export function humidityPct(deficitMm: number): number {
   return clamp(100 - (deficitMm / CRITICAL_DEFICIT_MM) * 80, 0, 100);
 }
 
-/** Inversa de `humidityPct`; usada para convertir una lectura de sensor en déficit. */
-export function deficitFromHumidity(pct: number): number {
-  return clamp(((100 - pct) / 80) * CRITICAL_DEFICIT_MM, 0, 40);
-}
-
 /**
  * Avanza el balance día a día desde `state.asOf` hasta `targetDate`:
  *   Deficit_Hoy = max(0, Deficit_Ayer + ETc_Ayer − Lluvia_Efectiva_Ayer − Riego_Ayer)
