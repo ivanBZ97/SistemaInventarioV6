@@ -40,7 +40,8 @@ jobs:
   # con el APK y no lo bloquea (si falla, queda a la vista en el resumen).
   e2e:
     needs: check
-    runs-on: ubuntu-latest
+    # Playwright aún no soporta el Ubuntu más nuevo (el de `ubuntu-latest`): se fija una versión que sí.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
