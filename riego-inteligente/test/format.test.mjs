@@ -67,6 +67,29 @@ test('una consulta que no responde se abandona al cumplirse el tiempo límite', 
   }
 });
 
+test('toda consulta indica su método y, en el worker, no manda señal de cancelación', async () => {
+  const orig = globalThis.fetch;
+  try {
+    const seen = [];
+    globalThis.fetch = async (_url, init) => {
+      seen.push(init);
+      return { ok: true, status: 200 };
+    };
+    await http.fetchWithTimeout('https://example.invalid', { headers: { a: 'b' } }, 50);
+    assert.equal(seen[0].method, 'GET'); // sin método, el fetch del worker lo rechaza
+    assert.ok(seen[0].signal); // en el navegador sí se puede cancelar
+    await http.fetchWithTimeout('https://example.invalid', { method: 'POST' }, 50);
+    assert.equal(seen[1].method, 'POST');
+    globalThis.CapacitorKV = {};
+    await http.fetchWithTimeout('https://example.invalid', {}, 50);
+    assert.equal(seen[2].method, 'GET');
+    assert.equal(seen[2].signal, undefined);
+  } finally {
+    delete globalThis.CapacitorKV;
+    globalThis.fetch = orig;
+  }
+});
+
 test('la configuración de Capacitor usa la etiqueta y el evento del protocolo del worker', () => {
   const config = readFileSync(new URL('../capacitor.config.ts', import.meta.url), 'utf8');
   assert.ok(config.includes(`label: '${RUNNER_LABEL}'`));

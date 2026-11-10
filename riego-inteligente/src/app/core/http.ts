@@ -14,18 +14,24 @@ export class TimeoutError extends Error {
   }
 }
 
+/** El worker en segundo plano (CapacitorKV existe solo ahí) tiene su propio `fetch`, más limitado que el del navegador. */
+const inRunner = () => typeof (globalThis as { CapacitorKV?: unknown }).CapacitorKV !== 'undefined';
+
 /**
  * Igual que `fetch`, pero rechaza con {@link TimeoutError} si la respuesta (encabezados) no llega en `timeoutMs`.
- * Si el entorno lo permite, además cancela la conexión.
+ * Si el entorno lo permite, además cancela la conexión. Siempre indica el método: el `fetch` del worker rechaza
+ * una consulta con opciones pero sin `method`.
  */
 export function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = TIMEOUT_MS): Promise<Response> {
-  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  // El fetch del worker no entiende `signal`: allí el tiempo límite solo abandona la espera.
+  const controller = typeof AbortController === 'function' && !inRunner() ? new AbortController() : null;
+  const options: RequestInit = { ...init, method: init.method ?? 'GET', ...(controller ? { signal: controller.signal } : {}) };
   return new Promise<Response>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new TimeoutError(timeoutMs));
       controller?.abort();
     }, timeoutMs);
-    fetch(url, controller ? { ...init, signal: controller.signal } : init)
+    fetch(url, options)
       .then(resolve, reject)
       .finally(() => clearTimeout(timer));
   });
