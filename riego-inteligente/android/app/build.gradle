@@ -1,5 +1,7 @@
 apply plugin: 'com.android.application'
 
+def ciBuildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+
 android {
     namespace = "cl.riego.inteligente"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +9,10 @@ android {
         applicationId "cl.riego.inteligente"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // En GitHub Actions cada APK lleva su número de build: Android lo muestra y solo acepta instalar uno igual
+        // o más nuevo encima. Una compilación local queda en 1.
+        versionCode ciBuildNumber
+        versionName "1.0.${ciBuildNumber}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

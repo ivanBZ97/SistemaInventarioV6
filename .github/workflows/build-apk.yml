@@ -5,16 +5,43 @@ on:
   push:
     branches: [claude/smart-irrigation-android-6cp57w]
     paths: ['riego-inteligente/**', '.github/workflows/build-apk.yml']
+  pull_request:
+    paths: ['riego-inteligente/**', '.github/workflows/build-apk.yml']
 
-permissions:
-  contents: write
+# Un push nuevo a la misma rama reemplaza a la compilación anterior (solo interesa el último APK).
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: riego-inteligente
 
 jobs:
-  apk:
+  # Formato, lint, tipos y pruebas: nada se compila ni se publica si esto falla.
+  check:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: riego-inteligente
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: riego-inteligente/package-lock.json
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  apk:
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # publica el Release con el APK
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,7 +54,6 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm ci
-      - run: npm test
       - name: Versión del APK (para el aviso de actualización)
         run: |
           printf "export const BUILD_INFO: { sha: string; run: number } = { sha: '%s', run: %s };\n" "$GITHUB_SHA" "$GITHUB_RUN_NUMBER" > src/app/core/build-info.ts
