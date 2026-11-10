@@ -11,45 +11,47 @@
     role="img"
     aria-label="Tu pasto, ánimo: {{ shownMood() }}"
   >
-    <!-- clima -->
-    @if (scene() === 'sun') {
-      <g transform="translate(268 46)">
-        <g>
-          @if (!reduceMotion) {
-            <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="24s" repeatCount="indefinite" />
-          }
-          @for (a of [0, 45, 90, 135, 180, 225, 270, 315]; track a) {
-            <line
-              x1="0"
-              y1="-37"
-              x2="0"
-              y2="-31"
-              class="ray"
-              stroke-width="3"
-              stroke-linecap="round"
-              [attr.transform]="'rotate(' + a + ')'"
-            />
-          }
+    <!-- clima: con un cielo detrás (bare) lo dibuja el fondo -->
+    @if (!bare()) {
+      @if (scene() === 'sun') {
+        <g transform="translate(268 46)">
+          <g>
+            @if (!reduceMotion) {
+              <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="24s" repeatCount="indefinite" />
+            }
+            @for (a of [0, 45, 90, 135, 180, 225, 270, 315]; track a) {
+              <line
+                x1="0"
+                y1="-37"
+                x2="0"
+                y2="-31"
+                class="ray"
+                stroke-width="3"
+                stroke-linecap="round"
+                [attr.transform]="'rotate(' + a + ')'"
+              />
+            }
+          </g>
+          <circle r="26" class="sun-halo" />
+          <circle r="18" class="sun" />
         </g>
-        <circle r="26" class="sun-halo" />
-        <circle r="18" class="sun" />
-      </g>
-    } @else {
-      <g class="cloud" [class.dark]="scene() === 'rain'">
-        <path d="M40 66 a16 16 0 0 1 4 -31 a22 22 0 0 1 42 -6 a18 18 0 0 1 30 14 a14 14 0 0 1 -6 23 Z" />
-      </g>
-      <g class="cloud far" [class.dark]="scene() === 'rain'">
-        <path d="M200 52 a12 12 0 0 1 3 -23 a16 16 0 0 1 31 -4 a13 13 0 0 1 22 10 a10 10 0 0 1 -4 17 Z" />
-      </g>
-    }
-    @if (scene() === 'rain') {
-      @for (x of rainX; track x; let i = $index) {
-        <line class="drop" [attr.x1]="x" y1="70" [attr.x2]="x - 3" y2="82" [style.animation-delay]="(i % 8) * 0.12 + 's'" />
+      } @else {
+        <g class="cloud" [class.dark]="scene() === 'rain'">
+          <path d="M40 66 a16 16 0 0 1 4 -31 a22 22 0 0 1 42 -6 a18 18 0 0 1 30 14 a14 14 0 0 1 -6 23 Z" />
+        </g>
+        <g class="cloud far" [class.dark]="scene() === 'rain'">
+          <path d="M200 52 a12 12 0 0 1 3 -23 a16 16 0 0 1 31 -4 a13 13 0 0 1 22 10 a10 10 0 0 1 -4 17 Z" />
+        </g>
       }
-    }
-    @if (scene() === 'wind') {
-      @for (y of [60, 88, 116]; track y; let i = $index) {
-        <path class="gust" [attr.d]="'M0 ' + y + ' q 30 -10 60 0 t 60 0 t 40 -4'" [style.animation-delay]="i * 0.5 + 's'" />
+      @if (scene() === 'rain') {
+        @for (x of rainX; track x; let i = $index) {
+          <line class="drop" [attr.x1]="x" y1="70" [attr.x2]="x - 3" y2="82" [style.animation-delay]="(i % 8) * 0.12 + 's'" />
+        }
+      }
+      @if (scene() === 'wind') {
+        @for (y of [60, 88, 116]; track y; let i = $index) {
+          <path class="gust" [attr.d]="'M0 ' + y + ' q 30 -10 60 0 t 60 0 t 40 -4'" [style.animation-delay]="i * 0.5 + 's'" />
+        }
       }
     }
 

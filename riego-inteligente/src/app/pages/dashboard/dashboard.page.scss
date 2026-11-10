@@ -1,3 +1,67 @@
+/*
+ * El panel se dibuja sobre un cielo animado (app-sky-backdrop) con tarjetas de vidrio. Para no reescribir cada
+ * componente, aquí se redefinen los tokens --md-* de esta pantalla: superficies translúcidas y texto claro.
+ * Las hojas inferiores (modales) viven fuera de este elemento y conservan el tema normal.
+ */
+:host {
+  --glass: rgba(10, 28, 52, 0.36);
+  --glass-strong: rgba(255, 255, 255, 0.24);
+  --md-on-surface: #ffffff;
+  --md-on-surface-variant: rgba(255, 255, 255, 0.86);
+  --md-outline: rgba(255, 255, 255, 0.7);
+  --md-outline-variant: rgba(255, 255, 255, 0.28);
+  --md-primary: #b8f5c8;
+  --md-primary-container: rgba(255, 255, 255, 0.24);
+  --md-on-primary-container: #ffffff;
+  --md-secondary-container: rgba(255, 255, 255, 0.2);
+  --md-on-secondary-container: #ffffff;
+  --md-tertiary: #b9e4ff;
+  --md-tertiary-container: rgba(110, 190, 255, 0.3);
+  --md-on-tertiary-container: #ffffff;
+  --md-warning: #ffd58a;
+  --md-warning-container: rgba(255, 190, 90, 0.32);
+  --md-on-warning-container: #ffffff;
+  --md-error: #ffaaa2;
+  --md-surface-container: var(--glass);
+  --md-surface-container-low: var(--glass);
+  --md-surface-container-highest: var(--glass-strong);
+  --md-data-gain: #a9dcff;
+  --md-data-loss: #ffc690;
+  /* Sin position: la pantalla ya es absoluta (.ion-page) y el cielo se ancla a ella. */
+  color: #ffffff;
+}
+ion-header,
+ion-content {
+  position: relative;
+  z-index: 1;
+}
+ion-toolbar {
+  --background: transparent;
+  --color: #ffffff;
+  --border-width: 0;
+}
+ion-content {
+  --background: transparent;
+  --color: #ffffff;
+}
+/* Tarjetas de vidrio */
+.hero-tags .tag,
+.rec,
+.live-card,
+.tile,
+.list-card,
+.chart-card,
+.md-banner {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+.hero-tags .tag {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  text-decoration: none;
+}
+
 /* Barra superior */
 .appbar {
   display: flex;
@@ -69,25 +133,35 @@
 
 /* Tarjeta principal */
 .hero {
-  margin: 8px 16px 0;
+  margin: 0 16px;
   padding: 8px 8px 16px;
-  border-radius: var(--md-shape-xl);
-  background: var(--md-surface-container);
 }
 .hero-body {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 12px 0;
+  padding: 8px 12px 0;
 }
 .hero-figure {
   display: flex;
   flex-direction: column;
-  .unit {
-    font-size: 32px;
-    margin-left: 2px;
+  .md-display-large {
+    font-size: 96px;
+    line-height: 96px;
+    font-weight: 200;
+    letter-spacing: -2px;
+    text-shadow: 0 2px 16px rgba(0, 0, 0, 0.25);
   }
+  .unit {
+    font-size: 36px;
+    font-weight: 300;
+    margin-left: 4px;
+    letter-spacing: 0;
+  }
+}
+.hero-pet {
+  margin: 4px 0 -4px;
 }
 .hero-side {
   display: flex;
@@ -163,20 +237,19 @@
   margin: 12px 16px 0;
   padding: 20px;
   border-radius: var(--md-shape-xl);
-  --rec-bg: var(--md-primary-container);
-  --rec-fg: var(--md-on-primary-container);
-  --rec-icon: var(--md-primary);
+  --rec-bg: rgba(60, 170, 110, 0.4);
+  --rec-fg: #ffffff;
+  --rec-icon: #ffffff;
+  --rec-icon-fg: #1a6b3f;
   background: var(--rec-bg);
   color: var(--rec-fg);
   &.water {
-    --rec-bg: var(--md-tertiary-container);
-    --rec-fg: var(--md-on-tertiary-container);
-    --rec-icon: var(--md-tertiary);
+    --rec-bg: rgba(40, 130, 220, 0.44);
+    --rec-icon-fg: #1c5a9a;
   }
   &.neutral {
-    --rec-bg: var(--md-secondary-container);
-    --rec-fg: var(--md-on-secondary-container);
-    --rec-icon: var(--md-secondary);
+    --rec-bg: var(--glass);
+    --rec-icon-fg: #35506b;
   }
 }
 .rec-icon {
@@ -186,7 +259,7 @@
   display: grid;
   place-items: center;
   background: var(--rec-icon);
-  color: var(--rec-bg);
+  color: var(--rec-icon-fg);
   font-size: 24px;
 }
 .rec-text {
@@ -549,9 +622,10 @@ ion-fab {
   border: 0;
   border-radius: var(--md-shape-lg);
   cursor: pointer;
-  background: var(--md-primary-container);
-  color: var(--md-on-primary-container);
-  box-shadow: var(--md-elev-3);
+  background: #ffffff;
+  color: #0f4d2c;
+  font-weight: 500;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
   ion-icon {
     font-size: 24px;
   }

@@ -45,6 +45,8 @@ import { APK_URL } from '../../core/update';
 import { UpdateService } from '../../core/update.service';
 import { inputChecked, inputNumber } from '../../ui/ion-events';
 import { LawnHeroComponent } from '../../ui/lawn-hero/lawn-hero.component';
+import { SkyBackdropComponent } from '../../ui/sky-backdrop/sky-backdrop.component';
+import { hourOfDay } from '../../ui/sky-backdrop/sky-theme';
 import { SnackbarService } from '../../ui/snackbar.service';
 import {
   MAX_IRRIGATION_MINUTES,
@@ -100,6 +102,7 @@ const CLOCK_TICK_MS = 30_000;
     IonModal,
     IonRange,
     LawnHeroComponent,
+    SkyBackdropComponent,
   ],
   templateUrl: './dashboard.page.html',
   styleUrl: './dashboard.page.scss',
@@ -124,6 +127,8 @@ export class DashboardPage implements OnInit, OnDestroy {
 
   /** Reloj para los textos "hace X min". */
   readonly now = signal(Date.now());
+  /** Hora local del día: el cielo cambia con ella. */
+  readonly hour = computed(() => hourOfDay(this.now()));
   private timers: ReturnType<typeof setInterval>[] = [];
 
   constructor() {

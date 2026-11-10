@@ -1,3 +1,5 @@
+<app-sky-backdrop [scene]="scene()" [hour]="hour()" />
+
 <ion-header class="ion-no-border">
   <ion-toolbar>
     <div class="appbar">
@@ -41,7 +43,6 @@
 
     <!-- Tarjeta principal -->
     <section class="hero">
-      <app-lawn-hero [mood]="mood()" [scene]="scene()" [messages]="messages()" />
       <div class="hero-body">
         <div class="hero-figure">
           <span class="md-display-large">{{ humidity() }}<span class="unit">%</span></span>
@@ -52,6 +53,7 @@
           <span class="md-body-small md-variant">déficit hídrico</span>
         </div>
       </div>
+      <app-lawn-hero class="hero-pet" [bare]="true" [mood]="mood()" [scene]="scene()" [messages]="messages()" />
       <div
         class="progress"
         [class]="'progress ' + level()"

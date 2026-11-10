@@ -21,13 +21,15 @@ const SPRINKLE_X = Array.from({ length: 14 }, (_, i) => 70 + i * 14);
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './lawn-hero.component.html',
   styleUrl: './lawn-hero.component.scss',
-  host: { '[class]': '"mood-" + shownMood() + " scene-" + scene() + (compact() ? " compact" : "")' },
+  host: { '[class]': '"mood-" + shownMood() + " scene-" + scene() + (compact() ? " compact" : "") + (bare() ? " bare" : "")' },
 })
 export class LawnHeroComponent implements OnDestroy {
   readonly mood = input.required<Mood>();
   readonly scene = input.required<Scene>();
   readonly messages = input<string[]>([]);
   readonly compact = input(false);
+  /** Sin cielo propio: el pasto se dibuja sobre el fondo de la pantalla. */
+  readonly bare = input(false);
 
   private readonly tapIndex = signal(0);
   readonly watering = signal(false);

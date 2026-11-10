@@ -88,6 +88,22 @@ svg {
   height: 180px;
 }
 
+/* Sobre el cielo de la pantalla: sin fondo propio; el globo es de vidrio oscuro con texto claro. */
+:host(.bare) .bubble {
+  background: rgba(8, 22, 44, 0.55);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  box-shadow: none;
+}
+/* Sobre el cielo de la pantalla: sin fondo propio. */
+:host(.bare) .sky {
+  background: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
 /* Rich tooltip M3 */
 .bubble {
   position: absolute;
