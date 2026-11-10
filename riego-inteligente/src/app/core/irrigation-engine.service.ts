@@ -54,6 +54,8 @@ export interface Snapshot {
   /** Lluvia corregida por el usuario, por día. */
   rainOverrides: RainOverrides;
   chart: ChartDay[];
+  /** Riegos registrados (los últimos 200), del más antiguo al más nuevo. */
+  irrigations: IrrigationEvent[];
   /** Últimos 30 días: riegos, agua y lluvia. */
   month: MonthSummary;
   overseedDaysLeft: number;
@@ -342,6 +344,7 @@ export class IrrigationEngineService {
       rainOverrides,
       next: days.length ? forecastNextIrrigation(state, days, settings, today) : null,
       chart: buildChart(today, history, days, irrigations),
+      irrigations,
       month: monthSummary(today, history, irrigations, settings.lawnAreaM2),
       overseedDaysLeft: overseedDaysLeft(state, today),
       staleWeather: weather.stale,

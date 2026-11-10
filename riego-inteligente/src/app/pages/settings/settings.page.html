@@ -1,0 +1,22 @@
+<ion-header class="ion-no-border">
+  <ion-toolbar>
+    <ion-buttons slot="start"><ion-back-button defaultHref="/dashboard" text="" /></ion-buttons>
+    <ion-title class="md-title-large">Ajustes</ion-title>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content>
+  @if (loaded()) {
+    <app-irrigation-section />
+    <app-location-section />
+    <app-station-section />
+    <app-sensor-section />
+    <app-notifications-section />
+    <app-status-section />
+    <div class="bottom-space"></div>
+  }
+</ion-content>
+
+<div class="save-bar">
+  <ion-button expand="block" [disabled]="!loaded() || saving()" (click)="save()">{{ saving() ? 'Guardando…' : 'Guardar cambios' }}</ion-button>
+</div>

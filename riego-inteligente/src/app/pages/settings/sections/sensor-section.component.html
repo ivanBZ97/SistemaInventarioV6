@@ -1,0 +1,60 @@
+<h2 class="section md-title-small">Sensor de suelo</h2>
+<div class="card">
+  <p class="md-body-medium md-variant intro">
+    Sensor Tuya / Smart Life leído desde la nube de Tuya. Necesita un proyecto gratuito en iot.tuya.com con tu cuenta de
+    Smart Life vinculada (Access ID y Access Secret en «Overview»). Las claves se guardan solo en este teléfono.
+  </p>
+  <div class="chips plain" role="radiogroup" aria-label="Centro de datos de tu cuenta">
+    @for (r of regions; track r.id) {
+      <button type="button" class="chip" role="radio" [class.on]="form.tuyaRegion() === r.id" [attr.aria-checked]="form.tuyaRegion() === r.id"
+              (click)="form.tuyaRegion.set(r.id)">
+        @if (form.tuyaRegion() === r.id) { <ion-icon name="checkmark-outline" /> }{{ r.label }}
+      </button>
+    }
+  </div>
+  <div class="field two">
+    <ion-input fill="outline" label="Access ID" labelPlacement="floating" autocapitalize="off" autocorrect="off" [spellcheck]="false"
+               [value]="form.tuyaId()" (ionInput)="form.tuyaId.set(text($event))" />
+    <ion-input fill="outline" type="password" label="Access Secret" labelPlacement="floating"
+               [value]="form.tuyaSecret()" (ionInput)="form.tuyaSecret.set(text($event))">
+      <ion-input-password-toggle slot="end" showIcon="eye-outline" hideIcon="eye-off-outline" />
+    </ion-input>
+  </div>
+  <div class="field">
+    <ion-input fill="outline" label="ID del sensor" labelPlacement="floating" autocapitalize="off" autocorrect="off" [spellcheck]="false"
+               helperText="Smart Life → el sensor → lápiz → Información del dispositivo → ID virtual"
+               [value]="form.tuyaDevice()" (ionInput)="form.tuyaDevice.set(text($event))" />
+  </div>
+  <div class="chips">
+    <button type="button" class="chip" (click)="test()" [disabled]="busy()">
+      <ion-icon name="pulse-outline" />{{ busy() ? 'Consultando…' : 'Probar sensor' }}
+    </button>
+    <a class="chip" routerLink="/sensor"><ion-icon name="stats-chart-outline" />Ver historial</a>
+  </div>
+  @if (report(); as r) {
+    <div class="md-body-small report" [class.err]="r.error">
+      @for (line of r.lines; track $index) { <p>{{ line }}</p> }
+    </div>
+  }
+
+  <div class="divider"></div>
+  <div class="row">
+    <div class="li-icon"><ion-icon name="leaf-outline" /></div>
+    <div class="li-text">
+      <span class="md-body-large">Calibración</span>
+      <span class="md-body-medium md-variant">{{ calibrationText() }}</span>
+    </div>
+  </div>
+  <div class="chips">
+    <button type="button" class="chip" (click)="calibrate('wet')" [disabled]="busy()"><ion-icon name="water-outline" />Ahora está recién regado</button>
+    <button type="button" class="chip" (click)="calibrate('dry')" [disabled]="busy()"><ion-icon name="alarm-outline" />Ahora toca regar</button>
+  </div>
+  <div class="row">
+    <div class="li-text">
+      <span class="md-body-large">Usar el sensor en el balance</span>
+      <span class="md-body-medium md-variant">Su lectura reemplaza al cálculo (necesita la calibración)</span>
+    </div>
+    <ion-toggle [checked]="form.sensorOn()" [disabled]="!form.calibration() || !form.sensor()" (ionChange)="toggle(checked($event))"
+                aria-label="Usar el sensor en el balance" />
+  </div>
+</div>

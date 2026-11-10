@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as h from '../src/app/core/sensor-history.ts';
 import * as tuya from '../src/app/core/tuya.ts';
+import * as chart from '../src/app/pages/sensor/sensor-chart.ts';
 
 process.env.TZ = 'America/Santiago';
 
@@ -115,4 +116,44 @@ test('la lectura del sensor informa qué códigos usa este modelo', () => {
 test('el mismo reporte con horas apenas distintas (en vivo y desde la nube) queda una sola vez', () => {
   const a = h.mergeSamples([s(T, 49, 21.2, 81)], [s(T + 1_500, 49, 21.2, null), s(T + 30 * 60_000, 49)], T + 3_600_000);
   assert.deepEqual(a, [s(T, 49, 21.2, 81), s(T + 30 * 60_000, 49)]);
+});
+
+// ───────────── Gráfico del historial ─────────────
+
+const H1 = 3_600_000;
+const chartOf = (samples, o = {}) =>
+  chart.sensorChart({ samples, t0: T - 24 * H1, t1: T, now: T, calibration: {}, irrigationTimes: [], focus: null, ...o });
+
+test('el gráfico va en escalones: la humedad se mantiene hasta el reporte siguiente y hasta ahora', () => {
+  const c = chartOf([s(T - 12 * H1, 100), s(T - 6 * H1, 90)]);
+  const { X0, X1 } = chart.CHART_GEOMETRY;
+  const mid = (X0 + (X1 - X0) / 2).toFixed(1);
+  const x18 = (X0 + ((X1 - X0) * 18) / 24).toFixed(1);
+  // Parte en el primer reporte (mitad del periodo), sigue horizontal hasta el segundo, baja y llega hasta ahora.
+  assert.match(c.path, new RegExp(`^M${mid},[\\d.]+H${x18}V[\\d.]+H${X1.toFixed(1)}$`));
+  assert.equal(c.gapPath, '');
+  assert.equal(c.dots.length, 2);
+});
+
+test('el gráfico parte del valor anterior al periodo y marca punteado un tramo de más de 24 h sin reportes', () => {
+  const c = chartOf([s(T - 60 * H1, 80), s(T - 2 * H1, 60)], { t0: T - 48 * H1 });
+  const { X0 } = chart.CHART_GEOMETRY;
+  assert.ok(c.path.startsWith(`M${X0.toFixed(1)},`)); // desde el borde izquierdo, con el valor que traía
+  assert.ok(c.gapPath.startsWith(`M${X0.toFixed(1)},`)); // 46 h sin reportes: punteado
+  assert.equal(c.dots.length, 1); // solo el reporte dentro del periodo
+});
+
+test('la escala del gráfico incluye la calibración y los riegos del periodo quedan marcados', () => {
+  const c = chartOf([s(T - H1, 92)], { calibration: { wet: 100, dry: 52 }, irrigationTimes: [T - 3 * H1, T - 100 * H1] });
+  assert.deepEqual(c.grid.map((g) => g.v), [40, 60, 80, 100]);
+  assert.deepEqual(c.calib.map((k) => k.label), ['húmedo 100 %', 'toca regar 52 %']);
+  assert.equal(c.irrigations.length, 1);
+});
+
+test('eje de tiempo: cada 6 h en un día y por día en una semana; el dedo se traduce a un instante', () => {
+  assert.deepEqual(chart.timeTicks(T - 24 * H1, T).map((t) => t.label), ['18:00', '00:00', '06:00', '12:00']);
+  assert.deepEqual(chart.timeTicks(T - 7 * 24 * H1, T).map((t) => t.label), ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom']);
+  const { X0, X1 } = chart.CHART_GEOMETRY;
+  assert.equal(chart.timeAt(X0 - 50, 1000, 2000), 1000);
+  assert.equal(chart.timeAt((X0 + X1) / 2, 1000, 2000), 1500);
 });

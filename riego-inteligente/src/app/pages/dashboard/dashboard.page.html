@@ -236,7 +236,7 @@
       <svg viewBox="0 0 320 152" class="chart" role="img" aria-label="Agua perdida por evapotranspiración frente a agua repuesta por riego y lluvia">
         <line x1="8" [attr.y1]="chartH + 0.5" x2="312" [attr.y2]="chartH + 0.5" class="axis" />
         @for (b of bars(); track $index; let i = $index) {
-          <g class="day" [class.sel]="(selected() ?? bars().length - 1) === i" (click)="selected.set(i)">
+          <g class="day" [class.sel]="selectedIndex() === i" (click)="selected.set(i)">
             <rect class="hit" [attr.x]="b.slotX + 2" y="2" [attr.width]="b.slot - 4" [attr.height]="chartH + 20" rx="10" />
             <rect [attr.x]="b.etc.x" [attr.y]="b.etc.y" [attr.width]="b.w" [attr.height]="b.etc.h" rx="5" class="loss" [class.est]="b.day.estimated" />
             <rect [attr.x]="b.water.x" [attr.y]="b.water.y" [attr.width]="b.w" [attr.height]="b.water.h" rx="5" class="gain" />
@@ -286,8 +286,8 @@
         <span class="md-display-small">{{ irrigateMinutes() }} min</span>
         <span class="md-body-small md-variant">{{ irrigatePreview().water }}</span>
       </div>
-      <ion-range class="m3-slider" [min]="1" [max]="40" [step]="1" [value]="irrigateMinutes()" aria-label="Minutos de riego"
-                 (ionInput)="pickIrrigate(+$any($event).detail.value, false)" />
+      <ion-range class="m3-slider" [min]="1" [max]="maxMinutes" [step]="1" [value]="irrigateMinutes()" aria-label="Minutos de riego"
+                 (ionInput)="pickIrrigate(number($event), false)" />
       <div class="sheet-scale md-body-small md-variant"><span>1 min</span><span>40 min</span></div>
       <div class="chips-row">
         @for (m of irrigateOptions(); track m.min) {
@@ -315,7 +315,7 @@
         <span class="md-body-small md-variant">de déficit</span>
       </div>
       <ion-range class="m3-slider" [min]="0" [max]="14" [step]="0.5" [value]="adjustValue()" aria-label="Déficit en milímetros"
-                 (ionInput)="adjustValue.set(+$any($event).detail.value)" />
+                 (ionInput)="adjustValue.set(number($event))" />
       <div class="sheet-scale md-body-small md-variant"><span>Muy húmeda</span><span>Muy seca</span></div>
       <div class="sheet-actions">
         <ion-button fill="clear" (click)="adjustOpen.set(false)">Cancelar</ion-button>

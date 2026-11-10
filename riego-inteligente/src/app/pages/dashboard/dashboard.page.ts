@@ -13,14 +13,12 @@ import {
   IonRefresherContent,
   IonToggle,
   IonToolbar,
-  ToastController,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
   calendarOutline,
   checkmarkOutline,
   downloadOutline,
-  timeOutline,
   flagOutline,
   flowerOutline,
   leafOutline,
@@ -29,52 +27,82 @@ import {
   rainyOutline,
   settingsOutline,
   thermometerOutline,
+  timeOutline,
   trendingUpOutline,
   umbrellaOutline,
   waterOutline,
 } from 'ionicons/icons';
-import { IrrigationEngineService } from '../../core/irrigation-engine.service';
-import { NotificationService } from '../../core/notification.service';
 import { BackgroundService } from '../../core/background.service';
-import { LocationService } from '../../core/location.service';
-import { humidityPct, litersFor, longDateEs, round1, toISODate, weekdayEs } from '../../core/irrigation-core';
-import { LIVE_FRESH_MS } from '../../core/dmc';
-import type { OverseedArea } from '../../core/models';
+import type { ISODate } from '../../core/dates';
+import { fmt } from '../../core/format';
+import { humidityPct, round1 } from '../../core/irrigation-core';
+import { IrrigationEngineService } from '../../core/irrigation-engine.service';
 import { lawnMessages, lawnMood, lawnScene } from '../../core/lawn-mood';
-import { LawnHeroComponent } from '../../ui/lawn-hero/lawn-hero.component';
-import { UpdateService } from '../../core/update.service';
+import { LocationService } from '../../core/location.service';
+import type { OverseedArea } from '../../core/models';
+import { NotificationService } from '../../core/notification.service';
 import { APK_URL } from '../../core/update';
-
-const SLOT = 300 / 7;
-
-/** Número con coma decimal chilena. */
-export function fmt(v: number, digits = 1): string {
-  return v.toLocaleString('es-CL', { maximumFractionDigits: digits, minimumFractionDigits: 0 });
-}
-
-const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
-
-/** "18:45" */
-const clock = (t: number) => {
-  const d = new Date(t);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-};
+import { UpdateService } from '../../core/update.service';
+import { inputChecked, inputNumber } from '../../ui/ion-events';
+import { LawnHeroComponent } from '../../ui/lawn-hero/lawn-hero.component';
+import { SnackbarService } from '../../ui/snackbar.service';
+import {
+  MAX_IRRIGATION_MINUTES,
+  WEEK_CHART,
+  deficitOf,
+  evaluationNow,
+  forecastStrip,
+  hourDetail,
+  humidityOf,
+  irrigationOptions,
+  irrigationPreview,
+  liveRainView,
+  longDate,
+  monthTiles,
+  nextIrrigationView,
+  overseedText,
+  placeLabel,
+  recommendation,
+  selectedDayView,
+  sensorTag,
+  stripDetail,
+  thresholdOf,
+  todayTiles,
+  tomorrowView,
+  weekBars,
+} from './dashboard.view';
 
 /**
  * Con la app abierta: lluvia de la estación cada 10 min. Publica con ~25–30 min de atraso y cada consulta pesa
  * ~0,5 MB (12 h de lecturas), así que consultar más seguido gasta datos sin ganar mucho.
  */
 const LIVE_REFRESH_MS = 10 * 60_000;
+/** Cada cuánto se actualizan los textos "hace X min". */
+const CLOCK_TICK_MS = 30_000;
 
+/**
+ * Pantalla principal: estado del pasto, recomendación de hoy, lluvia medida, próximo riego y balance de la semana.
+ * Los textos y cifras salen de funciones puras (dashboard.view.ts); aquí solo hay estado de la pantalla y acciones.
+ */
 @Component({
   selector: 'app-dashboard',
-  standalone: true,
   imports: [
-    RouterLink, IonHeader, IonToolbar, IonButton, IonIcon, IonContent, IonFab, IonToggle, IonRefresher,
-    IonRefresherContent, IonModal, IonRange, LawnHeroComponent,
+    RouterLink,
+    IonHeader,
+    IonToolbar,
+    IonButton,
+    IonIcon,
+    IonContent,
+    IonFab,
+    IonToggle,
+    IonRefresher,
+    IonRefresherContent,
+    IonModal,
+    IonRange,
+    LawnHeroComponent,
   ],
   templateUrl: './dashboard.page.html',
-  styleUrls: ['./dashboard.page.scss'],
+  styleUrl: './dashboard.page.scss',
 })
 export class DashboardPage implements OnInit, OnDestroy {
   private engine = inject(IrrigationEngineService);
@@ -82,346 +110,131 @@ export class DashboardPage implements OnInit, OnDestroy {
   private background = inject(BackgroundService);
   private location = inject(LocationService);
   private alerts = inject(AlertController);
-  private toasts = inject(ToastController);
+  private snackbar = inject(SnackbarService);
   private router = inject(Router);
 
-  readonly snap = this.engine.snapshot;
   readonly updates = inject(UpdateService);
-  readonly apkUrl = APK_URL;
+  readonly snap = this.engine.snapshot;
   readonly hero = viewChild(LawnHeroComponent);
+  readonly apkUrl = APK_URL;
   readonly fmt = fmt;
+  readonly number = inputNumber;
+  readonly chartH = WEEK_CHART.height;
+  readonly maxMinutes = MAX_IRRIGATION_MINUTES;
+
+  /** Reloj para los textos "hace X min". */
+  readonly now = signal(Date.now());
+  private timers: ReturnType<typeof setInterval>[] = [];
 
   constructor() {
     addIcons({
-      settingsOutline, waterOutline, locationOutline, leafOutline, umbrellaOutline, thermometerOutline,
-      rainyOutline, flagOutline, calendarOutline, trendingUpOutline, flowerOutline, optionsOutline, checkmarkOutline, downloadOutline, timeOutline,
+      calendarOutline,
+      checkmarkOutline,
+      downloadOutline,
+      flagOutline,
+      flowerOutline,
+      leafOutline,
+      locationOutline,
+      optionsOutline,
+      rainyOutline,
+      settingsOutline,
+      thermometerOutline,
+      timeOutline,
+      trendingUpOutline,
+      umbrellaOutline,
+      waterOutline,
     });
   }
 
   // ───────────── Tarjeta principal ─────────────
-  readonly deficit = computed(() => this.snap()?.evaluation?.deficitMm ?? this.snap()?.state.deficitMm ?? 0);
+  readonly deficit = computed(() => deficitOf(this.snap()));
   readonly humidity = computed(() => Math.round(this.snap()?.evaluation?.humidityPct ?? 100));
+  readonly threshold = computed(() => thresholdOf(this.snap()));
+  /** Marcador "aquí se riega": humedad útil equivalente al umbral. */
+  readonly thresholdPct = computed(() => humidityPct(this.threshold()));
+  readonly level = computed(() => (this.humidity() >= 60 ? 'good' : this.humidity() >= 40 ? 'warn' : 'bad'));
+  readonly placeLabel = computed(() => placeLabel(this.snap()));
+  readonly sensorTag = computed(() => sensorTag(this.snap(), this.now()));
+
+  // El pasto ilustrado: ánimo, clima de fondo y lo que dice al tocarlo.
+  private readonly evNow = computed(() => evaluationNow(this.snap()?.evaluation));
   readonly mood = computed(() => lawnMood(this.humidity(), this.snap()?.evaluation?.status ?? 'ok'));
-  /** La evaluación con el pronóstico de lluvia de lo que queda de hoy (si la estación ya midió parte del día). */
-  private readonly evNow = computed(() => {
-    const ev = this.snap()?.evaluation;
-    if (!ev || ev.rainForecastLeftMm === null) return ev ?? null;
-    return { ...ev, rainForecastMm: ev.rainForecastLeftMm, rainProbPct: ev.rainForecastLeftMm >= 1 ? ev.rainProbPct : 0 };
-  });
   readonly scene = computed(() => {
     const ev = this.evNow();
     return ev ? lawnScene(ev) : 'sun';
   });
   readonly messages = computed(() => lawnMessages(this.mood(), this.scene(), this.evNow()));
-  readonly level = computed(() => (this.humidity() >= 60 ? 'good' : this.humidity() >= 40 ? 'warn' : 'bad'));
-  /** Umbral de hoy: el de Ajustes, o el de siembra (2 mm) si hay Resiembra de todo el jardín. */
-  readonly threshold = computed(() => this.snap()?.evaluation?.thresholdMm ?? this.snap()?.settings.thresholdMm ?? 8);
-  /** Marcador "aquí se riega": humedad útil equivalente al umbral. */
-  readonly thresholdPct = computed(() => humidityPct(this.threshold()));
-
-  readonly placeLabel = computed(() => {
-    const s = this.snap();
-    if (!s) return '';
-    const name = (s.settings.placeName ?? `${s.settings.latitude}, ${s.settings.longitude}`).split(',')[0];
-    return s.elevationM != null ? `${name} · ${Math.round(s.elevationM)} m` : name;
-  });
-
-  /** Lo que marca el sensor de suelo y si se está usando en el balance. */
-  readonly sensorTag = computed(() => {
-    const s = this.snap();
-    if (!s) return null;
-    if (s.sensorError) return 'Sensor de suelo sin conexión';
-    const r = s.sensor;
-    if (!r) return s.state.source === 'sensor' ? 'Dato de sensor' : null;
-    const min = Math.max(0, Math.round((this.now() - r.at) / 60_000));
-    const ago = min < 90 ? `hace ${min} min` : `hace ${Math.round(min / 60)} h`;
-    const used = s.state.source === 'sensor' ? ' · en uso' : r.deficitMm === null ? ' · sin calibrar' : '';
-    return `Sensor: ${fmt(r.soilPct)} % (${ago})${used}`;
-  });
 
   // ───────────── Recomendación ─────────────
+  readonly status = computed(() => recommendation(this.snap()));
   /** Hoy se pospuso el riego ("Posponer a mañana"). */
-  readonly snoozed = computed(() => !!this.snap() && this.snap()!.state.snoozedDate === this.snap()!.today);
-  readonly status = computed(() => {
-    const ev = this.snap()?.evaluation;
-    const thr = this.threshold();
-    if (!ev) return { cls: 'neutral', icon: 'umbrella-outline', title: 'Sin datos del clima', detail: this.snap()?.error ?? 'Cargando…' };
-    if (ev.status === 'irrigate' && this.snoozed())
-      return {
-        cls: 'neutral', icon: 'time-outline', title: 'Riego pospuesto para mañana',
-        detail: `Hoy no se riega. Mañana se recalcula con el déficit que haya (hoy ${fmt(ev.deficitMm)} mm).`,
-      };
-    const patches = ev.overseed === 'patches' ? ' Rocía también los parches sembrados unos 30 s.' : '';
-    if (ev.status === 'irrigate') {
-      const wind = ev.windWarning ? ` Viento de ${Math.round(ev.windMaxKmh)} km/h: riega temprano.` : '';
-      if (ev.overseed === 'full')
-        return {
-          cls: 'water', icon: 'water-outline',
-          title: `Riego de siembra: ${ev.minutes} min`,
-          detail: `Riego corto en todo el jardín para mantener húmeda la semilla. Si hace calor, repite a las 13:00.${wind}`,
-        };
-      const liters = litersFor(ev.deficitMm, this.snap()?.settings.lawnAreaM2);
-      return {
-        cls: 'water', icon: 'water-outline',
-        title: `Riega ${ev.minutes} minutos hoy`,
-        detail: `Entre 06:30 y 08:30. Déficit acumulado de ${fmt(ev.deficitMm)} mm${liters ? ` (≈ ${fmt(liters, 0)} L)` : ''}.${wind}${patches}`,
-      };
-    }
-    const station = this.snap()?.backup?.name ?? this.snap()?.settings.dmc?.name ?? 'la estación';
-    if (ev.status === 'paused_rain' && ev.rainBlockReason === 'tomorrow')
-      return {
-        cls: 'neutral', icon: 'umbrella-outline', title: 'Espera la lluvia de mañana',
-        detail: `Mañana se esperan ${fmt(ev.rainTomorrowMm)} mm (${Math.round(ev.rainTomorrowProbPct)} %): reponen el déficit de ${fmt(ev.deficitMm)} mm sin regar hoy. Si no llueve, se riega mañana.`,
-      };
-    if (ev.status === 'paused_rain' && ev.rainBlockReason === 'raining')
-      return {
-        cls: 'neutral', icon: 'rainy-outline', title: 'Está lloviendo en tu sector',
-        detail: `${fmt(ev.rainMeasuredMm ?? 0)} mm hoy en ${station}. Espera a que pare: la app descuenta lo que cae.`,
-      };
-    if (ev.status === 'paused_rain' && ev.rainBlockReason === 'measured')
-      return {
-        cls: 'neutral', icon: 'rainy-outline', title: 'Riego en pausa por lluvia',
-        detail: `Hoy ya llovieron ${fmt(ev.rainMeasuredMm ?? 0)} mm en ${station}.`,
-      };
-    if (ev.status === 'paused_rain')
-      return {
-        cls: 'neutral', icon: 'umbrella-outline', title: 'Riego en pausa por lluvia',
-        detail:
-          ev.rainForecastLeftMm !== null
-            ? `${Math.round(ev.rainProbPct)}% de probabilidad · ${fmt(ev.rainForecastLeftMm)} mm previstos para lo que queda de hoy.`
-            : `${Math.round(ev.rainProbPct)}% de probabilidad · ${fmt(ev.rainForecastMm)} mm previstos hoy.`,
-      };
-    const fell = ev.rainMeasuredMm ?? 0;
-    return {
-      cls: 'ok', icon: 'leaf-outline', title: 'No es necesario regar',
-      detail: (fell > 0
-        ? `Hoy ya llovieron ${fmt(fell)} mm en ${station}. Se riega al llegar a ${fmt(thr)} mm de déficit.`
-        : `El suelo tiene humedad suficiente. Se riega al llegar a ${fmt(thr)} mm de déficit.`) + patches,
-    };
-  });
-
-  // ───────────── Lluvia en tu sector (casi en tiempo real) ─────────────
-  /** Reloj para "hace X min". */
-  readonly now = signal(Date.now());
-  readonly selectedHour = signal<number | null>(null);
-  readonly live = computed(() => {
+  readonly snoozed = computed(() => {
     const s = this.snap();
-    const r = s?.liveRain;
-    if (!s?.settings.dmc || !r) return null;
-    const now = this.now();
-    const ago = Math.max(0, Math.round((now - r.lastAtMs) / 60_000));
-    const midnight = new Date(`${s.today}T00:00:00`).getTime();
-    const hasToday = r.sinceMs !== null;
-    const max = Math.max(1, ...r.hourly);
-    const hourNow = new Date(now).getHours();
-    const ev = s.evaluation;
-    /** "las 18:45", "ayer a las 16:00" o "el sábado 24/10 a las 16:00" */
-    const when = (t: number) => {
-      if (t >= midnight) return `las ${clock(t)}`;
-      if (t >= midnight - 86_400_000) return `ayer a las ${clock(t)}`;
-      const d = new Date(t);
-      return `el ${weekdayEs(toISODate(d))} ${d.getDate()}/${d.getMonth() + 1} a las ${clock(t)}`;
-    };
-    const chip = r.rainingNow ? 'raining' : now - r.lastAtMs <= LIVE_FRESH_MS ? 'live' : 'stale';
-    // Sin datos nuevos: se explica qué pasó en la última consulta (la estación no publica, error, sin red).
-    const st = s.station;
-    const why = !st
-      ? null
-      : st.ok
-        ? 'la DMC no tiene lecturas más nuevas de la estación'
-        : st.error === 'sin lecturas'
-          ? 'la DMC no entregó lecturas de la estación'
-          : st.error === 'sin conexión'
-            ? 'no se pudo conectar con la DMC'
-            : st.error === 'sin campo de lluvia'
-              ? 'la respuesta no trae el dato de lluvia'
-              : `la DMC respondió con error (${st.error})`;
-    return {
-      station: s.backup?.name ?? s.settings.dmc.name,
-      // La elegida no publica: se muestra la de respaldo y se explica por qué.
-      backupNote: s.backup
-        ? `${s.settings.dmc.name} no está publicando: se usa ${s.backup.name} (${fmt(s.backup.distanceKm)} km), la siguiente más cercana.`
-        : null,
-      mm: fmt(hasToday ? r.mm : 0),
-      hasToday,
-      anyRain: hasToday && r.mm > 0,
-      until: when(r.lastAtMs),
-      ago: ago < 60 ? `hace ${ago} min` : ago < 24 * 60 ? `hace ${Math.floor(ago / 60)} h ${ago % 60} min` : `hace ${Math.floor(ago / 1440)} ${ago < 2880 ? 'día' : 'días'}`,
-      chip,
-      check:
-        chip === 'stale' && st && why
-          ? `Última consulta ${st.attemptAt >= midnight ? `a las ${clock(st.attemptAt)}` : when(st.attemptAt)}: ${why}. Mientras tanto se usa el pronóstico.`
-          : null,
-      since: r.sinceMs !== null && r.sinceMs > midnight + 10 * 60_000 ? clock(r.sinceMs) : null,
-      // Con datos viejos, "la última hora" sería la de ayer: no se muestra.
-      lastHour: chip === 'stale' ? null : fmt(r.lastHourMm),
-      forecast: !ev
-        ? null
-        : ev.rainForecastLeftMm !== null
-          ? `Pronóstico para el resto del día: ${fmt(ev.rainForecastLeftMm)} mm`
-          : `Pronóstico para hoy: ${fmt(ev.rainForecastMm)} mm (${Math.round(ev.rainProbPct)} %)`,
-      bars: r.hourly.map((mm, h) => ({ h, mm, pct: mm > 0 ? Math.max(8, (mm / max) * 100) : 0, future: h > hourNow })),
-    };
-  });
-  readonly hourDetail = computed(() => {
-    const h = this.selectedHour();
-    const l = this.live();
-    if (h === null || !l) return null;
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${pad(h)}:00–${pad((h + 1) % 24)}:00 · ${fmt(l.bars[h].mm)} mm`;
+    return !!s && s.state.snoozedDate === s.today;
   });
 
-  // ───────────── Próximo riego (pronóstico) ─────────────
+  // ───────────── Lluvia en tu sector ─────────────
+  readonly selectedHour = signal<number | null>(null);
+  readonly live = computed(() => liveRainView(this.snap(), this.now()));
+  readonly hourDetail = computed(() => hourDetail(this.live(), this.selectedHour()));
+
+  // ───────────── Próximo riego ─────────────
   readonly selectedForecast = signal<number | null>(null);
-  readonly next = computed(() => {
-    const n = this.snap()?.next;
-    if (!n) return null;
-    const when =
-      n.daysAhead === 0 ? 'Hoy' : n.daysAhead === 1 ? 'Mañana' : cap(longDateEs(n.date));
-    const lead =
-      n.daysAhead === 0 ? 'Entre 06:30 y 08:30' : n.daysAhead === 1 ? 'Mañana entre 06:30 y 08:30' : `En ${n.daysAhead} días, entre 06:30 y 08:30`;
-    const notes: string[] = [];
-    if (n.beyondForecast) notes.push('Estimado más allá del pronóstico disponible; se irá ajustando.');
-    if (n.delayedByRain === this.snap()?.today) notes.push('La lluvia de hoy retrasa el riego.');
-    else if (n.delayedByRain) notes.push(`La lluvia prevista del ${weekdayEs(n.delayedByRain)} retrasa el riego.`);
-    return { when, lead, minutes: n.minutes, deficit: fmt(n.deficitMm), notes, beyond: n.beyondForecast };
-  });
-  /** Franja de días: barra = déficit relativo al umbral. */
-  readonly strip = computed(() => {
-    const n = this.snap()?.next;
-    const thr = this.threshold();
-    if (!n) return [];
-    return n.timeline.slice(0, 7).map((d, i) => ({
-      ...d,
-      label: i === 0 ? 'Hoy' : cap(weekdayEs(d.date).slice(0, 3)),
-      dayNum: Number(d.date.slice(8)),
-      fill: Math.min(100, (d.deficitMm / thr) * 100),
-      rainy: d.rainMm >= 1 || d.rainProbPct >= 50,
-    }));
-  });
+  readonly next = computed(() => nextIrrigationView(this.snap()));
+  readonly strip = computed(() => forecastStrip(this.snap()));
   readonly stripDetail = computed(() => {
-    const days = this.strip();
     const i = this.selectedForecast();
-    if (i === null || !days[i]) return null;
-    const d = days[i];
-    const what = d.irrigate
-      ? 'Día de riego'
-      : d.waitForRain
-        ? 'Sin riego: llueve al día siguiente'
-        : d.rainBlock
-          ? 'Riego bloqueado por lluvia'
-          : d.deficitMm >= this.threshold()
-            ? 'Pospuesto'
-            : 'Sin riego';
-    return `${cap(longDateEs(d.date))} · ${what} · déficit ${fmt(d.deficitMm)} mm · lluvia ${fmt(d.rainMm)} mm (${Math.round(d.rainProbPct)}%)`;
+    return i === null ? null : stripDetail(this.strip()[i], this.threshold());
   });
 
-  // ───────────── Mosaicos de hoy ─────────────
-  readonly tiles = computed(() => {
-    const ev = this.snap()?.evaluation;
-    if (!ev) return [];
-    return [
-      { icon: 'thermometer-outline', label: 'Temp. máxima', value: `${Math.round(ev.tempMaxC)}°`, note: 'Hoy' },
-      ev.rainForecastLeftMm !== null
-        ? { icon: 'rainy-outline', label: 'Lluvia prevista', value: `${fmt(ev.rainForecastLeftMm)} mm`, note: `lo que falta de hoy (el día: ${fmt(ev.rainForecastMm)} mm)` }
-        : { icon: 'rainy-outline', label: 'Lluvia prevista', value: `${fmt(ev.rainForecastMm)} mm`, note: `${Math.round(ev.rainProbPct)}% de prob.` },
-      {
-        icon: 'flag-outline', label: 'Viento máx.', value: `${Math.round(ev.windMaxKmh)} km/h`,
-        note: ev.windWarning ? 'Fuerte: riega temprano' : 'Normal', warn: ev.windWarning,
-      },
-      { icon: 'leaf-outline', label: 'Consumo del pasto', value: `${fmt(ev.etcTodayMm)} mm`, note: `ETc · Kc ${fmt(ev.kc, 2)}` },
-    ];
-  });
+  // ───────────── Hoy en el jardín ─────────────
+  readonly tiles = computed(() => todayTiles(this.snap()?.evaluation));
+  readonly tomorrow = computed(() => tomorrowView(this.snap()?.evaluation));
+  readonly month = computed(() => monthTiles(this.snap()?.month));
 
-  readonly tomorrow = computed(() => {
-    const ev = this.snap()?.evaluation;
-    if (!ev) return null;
-    return {
-      value: `${fmt(ev.projectedDeficitMm)} mm`,
-      note: `Hoy consume ${fmt(ev.etcTodayMm)} mm y la lluvia aporta ${fmt(ev.effectiveRainTodayMm)} mm`,
-    };
-  });
-
+  // ───────────── Modo Resiembra ─────────────
   readonly overseedOn = computed(() => (this.snap()?.overseedDaysLeft ?? 0) > 0);
-
-  /** Últimos 30 días, en cifras (solo si ya hay días registrados). */
-  readonly month = computed(() => {
-    const m = this.snap()?.month;
-    if (!m || (!m.days && !m.irrigations)) return null;
-    return [
-      { label: 'Riegos', value: String(m.irrigations), note: m.irrigations === 1 ? 'vez' : 'veces' },
-      { label: 'Agua de riego', value: `${fmt(m.irrigationMm, 0)} mm`, note: m.liters !== null ? `≈ ${fmt(m.liters, 0)} litros` : 'indica la superficie en Ajustes para ver litros' },
-      { label: 'Lluvia útil', value: `${fmt(m.rainMm, 0)} mm`, note: `en ${m.days} ${m.days === 1 ? 'día registrado' : 'días registrados'}` },
-      { label: 'Consumo del pasto', value: `${fmt(m.etcMm, 0)} mm`, note: 'evapotranspiración (ETc)' },
-    ];
-  });
   readonly overseedArea = computed<OverseedArea>(() => this.snap()?.state.overseedArea ?? 'patches');
-  readonly overseedText = computed(() => {
-    const left = this.snap()?.overseedDaysLeft ?? 0;
-    if (!this.overseedOn()) return 'Riego especial mientras germina la semilla nueva (10 días)';
-    const days = `quedan ${left} ${left === 1 ? 'día' : 'días'}`;
-    return this.overseedArea() === 'full'
-      ? `Todo el jardín · ${days}. Riego corto cada mañana y otro a las 13:00 si hace ≥ 20 °C.`
-      : `Por sectores · ${days}. El pasto se riega normal; rocía lo sembrado 30 s cada día.`;
-  });
+  readonly overseedText = computed(() => overseedText(this.snap()?.overseedDaysLeft ?? 0, this.overseedArea()));
 
   // ───────────── Gráfico de 7 días ─────────────
-  readonly chartH = 128;
   readonly selected = signal<number | null>(null);
-  readonly bars = computed(() => {
-    const days = this.snap()?.chart ?? [];
-    const max = Math.max(4, ...days.map((d) => Math.max(d.etcMm, d.replenishedMm)));
-    const h = (v: number) => Math.max(v > 0 ? 3 : 0, (v / max) * (this.chartH - 12));
-    return days.map((d, i) => {
-      const x = 10 + i * SLOT;
-      const wd = new Date(`${d.date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'short' }).replace('.', '');
-      return {
-        day: d,
-        label: cap(wd.slice(0, 3)),
-        slotX: x,
-        slot: SLOT,
-        etc: { x: x + SLOT / 2 - 11, y: this.chartH - h(d.etcMm), h: h(d.etcMm) },
-        water: { x: x + SLOT / 2 + 1, y: this.chartH - h(d.replenishedMm), h: h(d.replenishedMm) },
-        w: 10,
-        lx: x + SLOT / 2,
-      };
-    });
-  });
+  readonly bars = computed(() => weekBars(this.snap()?.chart ?? []));
+  /** Día elegido en el gráfico (por defecto, hoy: el último). */
+  readonly selectedIndex = computed(() => this.selected() ?? this.bars().length - 1);
   readonly selectedDay = computed(() => {
-    const bars = this.bars();
-    if (!bars.length) return null;
-    const d = bars[this.selected() ?? bars.length - 1].day;
-    const s = this.snap();
-    const corrected = s?.rainOverrides[d.date];
-    return {
-      date: d.date,
-      title: cap(new Date(`${d.date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })) +
-        (d.estimated ? ' · estimado' : ''),
-      loss: fmt(d.etcMm),
-      gain: fmt(d.replenishedMm),
-      detail:
-        `Lluvia útil ${fmt(d.rainMm)} mm · Riego ${fmt(d.irrigationMm)} mm` +
-        (corrected !== undefined ? ` · lluvia medida: ${fmt(corrected)} mm` : ''),
-      canCorrect: !!s && d.date < s.today,
-    };
+    const bar = this.bars()[this.selectedIndex()];
+    return bar ? selectedDayView(bar.day, this.snap()) : null;
   });
+
+  // ───────────── Registrar riego (hoja inferior) ─────────────
+  readonly irrigateOpen = signal(false);
+  readonly irrigateMinutes = signal(10);
+  /** true: se registra "lo recomendado", que repone todo el déficit (no los minutos redondeados). */
+  readonly irrigateFull = signal(false);
+  /** Minutos recomendados hoy (los que reponen todo el déficit); null si no hay déficit que reponer. */
+  readonly recommendedMinutes = computed(() => {
+    const minutes = this.snap()?.evaluation?.minutes ?? 0;
+    return minutes > 0 ? minutes : null;
+  });
+  readonly irrigateOptions = computed(() => irrigationOptions(this.recommendedMinutes()));
+  readonly irrigatePreview = computed(() => irrigationPreview(this.snap(), this.irrigateMinutes(), this.irrigateFull()));
 
   // ───────────── Ajuste manual (hoja inferior) ─────────────
   readonly adjustOpen = signal(false);
   readonly adjustValue = signal(0);
   readonly previewMood = computed(() => {
     const mm = this.adjustValue();
-    const thr = this.threshold();
-    return lawnMood(humidityPct(mm), mm >= thr ? 'irrigate' : 'ok');
+    return lawnMood(humidityPct(mm), mm >= this.threshold() ? 'irrigate' : 'ok');
   });
-  readonly previewMessages = computed(() => [`${Math.round(humidityPct(this.adjustValue()))}% de humedad útil`]);
+  readonly previewMessages = computed(() => [`${humidityOf(this.adjustValue())}% de humedad útil`]);
 
-  private timers: ReturnType<typeof setInterval>[] = [];
+  // ───────────── Ciclo de vida ─────────────
 
   async ngOnInit(): Promise<void> {
-    this.timers.push(setInterval(() => this.now.set(Date.now()), 30_000));
-    this.timers.push(setInterval(() => this.liveRefresh(), LIVE_REFRESH_MS));
-    const snap = this.snap() ?? (await this.engine.refresh());
+    this.timers.push(setInterval(() => this.now.set(Date.now()), CLOCK_TICK_MS));
+    this.timers.push(setInterval(() => void this.liveRefresh(), LIVE_REFRESH_MS));
+    const snap = await this.engine.ready();
     if (!snap.settings.locationSet) await this.askLocation();
   }
 
@@ -432,69 +245,50 @@ export class DashboardPage implements OnInit, OnDestroy {
   /** Lluvia nueva de la estación: si cambia la decisión, se reprograman los avisos. */
   private async liveRefresh(): Promise<void> {
     if (document.visibilityState !== 'visible') return;
-    const before = this.snap()?.evaluation;
-    const after = (await this.engine.refresh()).evaluation;
-    this.now.set(Date.now());
-    if (before?.status !== after?.status || before?.rainMeasuredMm !== after?.rainMeasuredMm) {
-      await this.notifications.reschedule();
-      await this.background.sync();
+    try {
+      const before = this.snap()?.evaluation;
+      const after = (await this.engine.refresh()).evaluation;
+      this.now.set(Date.now());
+      if (before?.status !== after?.status || before?.rainMeasuredMm !== after?.rainMeasuredMm) await this.syncAlerts();
+    } catch (e) {
+      console.warn('No se pudo refrescar la lluvia de la estación', e);
     }
   }
 
-  async refresh(ev?: CustomEvent): Promise<void> {
-    await this.engine.refresh(true);
+  /** Deslizar para actualizar: vuelve a pedir el pronóstico, la estación y el sensor. */
+  async refresh(ev?: Event): Promise<void> {
+    try {
+      await this.engine.refresh(true);
+      await this.syncAlerts();
+    } finally {
+      this.now.set(Date.now());
+      void (ev?.target as HTMLIonRefresherElement | undefined)?.complete();
+    }
+  }
+
+  /** Tras cualquier cambio en el balance: los avisos y el worker deben quedar al día. */
+  private async syncAlerts(): Promise<void> {
     await this.notifications.reschedule();
     await this.background.sync();
-    (ev?.target as HTMLIonRefresherElement | undefined)?.complete();
   }
 
-  private async snackbar(message: string): Promise<void> {
-    (await this.toasts.create({ message, duration: 2500, position: 'bottom', cssClass: 'md-snackbar' })).present();
+  private async afterChange(message: string): Promise<void> {
+    await this.syncAlerts();
+    this.snackbar.show(message);
   }
 
-  private async afterChange(msg: string): Promise<void> {
-    await this.notifications.reschedule();
-    await this.background.sync();
-    await this.snackbar(msg);
-  }
-
-  // ───────────── Registrar riego (hoja inferior) ─────────────
-  readonly irrigateOpen = signal(false);
-  readonly irrigateMinutes = signal(10);
-  /** true: se registra "lo recomendado", que repone todo el déficit (no los minutos redondeados). */
-  readonly irrigateFull = signal(false);
-  /** Minutos recomendados hoy (los que reponen todo el déficit); null si no hay déficit que reponer. */
-  readonly recommendedMinutes = computed(() => {
-    const min = this.snap()?.evaluation?.minutes ?? 0;
-    return min > 0 ? min : null;
-  });
-  readonly irrigateOptions = computed(() => {
-    const rec = this.recommendedMinutes();
-    const opts = rec ? [{ min: rec, label: `Lo recomendado (${rec} min)`, full: true }] : [];
-    for (const m of [5, 10, 15, 20]) if (m !== rec) opts.push({ min: m, label: `${m} min`, full: false });
-    return opts;
-  });
-  readonly irrigatePreview = computed(() => {
-    const s = this.snap();
-    const rate = s?.settings.sprinklerRateMmMin ?? 0.6;
-    const mm = this.irrigateFull() ? this.deficit() : this.irrigateMinutes() * rate;
-    const liters = litersFor(mm, s?.settings.lawnAreaM2);
-    const left = Math.max(0, this.deficit() - mm);
-    return {
-      water: `≈ ${fmt(mm)} mm de agua${liters ? ` · ${fmt(liters, 0)} L` : ''}`,
-      left: left > 0 ? `El déficit queda en ${fmt(left)} mm.` : 'Repone todo el déficit: el suelo queda en capacidad de campo.',
-    };
-  });
+  // ───────────── Registrar riego ─────────────
 
   openIrrigate(): void {
-    const rec = this.recommendedMinutes();
-    this.irrigateMinutes.set(Math.min(40, rec ?? 10));
-    this.irrigateFull.set(!!rec);
+    const recommended = this.recommendedMinutes();
+    this.irrigateMinutes.set(Math.min(MAX_IRRIGATION_MINUTES, recommended ?? 10));
+    this.irrigateFull.set(recommended !== null);
     this.irrigateOpen.set(true);
   }
 
-  pickIrrigate(min: number, full: boolean): void {
-    this.irrigateMinutes.set(Math.min(40, min));
+  pickIrrigate(minutes: number, full: boolean): void {
+    if (!Number.isFinite(minutes)) return;
+    this.irrigateMinutes.set(Math.min(MAX_IRRIGATION_MINUTES, minutes));
     this.irrigateFull.set(full);
   }
 
@@ -505,16 +299,11 @@ export class DashboardPage implements OnInit, OnDestroy {
     this.irrigateOpen.set(false);
     this.hero()?.water();
     const left = await this.engine.registerIrrigation('manual', full ? undefined : minutes);
-    await this.notifications.reschedule();
-    await this.background.sync();
-    const msg = left > 0 ? `Riego de ${minutes} min registrado. Quedan ${fmt(left)} mm de déficit.` : `Riego de ${minutes} min registrado. El suelo quedó húmedo.`;
-    (await this.toasts.create({
-      message: msg,
+    await this.syncAlerts();
+    this.snackbar.show(`Riego de ${minutes} min registrado. ${left > 0 ? `Quedan ${fmt(left)} mm de déficit.` : 'El suelo quedó húmedo.'}`, {
       duration: 6000,
-      position: 'bottom',
-      cssClass: 'md-snackbar',
-      buttons: [{ text: 'Deshacer', handler: () => void this.undoIrrigation() }],
-    })).present();
+      action: { text: 'Deshacer', run: () => void this.undoIrrigation() },
+    });
   }
 
   private async undoIrrigation(): Promise<void> {
@@ -527,28 +316,27 @@ export class DashboardPage implements OnInit, OnDestroy {
     await this.afterChange('Riego pospuesto para mañana');
   }
 
+  // ───────────── Correcciones manuales ─────────────
+
   /** Corrige la lluvia de un día pasado con lo realmente medido (INIA, pluviómetro). */
-  async correctRain(date: string): Promise<void> {
-    const current = this.snap()?.rainOverrides[date];
+  async correctRain(date: ISODate): Promise<void> {
     const alert = await this.alerts.create({
       header: 'Corregir lluvia',
-      subHeader: cap(new Date(`${date}T12:00:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })),
+      subHeader: longDate(date),
       message: 'Ingresa los milímetros que realmente cayeron, por ejemplo los de agrometeorologia.cl o tu pluviómetro.',
-      inputs: [{ name: 'mm', type: 'number', min: 0, max: 200, placeholder: 'mm de lluvia', value: current ?? '' }],
+      inputs: [{ name: 'mm', type: 'number', min: 0, max: 200, placeholder: 'mm de lluvia', value: this.snap()?.rainOverrides[date] ?? '' }],
       buttons: [
         { text: 'Cancelar', role: 'cancel' },
-        {
-          text: 'Guardar',
-          handler: (v: { mm: string }) => {
-            const mm = parseFloat(String(v.mm).replace(',', '.'));
-            if (!Number.isFinite(mm) || mm < 0) return false;
-            this.engine.correctRain(date, mm).then(() => this.afterChange(`Lluvia corregida a ${fmt(mm)} mm. Balance recalculado.`));
-            return true;
-          },
-        },
+        { text: 'Guardar', role: 'confirm' },
       ],
     });
     await alert.present();
+    const { role, data } = await alert.onDidDismiss<{ values?: { mm?: string | number } }>();
+    if (role !== 'confirm') return;
+    const mm = parseFloat(String(data?.values?.mm ?? '').replace(',', '.'));
+    if (!Number.isFinite(mm) || mm < 0) return this.snackbar.show('Ingresa los milímetros como un número (0 o más).');
+    await this.engine.correctRain(date, mm);
+    await this.afterChange(`Lluvia corregida a ${fmt(mm)} mm. Balance recalculado.`);
   }
 
   openAdjust(): void {
@@ -563,8 +351,10 @@ export class DashboardPage implements OnInit, OnDestroy {
     await this.afterChange(`Déficit ajustado a ${fmt(mm)} mm`);
   }
 
-  async toggleOverseed(ev: CustomEvent): Promise<void> {
-    if (!ev.detail.checked) {
+  // ───────────── Modo Resiembra ─────────────
+
+  async toggleOverseed(ev: Event): Promise<void> {
+    if (!inputChecked(ev)) {
       await this.engine.setOverseed(false);
       return this.afterChange('Modo Resiembra desactivado');
     }
@@ -605,34 +395,30 @@ export class DashboardPage implements OnInit, OnDestroy {
   }
 
   // ───────────── Ubicación (primer arranque) ─────────────
+
   /** Sin esto el clima sería el de Santiago (coordenadas por defecto). */
   private async askLocation(): Promise<void> {
     const alert = await this.alerts.create({
       header: '¿Dónde está tu jardín?',
-      message:
-        'El riego se calcula con el clima de tu ubicación. Por ahora se usa Santiago de Chile. ' +
-        'Solo se usa una ubicación aproximada (~1 km).',
+      message: 'El riego se calcula con el clima de tu ubicación. Por ahora se usa Santiago de Chile. Solo se usa una ubicación aproximada (~1 km).',
       backdropDismiss: false,
       buttons: [
-        { text: 'Mantener Santiago', role: 'cancel', handler: () => { this.engine.saveSettings({ locationSet: true }); } },
-        { text: 'Buscar ciudad', handler: () => { this.router.navigateByUrl('/settings'); return true; } },
-        { text: 'Usar ubicación', handler: () => { this.useGps(); return true; } },
+        { text: 'Mantener Santiago', role: 'keep' },
+        { text: 'Buscar ciudad', role: 'search' },
+        { text: 'Usar ubicación', role: 'gps' },
       ],
     });
     await alert.present();
+    const { role } = await alert.onDidDismiss();
+    if (role === 'search') await this.router.navigateByUrl('/settings');
+    else if (role === 'gps') await this.useGps();
+    else await this.engine.saveSettings({ locationSet: true });
   }
 
   private async useGps(): Promise<void> {
     const fix = await this.location.detect();
-    if (!fix) return this.snackbar('No se pudo obtener la ubicación. Búscala por ciudad en Ajustes.');
-    await this.engine.saveSettings({
-      latitude: fix.latitude,
-      longitude: fix.longitude,
-      placeName: fix.placeName ?? undefined,
-      useGps: true,
-      locationSet: true,
-    });
-    await this.notifications.reschedule();
-    await this.background.sync();
+    if (!fix) return this.snackbar.show('No se pudo obtener la ubicación. Búscala por ciudad en Ajustes.');
+    await this.engine.saveSettings({ latitude: fix.latitude, longitude: fix.longitude, placeName: fix.placeName ?? undefined, useGps: true, locationSet: true });
+    await this.syncAlerts();
   }
 }

@@ -1,0 +1,40 @@
+<h2 class="section md-title-small">Estado del sistema</h2>
+<div class="card">
+  <div class="row">
+    <div class="li-icon"><ion-icon name="sync-outline" /></div>
+    <div class="li-text">
+      <span class="md-body-large">Revisión automática</span>
+      <span class="md-body-medium md-variant">{{ runnerInfo().text }}</span>
+    </div>
+    <i [class]="'dot ' + runnerInfo().level"></i>
+  </div>
+  <div class="row">
+    <div class="li-icon"><ion-icon name="alarm-outline" /></div>
+    <div class="li-text">
+      <span class="md-body-large">Próximo aviso</span>
+      <span class="md-body-medium md-variant">{{ nextAlertText() }}</span>
+    </div>
+  </div>
+  <div class="row">
+    <div class="li-icon"><ion-icon name="notifications-outline" /></div>
+    <div class="li-text">
+      <span class="md-body-large">Permisos</span>
+      <span class="md-body-medium md-variant">{{ permissionInfo().text }}</span>
+    </div>
+    <i [class]="'dot ' + permissionInfo().level"></i>
+  </div>
+  <div class="row">
+    <div class="li-icon"><ion-icon name="information-circle-outline" /></div>
+    <div class="li-text">
+      <span class="md-body-large">{{ versionText }}</span>
+      <span class="md-body-medium md-variant">{{ updateText() }}</span>
+    </div>
+  </div>
+  <div class="chips">
+    <button type="button" class="chip" (click)="testNotification()"><ion-icon name="notifications-outline" />Probar aviso</button>
+    <button type="button" class="chip" [disabled]="loading()" (click)="load(true)"><ion-icon name="sync-outline" />Actualizar</button>
+    @if (updates.available()) {
+      <a class="chip" [href]="apkUrl"><ion-icon name="download-outline" />Descargar la versión nueva</a>
+    }
+  </div>
+</div>

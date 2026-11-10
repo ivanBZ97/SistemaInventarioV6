@@ -1,0 +1,47 @@
+// Sobre los estilos compartidos de listas (ui/list.scss): aquí las tarjetas llevan relleno propio.
+.card { padding: 12px 16px; }
+.card.empty { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; p { margin: 0; } }
+.chips { padding: 12px 16px; }
+.note { margin: 0 24px; }
+.err { color: var(--md-error); }
+.bottom-space { height: 24px; }
+
+// Cifras del periodo
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 16px 12px; }
+.tile {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px;
+  border-radius: var(--md-shape-md); background: var(--md-surface-container-low);
+  .md-headline-small { font-size: 20px; line-height: 28px; white-space: nowrap; }
+}
+
+// Gráfico
+.chart-card { padding: 12px 8px 8px; }
+.readout { min-height: 20px; padding: 0 8px 4px; color: var(--md-on-surface); }
+.chart { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.grid { stroke: var(--md-outline-variant); stroke-width: 1; opacity: .6; }
+.tick { fill: var(--md-on-surface-variant); font: 400 9px var(--md-font); }
+.line { fill: none; stroke: var(--md-primary); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.line.gap { stroke-width: 1.5; stroke-dasharray: 3 4; opacity: .6; }
+.report-dot { fill: var(--md-primary); stroke: var(--md-surface-container-low); stroke-width: 1.5; }
+.calib { stroke: var(--md-on-surface-variant); stroke-width: 1; stroke-dasharray: 4 3; opacity: .7; }
+.calib-label {
+  fill: var(--md-on-surface-variant); font: 500 8.5px var(--md-font);
+  paint-order: stroke; stroke: var(--md-surface-container-low); stroke-width: 3px; stroke-linejoin: round;
+}
+.irr { stroke: var(--md-tertiary); stroke-width: 1; opacity: .35; }
+.irr-dot { fill: var(--md-tertiary); stroke: var(--md-surface-container-low); stroke-width: 2; }
+.cross { stroke: var(--md-on-surface); stroke-width: 1; opacity: .5; }
+.focus-dot { fill: var(--md-primary); stroke: var(--md-surface-container-low); stroke-width: 2; }
+.hit { fill: transparent; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 8px 0; span { display: inline-flex; align-items: center; gap: 6px; } }
+.sw { display: inline-block; width: 14px; height: 0; border-top: 2px solid var(--md-primary); }
+.sw.calib-sw { border-top: 1px dashed var(--md-on-surface-variant); }
+.sw.irr-sw { width: 8px; height: 8px; border: 0; border-radius: 50%; background: var(--md-tertiary); }
+
+// Tabla por día
+.table-card { padding: 4px 0; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font: 400 14px/20px var(--md-font); color: var(--md-on-surface); }
+th, td { padding: 8px 12px; text-align: right; white-space: nowrap; }
+th { font: 500 12px/16px var(--md-font); color: var(--md-on-surface-variant); }
+td { border-top: 1px solid var(--md-outline-variant); font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; }

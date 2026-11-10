@@ -3,7 +3,20 @@ import { StorageService } from './storage.service';
 import { STORAGE } from './storage-keys';
 import { fetchForecastWithMeta } from './open-meteo';
 import { applyObservedRain, mergeObservedRain } from './agromet';
-import { type DmcStore, type StationData, type StationSource, loadStationData, storeChanged, withDmcRain, withLiveRain, withStationEt0 } from './dmc';
+import {
+  type DmcStore,
+  type StationData,
+  type StationSource,
+  diagnoseDmc,
+  listDmcStations,
+  loadStationData,
+  nearbyDmcStations,
+  stationMeta,
+  storeChanged,
+  withDmcRain,
+  withLiveRain,
+  withStationEt0,
+} from './dmc';
 import { toISODate } from './dates';
 import type { DailyWeather, DmcConfig, ISODate, LiveRain, Settings, StationStatus } from './models';
 
@@ -162,6 +175,23 @@ export class WeatherService {
       station: station?.status ?? null,
       backup: station?.backup ?? null,
     };
+  }
+
+  /**
+   * "Probar" una estación DMC: la consulta ahora, explica en texto qué entregó y deja las lecturas en el almacén
+   * (así la prueba también sirve para el balance). `settings` son los ajustes en pantalla, guardados o no.
+   */
+  async diagnoseStation(settings: Pick<Settings, 'dmcAuth' | 'latitude' | 'longitude'>, cfg: DmcConfig, elevationM: number | null): Promise<{ ok: boolean; lines: string[] }> {
+    const { latitude, longitude, dmcAuth } = settings;
+    const prev = await this.storage.get<DmcStore | null>(STORAGE.dmcStore, null);
+    // Si la estación no tiene datos nuevos, el diagnóstico prueba además las dos más cercanas siguientes.
+    const others = nearbyDmcStations(await listDmcStations(), latitude, longitude, 3)
+      .filter((s) => s.code !== cfg.code)
+      .slice(0, 2);
+    const now = Date.now();
+    const r = await diagnoseDmc(cfg.code, prev, toISODate(new Date(now)), now, dmcAuth, stationMeta(cfg, latitude, elevationM), others);
+    await this.storage.set(STORAGE.dmcStore, r.store);
+    return { ok: r.ok, lines: r.lines };
   }
 
   /** Pronóstico de los modelos: el guardado si es reciente; si no, uno nuevo (o el guardado, si no hay red). */

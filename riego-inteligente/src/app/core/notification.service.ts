@@ -6,6 +6,12 @@ import { IrrigationEngineService } from './irrigation-engine.service';
 import type { PlannedNotification } from './models';
 import { ACTION_TYPE_ID, CHANNEL, NOTIF_ID_MORNING, NOTIF_ID_OVERSEED } from './irrigation-core';
 
+/** Permisos de Android para los avisos. `exactAlarms` es null si no se pudo comprobar. */
+export interface PermissionStatus {
+  notifications: boolean;
+  exactAlarms: boolean | null;
+}
+
 const ACTION_DONE = 'ya-regue';
 const ACTION_SNOOZE = 'posponer';
 const NOTIF_ID_TEST = 1099;
@@ -86,7 +92,7 @@ export class NotificationService {
   }
 
   /** Permisos actuales, sin pedirlos. null fuera del teléfono. */
-  async checkStatus(): Promise<{ notifications: boolean; exactAlarms: boolean | null } | null> {
+  async checkStatus(): Promise<PermissionStatus | null> {
     if (!Capacitor.isNativePlatform()) return null;
     const perm = await LocalNotifications.checkPermissions();
     return { notifications: perm.display === 'granted', exactAlarms: await this.exactAlarmsAllowed() };
@@ -119,7 +125,7 @@ export class NotificationService {
     return true;
   }
 
-  async ensurePermissions(): Promise<{ notifications: boolean; exactAlarms: boolean | null }> {
+  async ensurePermissions(): Promise<PermissionStatus> {
     if (!Capacitor.isNativePlatform()) return { notifications: false, exactAlarms: false };
     let perm = await LocalNotifications.checkPermissions();
     if (perm.display !== 'granted') perm = await LocalNotifications.requestPermissions();

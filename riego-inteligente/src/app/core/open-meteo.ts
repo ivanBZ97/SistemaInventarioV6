@@ -149,7 +149,9 @@ export async function reverseGeocode(lat: number, lon: number): Promise<string |
     const res = await fetchWithTimeout(url);
     if (!res.ok) return null;
     const j = (await res.json()) as { locality?: string; city?: string; principalSubdivision?: string };
-    const parts = [j.locality?.trim() || j.city, j.principalSubdivision].filter(Boolean);
+    // La localidad puede venir vacía: entonces sirve la ciudad.
+    const place = [j.locality, j.city].find((name) => !!name?.trim());
+    const parts = [place, j.principalSubdivision].filter(Boolean);
     return parts.length ? [...new Set(parts)].join(', ') : null;
   } catch {
     return null;

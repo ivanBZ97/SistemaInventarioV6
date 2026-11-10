@@ -1,0 +1,43 @@
+<h2 class="section md-title-small">Notificaciones</h2>
+<div class="card">
+  <div class="row">
+    <div class="li-icon"><ion-icon name="time-outline" /></div>
+    <div class="li-text">
+      <span class="md-body-large">Hora del aviso matutino</span>
+      <span class="md-body-medium md-variant">Dentro de 06:30–08:30: nunca de noche, para prevenir hongos</span>
+    </div>
+  </div>
+  <div class="chips plain" role="radiogroup" aria-label="Hora del aviso matutino">
+    @for (t of timeOptions; track t) {
+      <button type="button" class="chip" role="radio" [class.on]="form.morningTime() === t" [attr.aria-checked]="form.morningTime() === t"
+              (click)="form.morningTime.set(t)">
+        @if (form.morningTime() === t) { <ion-icon name="checkmark-outline" /> }{{ t }}
+      </button>
+    }
+  </div>
+  <div class="row">
+    <div class="li-text">
+      <span class="md-body-large">Sin sonido los días que no toca regar</span>
+      <span class="md-body-medium md-variant">El aviso de «Hoy no hace falta regar» llega en silencio</span>
+    </div>
+    <ion-toggle [checked]="form.quietOk()" (ionChange)="form.quietOk.set(checked($event))" aria-label="Sin sonido los días que no toca regar" />
+  </div>
+  <div class="divider inset"></div>
+  <button type="button" class="row link" (click)="askPermission()">
+    <div class="li-icon"><ion-icon name="notifications-outline" /></div>
+    <div class="li-text">
+      <span class="md-body-large">Permiso de notificaciones</span>
+      <span class="md-body-medium md-variant">Necesario para el aviso matutino</span>
+    </div>
+    <ion-icon name="chevron-forward-outline" class="md-variant" />
+  </button>
+  <div class="divider inset"></div>
+  <button type="button" class="row link" (click)="openExactAlarms()">
+    <div class="li-icon"><ion-icon name="alarm-outline" /></div>
+    <div class="li-text">
+      <span class="md-body-large">Alarmas exactas</span>
+      <span class="md-body-medium md-variant">Permite «Alarmas y recordatorios» y excluye la app del ahorro de batería</span>
+    </div>
+    <ion-icon name="chevron-forward-outline" class="md-variant" />
+  </button>
+</div>
