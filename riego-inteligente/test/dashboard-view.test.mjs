@@ -227,3 +227,13 @@ test('próximo riego y franja de días', () => {
   assert.equal(strip[1].rainy, true);
   assert.match(v.stripDetail(strip[2], 8), /^Miércoles 11 de noviembre · Día de riego · déficit 10,1 mm/);
 });
+
+test('sensor como termómetro: el panel muestra la temperatura del patio y no habla de humedad', () => {
+  const settings = {
+    ...snapshot().settings,
+    soilSensor: { region: 'us', accessId: 'a', accessSecret: 'b', deviceId: 'c', enabled: false, tempOnly: true },
+  };
+  const reading = { name: 'S', at: NOW - 20 * MIN, soilPct: 100, tempC: 17.4, battery: 81, deficitMm: null };
+  assert.equal(v.sensorTag(snapshot({ sensor: reading, settings }), NOW), 'Patio (sombra): 17,4 °C (hace 20 min)');
+  assert.equal(v.sensorTag(snapshot({ sensor: { ...reading, tempC: null }, settings }), NOW), null);
+});

@@ -55,7 +55,7 @@ export function applySensorReading(
   today: ISODate,
   now: number,
 ): WaterState {
-  if (!cfg?.enabled || !report) return state;
+  if (!cfg?.enabled || cfg.tempOnly || !report) return state;
   const deficit = deficitFromSensor(report.soilPct, cfg, thresholdMm);
   if (deficit === null || now - report.at > SENSOR_MAX_AGE_MS || report.at <= (state.resetAt ?? 0)) return state;
   return { ...state, deficitMm: deficit, asOf: today, source: 'sensor', resetDate: today, resetAt: report.at };

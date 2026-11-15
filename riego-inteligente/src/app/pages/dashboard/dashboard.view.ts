@@ -48,6 +48,8 @@ export function sensorTag(snap: Snapshot | null, now: number): string | null {
   if (!r) return inUse ? 'Dato de sensor' : null;
   const min = Math.max(0, Math.round((now - r.at) / 60_000));
   const ago = min < 90 ? `hace ${min} min` : `hace ${Math.round(min / 60)} h`;
+  // Termómetro: la humedad del sensor no se toma en cuenta.
+  if (snap.settings.soilSensor?.tempOnly) return r.tempC === null ? null : `Patio (sombra): ${fmt(r.tempC)} °C (${ago})`;
   const used = inUse
     ? ' · en uso'
     : r.deficitMm === null

@@ -102,7 +102,22 @@ export class SensorHistoryPage implements OnInit {
     this.focusT.set(null);
   }
 
-  readonly latest = computed(() => this.samples().at(-1) ?? null);
+  /** El sensor solo se usa como termómetro: el historial muestra la temperatura, no la humedad. */
+  readonly tempMode = computed(() => !!this.engine.snapshot()?.settings.soilSensor?.tempOnly);
+  readonly unit = computed(() => (this.tempMode() ? ' °C' : ' %'));
+  /**
+   * Serie que se dibuja: humedad (%) o temperatura (°C). La temperatura se expone con la misma forma (`soil`), así el
+   * gráfico y las cifras no distinguen entre una y otra; las muestras sin temperatura se omiten.
+   */
+  private readonly series = computed<SensorSample[]>(() =>
+    this.tempMode()
+      ? this.samples()
+          .filter((s) => s.tempC !== null)
+          .map((s) => ({ ...s, soil: s.tempC! }))
+      : this.samples(),
+  );
+
+  readonly latest = computed(() => this.series().at(-1) ?? null);
   readonly rangeLabel = computed(() => (this.range() === 'all' ? 'todo' : this.rangeOf().label));
   private readonly rangeOf = computed(() => RANGES.find((r) => r.id === this.range()) ?? RANGES[1]);
 
@@ -110,14 +125,14 @@ export class SensorHistoryPage implements OnInit {
   private readonly domain = computed(() => {
     const { ms } = this.rangeOf();
     const now = this.now();
-    const t0 = ms === null ? (this.samples()[0]?.t ?? now - DAY_MS) : now - ms;
+    const t0 = ms === null ? (this.series()[0]?.t ?? now - DAY_MS) : now - ms;
     return { t0, t1: Math.max(now, t0 + HOUR_MS) };
   });
 
   /** Muestras del periodo elegido. */
   readonly visible = computed(() => {
     const { t0 } = this.domain();
-    return this.samples().filter((s) => s.t >= t0);
+    return this.series().filter((s) => s.t >= t0);
   });
 
   readonly stats = computed(() => {
@@ -128,6 +143,7 @@ export class SensorHistoryPage implements OnInit {
       min: soils.length ? Math.min(...soils) : null,
       max: soils.length ? Math.max(...soils) : null,
       tempMax: temps.length ? Math.max(...temps) : null,
+      avg: soils.length ? soils.reduce((a, b) => a + b, 0) / soils.length : null,
       count: visible.length,
     };
   });
@@ -146,18 +162,18 @@ export class SensorHistoryPage implements OnInit {
     const snap = this.engine.snapshot();
     const sensor = snap?.settings.soilSensor;
     return sensorChart({
-      samples: this.samples(),
+      samples: this.series(),
       ...this.domain(),
       now: this.now(),
-      calibration: { wet: sensor?.wetPct, dry: sensor?.dryPct },
-      irrigationTimes: (snap?.irrigations ?? []).map((e) => Date.parse(e.at)),
+      calibration: this.tempMode() ? {} : { wet: sensor?.wetPct, dry: sensor?.dryPct },
+      irrigationTimes: this.tempMode() ? [] : (snap?.irrigations ?? []).map((e) => Date.parse(e.at)),
       focus: this.focus(),
     });
   });
 
   readonly ariaLabel = computed(() => {
     const s = this.stats();
-    return `Humedad del suelo en el periodo: entre ${num(s.min, ' %')} y ${num(s.max, ' %')}, ${s.count} reportes`;
+    return `${this.tempMode() ? 'Temperatura del suelo' : 'Humedad del suelo'} en el periodo: entre ${num(s.min, this.unit())} y ${num(s.max, this.unit())}, ${s.count} reportes`;
   });
 
   /** Dedo o cursor sobre el gráfico: destaca la muestra más cercana a ese instante. */

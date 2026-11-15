@@ -78,7 +78,8 @@ export class TuyaSoilSensorProvider implements SoilSensorProvider {
       tempC: status.tempC,
       battery: status.battery,
       // La calibración y el umbral pueden cambiar sin volver a consultar el sensor.
-      deficitMm: deficitFromSensor(status.soilPct, cfg, settings.thresholdMm),
+      // Un sensor que solo sirve de termómetro no entrega déficit: su humedad no es confiable.
+      deficitMm: cfg.tempOnly ? null : deficitFromSensor(status.soilPct, cfg, settings.thresholdMm),
     };
   }
 

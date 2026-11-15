@@ -165,7 +165,7 @@ test('ajustes: probar el sensor, calibrarlo (se guarda al tiro) y usarlo en el b
   await app.settle();
   assert.equal((await app.stored('settings')).soilSensor.wetPct, 92);
 
-  await page.locator('app-sensor-section ion-toggle').click();
+  await page.locator('app-sensor-section ion-toggle[aria-label="Usar el sensor en el balance"]').click();
   await app.settle();
   assert.equal((await app.stored('settings')).soilSensor.enabled, true);
   const state = await app.stored('state');
@@ -191,5 +191,28 @@ test('historial del sensor: periodos, gráfico con calibración y copia en CSV',
   await app.settle();
   const csv = await page.evaluate(() => navigator.clipboard.readText());
   assert.match(csv, /^fecha_hora;humedad_suelo_pct;temperatura_c;bateria_pct\n/);
+  await app.close();
+});
+
+test('sensor dañado: "solo mide temperatura" lo saca del riego y el historial muestra °C', async () => {
+  const app = await open('/settings', { height: 5200 });
+  const { page } = app;
+  await page.locator('app-sensor-section ion-toggle[aria-label="Solo mide temperatura"]').click();
+  await app.settle();
+  const sensor = (await app.stored('settings')).soilSensor;
+  assert.equal(sensor.tempOnly, true);
+  assert.equal(sensor.enabled, false);
+  const text = await page.locator('app-sensor-section').innerText();
+  assert.doesNotMatch(text, /Ahora está recién regado/); // sin calibración
+  await page.getByText('Probar sensor').click();
+  await app.settle();
+  assert.match(await page.locator('app-sensor-section .report').innerText(), /temperatura del suelo 25,4 °C/);
+
+  await page.getByText('Ver historial').click();
+  await app.settle();
+  const history = await page.locator('app-sensor-history').innerText();
+  assert.match(history, /Ahora\s+\d+(,\d)? °C/);
+  assert.match(history, /Mín °C/);
+  assert.doesNotMatch(history, /toca regar/);
   await app.close();
 });

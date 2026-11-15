@@ -10,6 +10,7 @@ import {
   leafOutline,
   pulseOutline,
   statsChartOutline,
+  thermometerOutline,
   waterOutline,
 } from 'ionicons/icons';
 import { ageText, decimal, whenOf } from '../../../core/format';
@@ -66,7 +67,17 @@ export class SensorSectionComponent {
   });
 
   constructor() {
-    addIcons({ alarmOutline, checkmarkOutline, eyeOffOutline, eyeOutline, leafOutline, pulseOutline, statsChartOutline, waterOutline });
+    addIcons({
+      alarmOutline,
+      checkmarkOutline,
+      eyeOffOutline,
+      eyeOutline,
+      leafOutline,
+      pulseOutline,
+      statsChartOutline,
+      thermometerOutline,
+      waterOutline,
+    });
   }
 
   /** Lee el sensor ahora con lo escrito en pantalla (aunque aún no se haya guardado). */
@@ -91,17 +102,34 @@ export class SensorSectionComponent {
     const r = await this.read();
     if (!r) return;
     const age = Math.max(0, Date.now() - r.at);
+    const tempOnly = this.form.tempOnly();
     this.report.set({
-      lines: [
-        `✓ ${r.name}: humedad del suelo ${value(r.soilPct, ' %')} · ${value(r.tempC, ' °C')} · batería ${value(r.battery, ' %')}.`,
-        `Último reporte: ${whenOf(r.at)} (hace ${ageText(age)})${age > SENSOR_MAX_AGE_MS ? ': viejo, revisa que tenga WiFi y pilas' : ''}.`,
-        'Es a pilas: duerme y se conecta cada cierto rato o cuando la humedad cambia; Tuya entrega su último dato.',
-        r.deficitMm !== null
-          ? `Con tu calibración equivale a ${value(r.deficitMm, ' mm')} de déficit.`
-          : 'Falta calibrarlo para usarlo en el balance.',
-      ],
+      lines: tempOnly
+        ? [
+            `✓ ${r.name}: temperatura del suelo ${value(r.tempC, ' °C')} · batería ${value(r.battery, ' %')}.`,
+            `Último reporte: ${whenOf(r.at)} (hace ${ageText(age)})${age > SENSOR_MAX_AGE_MS ? ': viejo, revisa que tenga WiFi y pilas' : ''}.`,
+            'Se usa solo como termómetro: la humedad que marca no se toma en cuenta.',
+          ]
+        : [
+            `✓ ${r.name}: humedad del suelo ${value(r.soilPct, ' %')} · ${value(r.tempC, ' °C')} · batería ${value(r.battery, ' %')}.`,
+            `Último reporte: ${whenOf(r.at)} (hace ${ageText(age)})${age > SENSOR_MAX_AGE_MS ? ': viejo, revisa que tenga WiFi y pilas' : ''}.`,
+            'Es a pilas: duerme y se conecta cada cierto rato o cuando la humedad cambia; Tuya entrega su último dato.',
+            r.deficitMm !== null
+              ? `Con tu calibración equivale a ${value(r.deficitMm, ' mm')} de déficit.`
+              : 'Falta calibrarlo para usarlo en el balance.',
+          ],
       error: false,
     });
+  }
+
+  /** «Solo mide temperatura»: el sensor deja de usarse para la humedad y se guarda al tiro. */
+  async toggleTempOnly(on: boolean): Promise<void> {
+    this.form.tempOnly.set(on);
+    if (on) this.form.sensorOn.set(false);
+    await this.form.saveSensor();
+    this.snackbar.show(
+      on ? 'Listo: el sensor se usa solo para la temperatura (guardado).' : 'El sensor vuelve a medir humedad (guardado).',
+    );
   }
 
   /** Guarda la lectura actual como punto «húmedo» (déficit 0) o «toca regar» (déficit = umbral). */

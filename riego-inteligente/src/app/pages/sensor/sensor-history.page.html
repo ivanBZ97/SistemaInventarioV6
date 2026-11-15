@@ -1,7 +1,7 @@
 <ion-header class="ion-no-border">
   <ion-toolbar>
     <ion-buttons slot="start"><ion-back-button defaultHref="/dashboard" text="" /></ion-buttons>
-    <ion-title class="md-title-large">Historial del sensor</ion-title>
+    <ion-title class="md-title-large">{{ tempMode() ? 'Temperatura del patio' : 'Historial del sensor' }}</ion-title>
   </ion-toolbar>
 </ion-header>
 <ion-content>
@@ -26,26 +26,32 @@
     <div class="tiles">
       <div class="tile">
         <span class="md-label-medium md-variant">Ahora</span>
-        <span class="md-headline-small">{{ num(last.soil, ' %') }}</span>
+        <span class="md-headline-small">{{ num(last.soil, unit()) }}</span>
         <span class="md-body-small md-variant">{{ when(last.t) }} · hace {{ age(last.t) }}</span>
       </div>
       <div class="tile">
         <span class="md-label-medium md-variant">Mín – máx</span>
-        <span class="md-headline-small">{{ int(stats().min) }}–{{ int(stats().max) }} %</span>
+        <span class="md-headline-small">{{ int(stats().min) }}–{{ int(stats().max) }}{{ unit() }}</span>
         <span class="md-body-small md-variant">{{ stats().count }} reportes</span>
       </div>
       <div class="tile">
-        <span class="md-label-medium md-variant">Temp. suelo</span>
-        <span class="md-headline-small">{{ num(stats().tempMax, ' °C') }}</span>
-        <span class="md-body-small md-variant">máxima del periodo</span>
+        @if (tempMode()) {
+          <span class="md-label-medium md-variant">Promedio</span>
+          <span class="md-headline-small">{{ num(stats().avg, ' °C') }}</span>
+          <span class="md-body-small md-variant">del periodo</span>
+        } @else {
+          <span class="md-label-medium md-variant">Temp. suelo</span>
+          <span class="md-headline-small">{{ num(stats().tempMax, ' °C') }}</span>
+          <span class="md-body-small md-variant">máxima del periodo</span>
+        }
       </div>
     </div>
 
     <div class="card chart-card">
       <div class="readout md-body-medium" aria-live="polite">
         @if (focus(); as f) {
-          <strong>{{ num(f.soil, ' %') }}</strong> · {{ when(f.t) }}
-          @if (f.tempC !== null) {
+          <strong>{{ num(f.soil, unit()) }}</strong> · {{ when(f.t) }}
+          @if (!tempMode() && f.tempC !== null) {
             · {{ num(f.tempC, ' °C') }}
           }
         }
@@ -89,7 +95,7 @@
         <rect [attr.x]="geo.X0" [attr.y]="geo.Y0" [attr.width]="geo.X1 - geo.X0" [attr.height]="geo.Y1 - geo.Y0" class="hit" />
       </svg>
       <div class="legend md-body-small md-variant">
-        <span><i class="sw line-sw"></i>Humedad del suelo (%)</span>
+        <span><i class="sw line-sw"></i>{{ tempMode() ? 'Temperatura del suelo (°C)' : 'Humedad del suelo (%)' }}</span>
         @if (chart().calib.length) {
           <span><i class="sw calib-sw"></i>Tu calibración</span>
         }
@@ -123,10 +129,12 @@
         <thead>
           <tr>
             <th>Día</th>
-            <th>Mín %</th>
-            <th>Máx %</th>
-            <th>Prom. %</th>
-            <th>Temp. °C</th>
+            <th>Mín {{ unit().trim() }}</th>
+            <th>Máx {{ unit().trim() }}</th>
+            <th>Prom. {{ unit().trim() }}</th>
+            @if (!tempMode()) {
+              <th>Temp. °C</th>
+            }
           </tr>
         </thead>
         <tbody>
@@ -136,7 +144,9 @@
               <td>{{ num(d.min) }}</td>
               <td>{{ num(d.max) }}</td>
               <td>{{ num(d.avg) }}</td>
-              <td>{{ num(d.tempMax) }}</td>
+              @if (!tempMode()) {
+                <td>{{ num(d.tempMax) }}</td>
+              }
             </tr>
           }
         </tbody>

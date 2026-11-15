@@ -58,6 +58,8 @@ export class SettingsForm {
   readonly wetPct = signal<number | undefined>(undefined);
   readonly dryPct = signal<number | undefined>(undefined);
   readonly sensorOn = signal(false);
+  /** El sensor solo se usa como termómetro (la humedad no sirve): no se calibra ni entra en el balance. */
+  readonly tempOnly = signal(false);
   /** Puntos de calibración en uso (con uno solo marcado, el otro es provisional); null si falta calibrar. */
   readonly calibration = computed(() => calibrationPoints({ wetPct: this.wetPct(), dryPct: this.dryPct() }));
   /** Sensor tal como está escrito en pantalla; undefined mientras falte alguna de sus tres claves. */
@@ -73,7 +75,9 @@ export class SettingsForm {
       deviceId,
       wetPct: this.wetPct(),
       dryPct: this.dryPct(),
-      enabled: this.sensorOn() && this.calibration() !== null,
+      enabled: this.sensorOn() && this.calibration() !== null && !this.tempOnly(),
+      // Solo se guarda cuando está activo: los ajustes de quien no lo usa quedan como antes.
+      ...(this.tempOnly() ? { tempOnly: true } : {}),
     };
   });
 
@@ -111,6 +115,7 @@ export class SettingsForm {
       this.wetPct.set(sensor.wetPct);
       this.dryPct.set(sensor.dryPct);
       this.sensorOn.set(sensor.enabled);
+      this.tempOnly.set(!!sensor.tempOnly);
     }
     this.morningTime.set(s.morningTime ?? DEFAULT_MORNING_TIME);
     this.quietOk.set(!!s.quietOkAlerts);

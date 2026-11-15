@@ -72,30 +72,49 @@
 
   <div class="divider"></div>
   <div class="row">
-    <div class="li-icon"><ion-icon name="leaf-outline" /></div>
+    <div class="li-icon"><ion-icon name="thermometer-outline" /></div>
     <div class="li-text">
-      <span class="md-body-large">Calibración</span>
-      <span class="md-body-medium md-variant">{{ calibrationText() }}</span>
-    </div>
-  </div>
-  <div class="chips">
-    <button type="button" class="chip" (click)="calibrate('wet')" [disabled]="busy()">
-      <ion-icon name="water-outline" />Ahora está recién regado
-    </button>
-    <button type="button" class="chip" (click)="calibrate('dry')" [disabled]="busy()">
-      <ion-icon name="alarm-outline" />Ahora toca regar
-    </button>
-  </div>
-  <div class="row">
-    <div class="li-text">
-      <span class="md-body-large">Usar el sensor en el balance</span>
-      <span class="md-body-medium md-variant">Su lectura reemplaza al cálculo (necesita la calibración)</span>
+      <span class="md-body-large">Solo mide temperatura</span>
+      <span class="md-body-medium md-variant">
+        La humedad ya no sirve: el sensor se usa como termómetro del suelo (p. ej. en la sombra del patio). No entra en el riego.
+      </span>
     </div>
     <ion-toggle
-      [checked]="form.sensorOn()"
-      [disabled]="!form.calibration() || !form.sensor()"
-      (ionChange)="toggle(checked($event))"
-      aria-label="Usar el sensor en el balance"
+      [checked]="form.tempOnly()"
+      [disabled]="!form.sensor()"
+      (ionChange)="toggleTempOnly(checked($event))"
+      aria-label="Solo mide temperatura"
     />
   </div>
+
+  @if (!form.tempOnly()) {
+    <div class="divider"></div>
+    <div class="row">
+      <div class="li-icon"><ion-icon name="leaf-outline" /></div>
+      <div class="li-text">
+        <span class="md-body-large">Calibración</span>
+        <span class="md-body-medium md-variant">{{ calibrationText() }}</span>
+      </div>
+    </div>
+    <div class="chips">
+      <button type="button" class="chip" (click)="calibrate('wet')" [disabled]="busy()">
+        <ion-icon name="water-outline" />Ahora está recién regado
+      </button>
+      <button type="button" class="chip" (click)="calibrate('dry')" [disabled]="busy()">
+        <ion-icon name="alarm-outline" />Ahora toca regar
+      </button>
+    </div>
+    <div class="row">
+      <div class="li-text">
+        <span class="md-body-large">Usar el sensor en el balance</span>
+        <span class="md-body-medium md-variant">Su lectura reemplaza al cálculo (necesita la calibración)</span>
+      </div>
+      <ion-toggle
+        [checked]="form.sensorOn()"
+        [disabled]="!form.calibration() || !form.sensor()"
+        (ionChange)="toggle(checked($event))"
+        aria-label="Usar el sensor en el balance"
+      />
+    </div>
+  }
 </div>

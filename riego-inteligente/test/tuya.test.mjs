@@ -169,3 +169,10 @@ test('la lectura del sensor reemplaza al balance solo si está activado, es reci
     2,
   );
 });
+
+test('un sensor marcado "solo temperatura" nunca reemplaza al balance, aunque esté activado y calibrado', () => {
+  const now = Date.parse('2026-11-09T10:00:00-03:00');
+  const cfg = { region: 'us', accessId: 'a', accessSecret: 'b', deviceId: 'c', wetPct: 100, dryPct: 60, enabled: true, tempOnly: true };
+  const state = { deficitMm: 2, asOf: '2026-11-08', source: 'model' };
+  assert.equal(soil.applySensorReading(state, cfg, { soilPct: 80, at: now - 3_600_000 }, 8, '2026-11-09', now), state);
+});

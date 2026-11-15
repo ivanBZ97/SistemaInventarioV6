@@ -64,6 +64,8 @@ export interface SoilSensorConfig {
   dryPct?: number;
   /** true: su lectura reemplaza al cálculo del balance (requiere calibración). */
   enabled: boolean;
+  /** true: el sensor ya no sirve para la humedad (p. ej. se dañó) y solo se usa como termómetro del suelo. */
+  tempOnly?: boolean;
 }
 
 export interface AgrometConfig {
