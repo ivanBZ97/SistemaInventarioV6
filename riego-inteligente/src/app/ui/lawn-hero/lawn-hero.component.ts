@@ -1,17 +1,7 @@
-import { ChangeDetectionStrategy, Component, type OnDestroy, computed, effect, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, type OnDestroy, computed, effect, input, signal, untracked } from '@angular/core';
 import type { Mood, Scene } from '../../core/lawn-mood';
+import { BODY, layoutBlades, puffFor, puffX } from './pet-motion';
 
-interface Blade {
-  d: string;
-  x: number;
-  y: number;
-  rot: number;
-  dur: string;
-  tone: 1 | 2;
-}
-
-const BODY = { cx: 160, cy: 150, rx: 66, ry: 44 };
-const DROOP: Record<Mood, number> = { happy: 0, content: 0, thirsty: 14, wilted: 38 };
 const RAIN_X = Array.from({ length: 16 }, (_, i) => 20 + i * 19 + (i % 3) * 4);
 const SPRINKLE_X = Array.from({ length: 14 }, (_, i) => 70 + i * 14);
 
@@ -49,34 +39,23 @@ export class LawnHeroComponent implements OnDestroy {
   readonly sprinkleX = SPRINKLE_X;
   readonly body = BODY;
 
-  readonly blades = computed<Blade[]>(() => {
-    const droop = DROOP[this.shownMood()];
-    const defs = [
-      { x: -50, h: 44, lean: -24 },
-      { x: -34, h: 62, lean: -14 },
-      { x: -17, h: 76, lean: -6 },
-      { x: 0, h: 86, lean: 0 },
-      { x: 17, h: 74, lean: 6 },
-      { x: 34, h: 60, lean: 14 },
-      { x: 50, h: 42, lean: 24 },
-    ];
-    return defs.map((b, i) => {
-      const baseY = BODY.cy - BODY.ry * Math.sqrt(1 - (b.x / BODY.rx) ** 2) + 8;
-      const side = b.x >= 0 ? 1 : -1;
-      const fall = side * droop * (0.5 + Math.abs(b.x) / 60);
-      const lean = b.lean * 0.5;
-      return {
-        d: `M -7 0 Q ${lean * 0.5 - 5} ${-b.h * 0.55} ${lean} ${-b.h} Q ${lean * 0.5 + 5} ${-b.h * 0.55} 7 0 Z`,
-        x: BODY.cx + b.x,
-        y: baseY,
-        rot: fall,
-        dur: `${2.6 + (i % 4) * 0.5}s`,
-        tone: i % 2 === 0 ? 1 : 2,
-      };
-    });
-  });
+  readonly blades = computed(() => layoutBlades(this.shownMood()));
+
+  /** Efectos flotantes (corazones, gotas) que salen al tocar al pasto. */
+  readonly puffs = signal<{ id: number; x: number; ch: string }[]>([]);
+  private puffCount = 0;
+  private lastMood: Mood | null = null;
 
   constructor() {
+    // Cuando el ánimo cambia (llegó la lluvia, se regó, se secó) el pasto da un saltito.
+    effect(() => {
+      const mood = this.shownMood();
+      untracked(() => {
+        if (this.lastMood !== null && mood !== this.lastMood) this.hop();
+        this.lastMood = mood;
+      });
+    });
+
     // al cambiar de ánimo/mensajes la primera frase vuelve a mostrarse
     effect(() => {
       this.messages();
@@ -85,11 +64,24 @@ export class LawnHeroComponent implements OnDestroy {
     });
   }
 
-  /** Toque en el pasto: salta y dice otra frase. */
+  /** Toque en el pasto: salta con rebote elástico, dice otra frase y suelta un efecto (corazón, gota…). */
   poke(): void {
     this.tapIndex.update((i) => i + 1);
-    this.bouncing.set(true);
-    this.later(() => this.bouncing.set(false), 650);
+    this.hop();
+    const n = ++this.puffCount;
+    const puff = { id: n, x: puffX(n), ch: puffFor(this.shownMood(), n) };
+    this.puffs.update((list) => [...list.slice(-3), puff]);
+    this.later(() => this.puffs.update((list) => list.filter((p) => p.id !== puff.id)), 1400);
+  }
+
+  /** Salto del pasto (también cuando cambia de ánimo: se nota que reacciona). */
+  private hop(): void {
+    this.bouncing.set(false);
+    // Un instante sin la clase reinicia la animación aunque se toque varias veces seguidas.
+    this.later(() => {
+      this.bouncing.set(true);
+      this.later(() => this.bouncing.set(false), 800);
+    }, 20);
   }
 
   /** Animación de riego (aspersor + celebración). */

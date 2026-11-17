@@ -63,6 +63,7 @@
     <g
       class="mascot"
       [class.bounce]="bouncing()"
+      [class.wet]="watering()"
       tabindex="0"
       role="button"
       aria-label="Toca para que el pasto te hable"
@@ -70,50 +71,49 @@
       (keydown.enter)="poke()"
       (keydown.space)="poke(); $event.preventDefault()"
     >
-      @for (b of blades(); track $index) {
-        <g [attr.transform]="'translate(' + b.x + ' ' + b.y + ') rotate(' + b.rot + ')'">
-          <path [attr.d]="b.d" [class]="'blade t' + b.tone">
-            @if (!reduceMotion) {
-              <animateTransform
-                attributeName="transform"
-                type="rotate"
-                values="-3 0 0; 3 0 0; -3 0 0"
-                [attr.dur]="b.dur"
-                repeatCount="indefinite"
-              />
-            }
-          </path>
-        </g>
-      }
-      <ellipse class="body" [attr.cx]="body.cx" [attr.cy]="body.cy" [attr.rx]="body.rx" [attr.ry]="body.ry" />
-      <ellipse class="shine" cx="132" cy="128" rx="14" ry="6" />
+      <g class="pet">
+        @for (b of blades(); track $index) {
+          <g class="blade-base" [style.transform]="'translate(' + b.x + 'px, ' + b.y + 'px) rotate(' + b.rot + 'deg)'">
+            <path [attr.d]="b.d" [class]="'blade t' + b.tone" [style.--dur]="b.dur" [style.--delay]="b.delay + 's'" [style.--k]="b.k" />
+          </g>
+        }
+        <ellipse class="body" [attr.cx]="body.cx" [attr.cy]="body.cy" [attr.rx]="body.rx" [attr.ry]="body.ry" />
+        <ellipse class="shine" cx="132" cy="128" rx="14" ry="6" />
 
-      <!-- cara (mínima) -->
-      @switch (shownMood()) {
-        @case ('happy') {
-          <path class="stroke" d="M131 148 Q138 141 145 148 M175 148 Q182 141 189 148" />
-          <path class="stroke" d="M148 162 Q160 172 172 162" />
-          <circle class="cheek" cx="124" cy="160" r="6" />
-          <circle class="cheek" cx="196" cy="160" r="6" />
-        }
-        @case ('content') {
-          <circle class="eye" cx="138" cy="148" r="4.5" />
-          <circle class="eye" cx="182" cy="148" r="4.5" />
-          <path class="stroke" d="M150 162 Q160 168 170 162" />
-        }
-        @case ('thirsty') {
-          <circle class="eye" cx="138" cy="150" r="4.5" />
-          <circle class="eye" cx="182" cy="150" r="4.5" />
-          <path class="stroke thin" d="M130 139 L145 142 M190 139 L175 142" />
-          <path class="stroke" d="M151 166 L169 166" />
-          <path class="drip" d="M202 130 q-5 8 0 11 q5 -3 0 -11 Z" />
-        }
-        @case ('wilted') {
-          <path class="stroke" d="M131 150 Q138 154 145 150 M175 150 Q182 154 189 150" />
-          <path class="stroke" d="M150 170 Q160 163 170 170" />
-        }
-      }
+        <!-- cara (mínima): mira a los lados y parpadea -->
+        <g class="face">
+          @switch (shownMood()) {
+            @case ('happy') {
+              <path class="stroke" d="M131 148 Q138 141 145 148 M175 148 Q182 141 189 148" />
+              <path class="stroke" d="M148 162 Q160 172 172 162" />
+              <circle class="cheek" cx="124" cy="160" r="6" />
+              <circle class="cheek" cx="196" cy="160" r="6" />
+            }
+            @case ('content') {
+              <circle class="eye" cx="138" cy="148" r="4.5" />
+              <circle class="eye" cx="182" cy="148" r="4.5" />
+              <path class="stroke" d="M150 162 Q160 168 170 162" />
+            }
+            @case ('thirsty') {
+              <circle class="eye" cx="138" cy="150" r="4.5" />
+              <circle class="eye" cx="182" cy="150" r="4.5" />
+              <path class="stroke thin" d="M130 139 L145 142 M190 139 L175 142" />
+              <path class="stroke" d="M151 166 L169 166" />
+              <path class="drip" d="M202 130 q-5 8 0 11 q5 -3 0 -11 Z" />
+            }
+            @case ('wilted') {
+              <path class="stroke" d="M131 150 Q138 154 145 150 M175 150 Q182 154 189 150" />
+              <path class="stroke" d="M150 170 Q160 163 170 170" />
+            }
+          }
+        </g>
+      </g>
     </g>
+
+    <!-- efectos al tocar: corazones, gotas… -->
+    @for (p of puffs(); track p.id) {
+      <text class="puff" [attr.x]="p.x" y="132">{{ p.ch }}</text>
+    }
 
     <!-- riego -->
     @if (watering()) {

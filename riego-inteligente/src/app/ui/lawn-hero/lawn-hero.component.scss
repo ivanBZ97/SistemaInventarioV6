@@ -1,5 +1,10 @@
 :host {
   display: block;
+  /* Movimiento: cuánto se mecen las hojas (grados), qué tan rápido (multiplicador), respiración y ritmo del parpadeo. */
+  --sway: 3deg;
+  --speed: 1;
+  --breath: 0.025;
+  --breath-time: 4.2s;
   --sky-a: #d6efff;
   --sky-b: #f3fbff;
   --body: #4cb877;
@@ -24,18 +29,31 @@
   --sky-a: #d9e1ea;
   --sky-b: #f1f4f7;
 }
+:host(.mood-happy) {
+  --sway: 4deg;
+  --breath: 0.035;
+  --breath-time: 3.2s;
+}
 :host(.mood-content) {
   --body: #47ad70;
   --blade-1: #2d9157;
   --blade-2: #5cc485;
 }
 :host(.mood-thirsty) {
+  --sway: 2deg;
+  --speed: 1.4;
+  --breath: 0.018;
+  --breath-time: 5.2s;
   --body: #b3bc54;
   --blade-1: #949f3c;
   --blade-2: #c5cd69;
   --ground: #8f9a4c;
 }
 :host(.mood-wilted) {
+  --sway: 1deg;
+  --speed: 2;
+  --breath: 0.01;
+  --breath-time: 7s;
   --body: #b19a5e;
   --blade-1: #8c7845;
   --blade-2: #a68e55;
@@ -86,6 +104,16 @@ svg {
 }
 :host(.compact) svg {
   height: 180px;
+}
+
+/* Con viento las hojas se mecen mucho y rápido (aunque esté seco, algo se mueve). */
+:host(.scene-wind) {
+  --sway: 9deg;
+  --speed: 0.55;
+}
+:host(.scene-wind.mood-wilted) {
+  --sway: 5deg;
+  --speed: 0.8;
 }
 
 /* Sobre el cielo de la pantalla: sin fondo propio; el globo es de vidrio oscuro con texto claro. */
@@ -175,10 +203,32 @@ svg {
   stroke: var(--md-primary, #1b6c3a);
   stroke-width: 3;
 }
+.mascot {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
 .mascot.bounce {
-  animation: bounce 0.6s cubic-bezier(0.2, 0, 0, 1);
+  animation: hop 0.8s cubic-bezier(0.3, 0, 0.3, 1);
+}
+/* Respira: se estira y se achica apenas, desde el suelo. */
+.pet {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation-name: breathe, pop-in;
+  animation-duration: var(--breath-time), 0.7s;
+  animation-iteration-count: infinite, 1;
+  animation-timing-function: ease-in-out, cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.mascot.wet .pet {
+  animation: wiggle 0.45s ease-in-out infinite;
+}
+/* Cada hoja se mece a su ritmo; al cambiar el ánimo se acomodan con un resorte (no de golpe). */
+.blade-base {
+  transition: transform 0.9s cubic-bezier(0.3, 1.5, 0.5, 1);
 }
 .blade {
+  transform-origin: 0 0;
+  animation: sway calc(var(--dur) * var(--speed) * 1s) ease-in-out var(--delay) infinite alternate;
   transition: fill 0.6s;
   &.t1 {
     fill: var(--blade-1);
@@ -195,8 +245,17 @@ svg {
   fill: #fff;
   opacity: 0.22;
 }
+.face {
+  animation: look 11s ease-in-out infinite;
+}
 .eye {
   fill: var(--ink);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: blink 5.5s ease-in-out infinite;
+}
+.eye + .eye {
+  animation-delay: 0.04s;
 }
 .stroke {
   fill: none;
@@ -207,6 +266,12 @@ svg {
   &.thin {
     stroke-width: 2.5;
   }
+}
+.puff {
+  font-size: 22px;
+  text-anchor: middle;
+  pointer-events: none;
+  animation: float-up 1.4s ease-out forwards;
 }
 .cheek {
   fill: #ff9aa9;
@@ -277,13 +342,95 @@ svg {
     opacity: 0;
   }
 }
-@keyframes bounce {
+@keyframes hop {
+  /* Se agacha, salta estirándose y cae aplastándose un poco, con rebote. */
+  0% {
+    transform: scale(1.09, 0.86);
+  }
+  22% {
+    transform: translateY(-20px) scale(0.93, 1.12);
+  }
+  50% {
+    transform: translateY(0) scale(1.08, 0.92);
+  }
+  68% {
+    transform: translateY(-5px) scale(0.98, 1.03);
+  }
+  84% {
+    transform: scale(1.02, 0.98);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes breathe {
   0%,
   100% {
-    transform: translateY(0);
+    transform: scale(1, 1);
   }
-  40% {
-    transform: translateY(-12px);
+  50% {
+    transform: scale(calc(1 + var(--breath)), calc(1 - var(--breath)));
+  }
+}
+@keyframes pop-in {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes wiggle {
+  0%,
+  100% {
+    transform: rotate(-3deg) scale(1.02, 0.98);
+  }
+  50% {
+    transform: rotate(3deg) scale(0.98, 1.03);
+  }
+}
+@keyframes sway {
+  from {
+    transform: rotate(calc(var(--sway) * var(--k) * -1));
+  }
+  to {
+    transform: rotate(calc(var(--sway) * var(--k)));
+  }
+}
+@keyframes blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.08);
+  }
+}
+@keyframes look {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(2.5px);
+  }
+  65% {
+    transform: translateX(-2.5px);
+  }
+}
+@keyframes float-up {
+  from {
+    transform: translateY(0) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-48px) scale(1.15);
+    opacity: 0;
   }
 }
 @keyframes drip {
@@ -322,6 +469,12 @@ svg {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .pet,
+  .blade,
+  .face,
+  .eye,
+  .puff,
+  .mascot.wet .pet,
   .cloud,
   .drop,
   .gust,
@@ -331,5 +484,8 @@ svg {
   .spark,
   .bubble {
     animation: none !important;
+  }
+  .blade-base {
+    transition: none;
   }
 }
