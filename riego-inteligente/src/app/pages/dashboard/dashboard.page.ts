@@ -157,6 +157,8 @@ export class DashboardPage implements OnInit, OnDestroy {
   readonly threshold = computed(() => thresholdOf(this.snap()));
   /** Marcador "aquí se riega": humedad útil equivalente al umbral. */
   readonly thresholdPct = computed(() => humidityPct(this.threshold()));
+  /** Etiqueta del umbral: sobre el marcador, pero sin chocar con "Crítico" ni "Pleno" en los extremos. */
+  readonly thresholdLabelPct = computed(() => Math.min(70, Math.max(30, this.thresholdPct())));
   readonly level = computed(() => (this.humidity() >= 60 ? 'good' : this.humidity() >= 40 ? 'warn' : 'bad'));
   readonly placeLabel = computed(() => placeLabel(this.snap()));
   readonly sensorTag = computed(() => sensorTag(this.snap(), this.now()));

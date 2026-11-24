@@ -5,6 +5,7 @@ import type {
   DailyWeather,
   DayRecord,
   Evaluation,
+  Exposure,
   IrrigationEvent,
   ISODate,
   OverseedArea,
@@ -13,6 +14,8 @@ import type {
   WaterState,
 } from './models';
 import { type TimeOfDay, addDays, atTime, diffDays, toISODate, weekdayEs } from './dates';
+import { rainChancePct, scaleMembers } from './rain-chance';
+import { baseThreshold } from './soil-water';
 
 // Las fechas son parte de la API del núcleo: quien lo usa no necesita saber que viven en otro módulo.
 export { addDays, atTime, diffDays, longDateEs, toISODate, weekdayEs } from './dates';
@@ -33,11 +36,18 @@ export const MOVED_THRESHOLD_KM = 10;
 export const THRESHOLD_MIN_MM = 6;
 export const THRESHOLD_MAX_MM = 12;
 
+/**
+ * Pausa por pronóstico: con los ensambles, si al menos la mitad de los escenarios da 4 mm o más. Sin ensambles, con
+ * la regla de los modelos: probabilidad de lluvia ≥ 50 % o mediana ≥ 4 mm.
+ */
 export const RAIN_PROB_BLOCK_PCT = 50;
 export const RAIN_SUM_BLOCK_MM = 4;
 /** Lluvia medida en la última hora desde la que "está lloviendo" (pausa el riego aunque el pronóstico no la vea). */
 export const RAINING_NOW_MM = 0.5;
-/** "Espera la lluvia de mañana": solo si es muy probable (≥ 70 %) y abundante (mediana de los modelos ≥ 5 mm)… */
+/**
+ * "Espera la lluvia de mañana": solo si es muy probable (≥ 70 % de los escenarios, o de probabilidad sin ensambles) que
+ * llueva lo que hace falta, al menos 5 mm…
+ */
 export const LOOKAHEAD_PROB_PCT = 70;
 export const LOOKAHEAD_MIN_MM = 5;
 /** …y el pasto aguanta un día más sin pasar 3 mm sobre el umbral. */
@@ -95,8 +105,19 @@ export function kcForDate(date: ISODate): number {
   return 0.55; // invierno (jun–ago)
 }
 
-export function etc(et0Mm: number, date: ISODate): number {
-  return et0Mm * kcForDate(date);
+/**
+ * Consumo relativo del pasto según el sol directo que recibe (factor de microclima de WUCOLS; a la sombra el pasto
+ * consume un 20–35 % menos).
+ */
+export const EXPOSURE_FACTOR: Record<Exposure, number> = { sun: 1, partial: 0.8, shade: 0.65 };
+
+export function exposureFactor(settings: Pick<Settings, 'exposure'>): number {
+  return EXPOSURE_FACTOR[settings.exposure ?? 'sun'] ?? 1;
+}
+
+/** Consumo del pasto (ETc, mm): ET0 × Kc de la estación del año × factor de exposición (1 a pleno sol). */
+export function etc(et0Mm: number, date: ISODate, factor = 1): number {
+  return et0Mm * kcForDate(date) * factor;
 }
 
 /** 80 % de la lluvia si supera 2 mm; lluvias menores se descuentan como 0. */
@@ -116,19 +137,33 @@ export function rainTomorrowCovers(deficitNow: number, etcToday: number, tomorro
   return rainWillCover(tomorrowStart, tomorrow, thresholdMm);
 }
 
-/** Lluvia casi segura (≥ 70 %), abundante (≥ 5 mm) y que deja el déficit `startMm` bajo la mitad del umbral. */
-function rainWillCover(startMm: number, w: DailyWeather | undefined, thresholdMm: number): boolean {
-  if (!w || w.precipitationProbMax < LOOKAHEAD_PROB_PCT || w.precipitationMm < LOOKAHEAD_MIN_MM) return false;
-  return startMm - effectiveRain(w.precipitationMm) <= thresholdMm / 2;
+/** Lluvia (mm) que deja el déficit `startMm` bajo la mitad del umbral, contando solo su parte útil (al menos 5 mm). */
+export function coverNeedMm(startMm: number, thresholdMm: number): number {
+  return Math.max(LOOKAHEAD_MIN_MM, (startMm - thresholdMm / 2) / EFFECTIVE_RAIN_FACTOR);
 }
 
 /**
- * ¿El pronóstico del día pausa el riego? (prob. ≥ 50 % o ≥ 4 mm). Con el pasto más de 3 mm sobre el umbral ya no
- * basta cualquier pronóstico (si la lluvia no llega, se secaría de más): solo pausa una lluvia casi segura y
- * abundante que, sumando el consumo del día, deje el suelo bien húmedo. La lluvia medida o que cae pausa siempre.
+ * Lluvia casi segura que deja el déficit `startMm` bajo la mitad del umbral: con ensambles, ≥ 70 % de los escenarios
+ * dan lo necesario; sin ellos, probabilidad ≥ 70 % y la mediana de los modelos alcanza (y es de al menos 5 mm).
  */
-export function forecastPauses(w: DailyWeather, deficitMm: number, thresholdMm: number): boolean {
-  if (deficitMm > thresholdMm + LOOKAHEAD_MAX_OVER_MM) return rainWillCover(deficitMm + etc(w.et0Mm, w.date), w, thresholdMm);
+function rainWillCover(startMm: number, w: DailyWeather | undefined, thresholdMm: number): boolean {
+  if (!w) return false;
+  const need = coverNeedMm(startMm, thresholdMm);
+  const chance = rainChancePct(w, need);
+  if (chance !== null) return chance >= LOOKAHEAD_PROB_PCT;
+  return w.precipitationProbMax >= LOOKAHEAD_PROB_PCT && w.precipitationMm >= need;
+}
+
+/**
+ * ¿El pronóstico del día pausa el riego? Con ensambles, si al menos la mitad de los escenarios da 4 mm o más; sin
+ * ellos, con probabilidad ≥ 50 % o ≥ 4 mm. Con el pasto más de 3 mm sobre el umbral ya no basta cualquier pronóstico
+ * (si la lluvia no llega, se secaría de más): solo pausa una lluvia casi segura y abundante que, sumando el consumo
+ * del día (`etcMm`), deje el suelo bien húmedo. La lluvia medida o que cae pausa siempre.
+ */
+export function forecastPauses(w: DailyWeather, deficitMm: number, thresholdMm: number, etcMm = etc(w.et0Mm, w.date)): boolean {
+  if (deficitMm > thresholdMm + LOOKAHEAD_MAX_OVER_MM) return rainWillCover(deficitMm + etcMm, w, thresholdMm);
+  const chance = rainChancePct(w, RAIN_SUM_BLOCK_MM);
+  if (chance !== null) return chance >= RAIN_PROB_BLOCK_PCT;
   return w.precipitationProbMax >= RAIN_PROB_BLOCK_PCT || w.precipitationMm >= RAIN_SUM_BLOCK_MM;
 }
 
@@ -148,12 +183,17 @@ function forecastBetween(hourly: number[], from: number, to: number): number {
 /**
  * Lo que falta de hoy según el pronóstico por hora, desde la última lectura de la estación (null si no hay
  * lecturas de hoy o no hay pronóstico por hora). La probabilidad del día solo cuenta si aún se espera ≥ 1 mm.
+ * `fraction` es la parte de la lluvia del día que cae en las horas que faltan (si no se pronostica lluvia, la parte
+ * del día que falta): sirve para llevar los escenarios de los ensambles, que son del día completo, a lo que falta.
  */
-export function forecastLeft(w: DailyWeather): { mm: number; probPct: number } | null {
+export function forecastLeft(w: DailyWeather): { mm: number; probPct: number; fraction: number } | null {
   const live = w.live && w.live.date === w.date && w.live.sinceMs !== null ? w.live : null;
   if (!live || !w.hourlyRainMm) return null;
-  const mm = Math.round(forecastBetween(w.hourlyRainMm, hourOf(live.lastAtMs), 24) * 10) / 10;
-  return { mm, probPct: mm >= 1 ? w.precipitationProbMax : 0 };
+  const from = hourOf(live.lastAtMs);
+  const left = forecastBetween(w.hourlyRainMm, from, 24);
+  const total = forecastBetween(w.hourlyRainMm, 0, 24);
+  const mm = Math.round(left * 10) / 10;
+  return { mm, probPct: mm >= 1 ? w.precipitationProbMax : 0, fraction: total > 0 ? left / total : Math.max(0, 24 - from) / 24 };
 }
 
 /**
@@ -171,10 +211,16 @@ export function dayRain(w: DailyWeather): number {
   return Math.round((unmeasured + live.mm + forecastBetween(w.hourlyRainMm, hourOf(live.lastAtMs), 24)) * 10) / 10;
 }
 
-/** El pronóstico de hoy que sirve para decidir: con estación, solo lo que falta del día. */
+/** El pronóstico de hoy que sirve para decidir: con estación, solo lo que falta del día (también en los escenarios). */
 function forecastToday(w: DailyWeather): DailyWeather {
   const left = forecastLeft(w);
-  return left ? { ...w, precipitationMm: left.mm, precipitationProbMax: left.probPct } : w;
+  if (!left) return w;
+  return {
+    ...w,
+    precipitationMm: left.mm,
+    precipitationProbMax: left.probPct,
+    ...(w.rainMembers ? { rainMembers: scaleMembers(w.rainMembers, left.fraction) } : {}),
+  };
 }
 
 /**
@@ -215,18 +261,23 @@ export function humidityPct(deficitMm: number): number {
  *   Deficit_Hoy = max(0, Deficit_Ayer + ETc_Ayer − Lluvia_Efectiva_Ayer − Riego_Ayer)
  * El riego registrado ya descontó el déficit en el momento de registrarse (ver `applyIrrigation`),
  * por eso aquí no se resta de nuevo. Si falta clima de un día (app sin abrir > 2 días),
- * se usa el ETc promedio de los días conocidos y lluvia 0.
+ * se usa el ETc promedio de los días conocidos y lluvia 0. `factor` es el de exposición (ver `exposureFactor`).
  */
-export function rollForward(state: WaterState, weather: DailyWeather[], targetDate: ISODate): { state: WaterState; days: DayRecord[] } {
+export function rollForward(
+  state: WaterState,
+  weather: DailyWeather[],
+  targetDate: ISODate,
+  factor = 1,
+): { state: WaterState; days: DayRecord[] } {
   const byDate = new Map(weather.map((w) => [w.date, w]));
   const known = weather.filter((w) => w.date < targetDate);
-  const avgEtc = known.length ? known.reduce((s, w) => s + etc(w.et0Mm, w.date), 0) / known.length : 0;
+  const avgEtc = known.length ? known.reduce((s, w) => s + etc(w.et0Mm, w.date, factor), 0) / known.length : 0;
 
   let deficit = state.deficitMm;
   const days: DayRecord[] = [];
   for (let d = state.asOf; d < targetDate; d = addDays(d, 1)) {
     const w = byDate.get(d);
-    const dayEtc = w ? etc(w.et0Mm, d) : avgEtc;
+    const dayEtc = w ? etc(w.et0Mm, d, factor) : avgEtc;
     const rain = w ? effectiveRain(dayRain(w)) : 0;
     deficit = Math.max(0, deficit + dayEtc - rain);
     days.push({ date: d, etcMm: dayEtc, effectiveRainMm: rain });
@@ -289,12 +340,13 @@ export function reconcileObservedRain(
 
 /**
  * Igual que con la lluvia, pero con la ET0: si la estación midió una ET0 distinta a la usada en un día ya
- * contabilizado, se corrige el consumo (ETc) de ese día y el déficit por la diferencia.
+ * contabilizado, se corrige el consumo (ETc) de ese día y el déficit por la diferencia. `factor`: el de exposición.
  */
 export function reconcileObservedEt0(
   state: WaterState,
   history: DayRecord[],
   observed: Record<ISODate, number> | undefined,
+  factor = 1,
 ): { state: WaterState; history: DayRecord[]; changed: boolean } {
   let s = state;
   let h = history;
@@ -303,7 +355,7 @@ export function reconcileObservedEt0(
     if (date >= s.asOf) continue;
     const rec = h.find((x) => x.date === date);
     if (!rec) continue;
-    const newEtc = etc(et0, date);
+    const newEtc = etc(et0, date, factor);
     if (Math.abs(rec.etcMm - newEtc) < 0.05) continue;
     if (!s.resetDate || date >= s.resetDate) s = { ...s, deficitMm: Math.max(0, s.deficitMm + newEtc - rec.etcMm) };
     h = h.map((x) => (x.date === date ? { ...x, etcMm: newEtc } : x));
@@ -321,17 +373,19 @@ export function applyIrrigation(state: WaterState, mm?: number): WaterState {
 export function evaluate(state: WaterState, weather: DailyWeather[], settings: Settings, date: ISODate): Evaluation | null {
   const today = weather.find((w) => w.date === date);
   if (!today) return null;
+  const factor = exposureFactor(settings);
   const yesterday = weather.find((w) => w.date === addDays(date, -1));
-  const rolled = rollForward(state, weather, date).state;
+  const rolled = rollForward(state, weather, date, factor).state;
   const m = measuredToday(state, today, date);
   // La lluvia que ya cayó hoy está en el suelo: baja el déficit actual y el riego que corresponde.
   const deficit = Math.max(0, rolled.deficitMm - effectiveRain(m.afterReset));
-  const threshold = thresholdFor(state, settings, date);
+  const etcToday = etc(today.et0Mm, date, factor);
+  const threshold = thresholdFor(state, settings, date, etcToday);
   const left = forecastLeft(today);
-  const forecastBlock = forecastPauses(forecastToday(today), deficit, threshold);
+  const todayForecast = forecastToday(today);
+  const forecastBlock = forecastPauses(todayForecast, deficit, threshold, etcToday);
   const measuredBlock = (m.measured ?? 0) >= RAIN_SUM_BLOCK_MM;
   const needs = deficit >= threshold;
-  const etcToday = etc(today.et0Mm, date);
   const tomorrow = weather.find((w) => w.date === addDays(date, 1));
   // Mañana llueve lo suficiente: hoy no se riega (salvo siembra de todo el jardín: la semilla no puede secarse).
   const seedbed = overseedActive(state, date) && overseedArea(state) === 'full';
@@ -345,7 +399,7 @@ export function evaluate(state: WaterState, weather: DailyWeather[], settings: S
     status: !needs ? 'ok' : rainBlock ? 'paused_rain' : 'irrigate',
     deficitMm: deficit,
     minutes: minutesFor(deficit, settings.sprinklerRateMmMin),
-    etcYesterdayMm: yesterday ? etc(yesterday.et0Mm, yesterday.date) : 0,
+    etcYesterdayMm: yesterday ? etc(yesterday.et0Mm, yesterday.date, factor) : 0,
     kc: kcForDate(date),
     tempMaxC: today.tempMaxC,
     rainProbPct: today.precipitationProbMax,
@@ -354,12 +408,15 @@ export function evaluate(state: WaterState, weather: DailyWeather[], settings: S
     rainMeasuredMm: m.measured,
     rainingNow: m.rainingNow,
     rainBlockReason: measuredBlock ? 'measured' : m.rainingNow ? 'raining' : forecastBlock ? 'forecast' : waitBlock ? 'tomorrow' : null,
+    rainUsefulProbPct: rainChancePct(todayForecast, RAIN_SUM_BLOCK_MM),
     rainTomorrowMm: tomorrow?.precipitationMm ?? 0,
     rainTomorrowProbPct: tomorrow?.precipitationProbMax ?? 0,
+    rainTomorrowCoverProbPct: rainChancePct(tomorrow, coverNeedMm(deficit + etcToday, threshold)),
     overseed: overseedActive(state, date) ? overseedArea(state) : null,
     thresholdMm: threshold,
     effectiveRainTodayMm: rainToday,
     etcTodayMm: etcToday,
+    exposureFactor: factor,
     projectedDeficitMm: Math.max(0, rolled.deficitMm + etcToday - rainToday),
     windMaxKmh: today.windMaxKmh,
     windWarning: today.windMaxKmh > WIND_WARN_KMH,
@@ -378,6 +435,8 @@ export interface ForecastDay {
   rainMm: number;
   effectiveRainMm: number;
   rainProbPct: number;
+  /** Probabilidad (%) de 4 mm o más según los ensambles (hoy: en lo que falta del día); null sin ensambles. */
+  usefulRainPct: number | null;
   /** El riego se bloquearía ese día por lluvia pronosticada (o porque al día siguiente llueve lo suficiente). */
   rainBlock: boolean;
   /** No se riega porque la lluvia del día siguiente repone el déficit. */
@@ -409,7 +468,8 @@ export function forecastNextIrrigation(
   settings: Settings,
   today: ISODate,
 ): NextIrrigation | null {
-  const start = rollForward(state, weather, today).state.deficitMm;
+  const factor = exposureFactor(settings);
+  const start = rollForward(state, weather, today, factor).state.deficitMm;
   const future = weather.filter((w) => w.date >= today).sort((a, b) => a.date.localeCompare(b.date));
   if (!future.length) return null;
 
@@ -423,10 +483,11 @@ export function forecastNextIrrigation(
     const snoozed = state.snoozedDate === w.date;
     const rainMm = m ? Math.max(0, dayRain(w) - m.beforeReset) : w.precipitationMm;
     const current = m ? Math.max(0, deficit - effectiveRain(m.afterReset)) : deficit;
-    const threshold = thresholdFor(state, settings, w.date);
+    const etcMm = etc(w.et0Mm, w.date, factor);
+    const threshold = thresholdFor(state, settings, w.date, etcMm);
+    const dayForecast = m ? forecastToday(w) : w;
     let rainBlock =
-      forecastPauses(m ? forecastToday(w) : w, current, threshold) || (!!m && ((m.measured ?? 0) >= RAIN_SUM_BLOCK_MM || m.rainingNow));
-    const etcMm = etc(w.et0Mm, w.date);
+      forecastPauses(dayForecast, current, threshold, etcMm) || (!!m && ((m.measured ?? 0) >= RAIN_SUM_BLOCK_MM || m.rainingNow));
     const seedbed = overseedActive(state, w.date) && overseedArea(state) === 'full';
     const waitForRain = !rainBlock && !seedbed && current >= threshold && rainTomorrowCovers(current, etcMm, future[i + 1], threshold);
     rainBlock ||= waitForRain;
@@ -437,6 +498,7 @@ export function forecastNextIrrigation(
       rainMm,
       effectiveRainMm: effectiveRain(rainMm),
       rainProbPct: w.precipitationProbMax,
+      usefulRainPct: rainChancePct(dayForecast, RAIN_SUM_BLOCK_MM),
       rainBlock,
       waitForRain,
       irrigate: false,
@@ -466,7 +528,7 @@ export function forecastNextIrrigation(
   // Más allá del pronóstico: se extrapola con el ETc promedio y sin lluvia.
   const avgEtc = timeline.reduce((s, d) => s + d.etcMm, 0) / timeline.length;
   if (avgEtc <= 0) return null;
-  const extra = Math.max(1, Math.ceil((settings.thresholdMm - deficit) / avgEtc));
+  const extra = Math.max(1, Math.ceil((baseThreshold(settings, avgEtc) - deficit) / avgEtc));
   const date = addDays(timeline[timeline.length - 1].date, extra);
   const deficitAt = deficit + avgEtc * (extra - 1);
   return {
@@ -500,13 +562,13 @@ export function overseedArea(state: WaterState): OverseedArea {
 }
 
 /**
- * Umbral de riego del día. Mientras germina una siembra de todo el jardín, el suelo de la superficie no puede
- * secarse: se riega corto y seguido (umbral de 2 mm). Con parches el pasto sigue su umbral normal.
+ * Umbral de riego del día: el de Ajustes (fijo, o automático según el suelo y el consumo del día `etcMm`). Mientras
+ * germina una siembra de todo el jardín, el suelo de la superficie no puede secarse: se riega corto y seguido
+ * (umbral de 2 mm). Con parches el pasto sigue su umbral normal.
  */
-export function thresholdFor(state: WaterState, settings: Settings, date: ISODate): number {
-  return overseedActive(state, date) && overseedArea(state) === 'full'
-    ? Math.min(settings.thresholdMm, SEEDBED_THRESHOLD_MM)
-    : settings.thresholdMm;
+export function thresholdFor(state: WaterState, settings: Settings, date: ISODate, etcMm?: number): number {
+  const base = baseThreshold(settings, etcMm);
+  return overseedActive(state, date) && overseedArea(state) === 'full' ? Math.min(base, SEEDBED_THRESHOLD_MM) : base;
 }
 
 // ───────────────────────── Notificaciones ─────────────────────────
@@ -570,12 +632,16 @@ export function morningNotification(ev: Evaluation, at: Date): PlannedNotificati
     };
   }
   if (ev.status === 'paused_rain' && ev.rainBlockReason === 'tomorrow') {
+    const cover = ev.rainTomorrowCoverProbPct;
     return {
       ...base,
       title: '🌧️ Hoy no riegues: mañana llueve',
       body:
         `Déficit de ${round1(ev.deficitMm)} mm, pero mañana se esperan ${round1(ev.rainTomorrowMm)} mm ` +
-        `(${Math.round(ev.rainTomorrowProbPct)}% de prob.), suficientes para reponerlo. Si no llueve, se riega mañana.`,
+        (cover !== null && cover !== undefined
+          ? `(${cover}% de prob. de que basten para reponerlo).`
+          : `(${Math.round(ev.rainTomorrowProbPct)}% de prob.), suficientes para reponerlo.`) +
+        ' Si no llueve, se riega mañana.',
       actions: false,
     };
   }
@@ -588,10 +654,14 @@ export function morningNotification(ev: Evaluation, at: Date): PlannedNotificati
     };
   }
   if (ev.status === 'paused_rain') {
+    const useful = ev.rainUsefulProbPct;
     return {
       ...base,
       title: '🌧️ Riego pausado por pronóstico de lluvia',
-      body: `Déficit de ${round1(ev.deficitMm)} mm, pero hay ${Math.round(ev.rainProbPct)}% de prob. de lluvia hoy.`,
+      body:
+        useful !== null && useful !== undefined
+          ? `Déficit de ${round1(ev.deficitMm)} mm, pero hay ${useful}% de prob. de 4 mm o más de lluvia hoy.`
+          : `Déficit de ${round1(ev.deficitMm)} mm, pero hay ${Math.round(ev.rainProbPct)}% de prob. de lluvia hoy.`,
       actions: false,
     };
   }
@@ -740,7 +810,14 @@ export function monthSummary(today: ISODate, history: DayRecord[], irrigations: 
 
 // ───────────────────────── Gráfico de 7 días ─────────────────────────
 
-export function buildChart(today: ISODate, history: DayRecord[], weather: DailyWeather[], irrigations: IrrigationEvent[]): ChartDay[] {
+/** Últimos 7 días: lo registrado en el historial o, si falta, lo estimado con el clima (`factor`: el de exposición). */
+export function buildChart(
+  today: ISODate,
+  history: DayRecord[],
+  weather: DailyWeather[],
+  irrigations: IrrigationEvent[],
+  factor = 1,
+): ChartDay[] {
   const hist = new Map(history.map((h) => [h.date, h]));
   const wx = new Map(weather.map((w) => [w.date, w]));
   const out: ChartDay[] = [];
@@ -748,7 +825,7 @@ export function buildChart(today: ISODate, history: DayRecord[], weather: DailyW
     const date = addDays(today, -i);
     const h = hist.get(date);
     const w = wx.get(date);
-    const dayEtc = h ? h.etcMm : w ? etc(w.et0Mm, date) : 0;
+    const dayEtc = h ? h.etcMm : w ? etc(w.et0Mm, date, factor) : 0;
     const rain = h ? h.effectiveRainMm : w ? effectiveRain(dayRain(w)) : 0;
     const irr = irrigations.filter((e) => e.date === date).reduce((s, e) => s + e.mm, 0);
     out.push({

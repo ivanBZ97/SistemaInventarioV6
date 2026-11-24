@@ -7,7 +7,7 @@ import { extname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { NOW, TODAY, day, mockNetwork, seed } from './fixtures.mjs';
+import { ENSEMBLE, NOW, TODAY, day, mockNetwork, seed } from './fixtures.mjs';
 
 const ROOT = fileURLToPath(new URL('../www', import.meta.url));
 const TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml', '.json': 'application/json' };
@@ -35,7 +35,7 @@ after(async () => {
 });
 
 /** Abre una pantalla de la app con los datos sembrados. Falla si la página lanza errores. */
-async function open(path, { height = 1000, data = seed() } = {}) {
+async function open(path, { height = 1000, data = seed(), ensemble = ENSEMBLE } = {}) {
   const context = await browser.newContext({
     viewport: { width: 400, height },
     timezoneId: 'America/Santiago',
@@ -47,7 +47,7 @@ async function open(path, { height = 1000, data = seed() } = {}) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.clock.install({ time: new Date(NOW) });
-  await mockNetwork(page);
+  await mockNetwork(page, { ensemble });
   // Solo la primera carga siembra los datos: al navegar dentro de la app se conserva lo que ella guardó.
   await page.addInitScript((stored) => {
     if (sessionStorage.getItem('seeded')) return;
@@ -85,6 +85,28 @@ test('panel: muestra el estado del pasto, la recomendación y la lluvia medida',
   assert.match(text, /Próximo riego\s+Mañana/);
   assert.match(text, /Últimos 30 días[\s\S]*Riegos\s+3/);
   await app.close();
+});
+
+test('panel: una llovizna probable ya no pausa el riego (ensambles); sin ellos, sí', async () => {
+  /** 9,5 mm de déficit y, hoy, 80 % de probabilidad de "lluvia" pero solo 1,2 mm. */
+  const drizzle = () => {
+    const data = seed();
+    data.state = { ...data.state, deficitMm: 9.5 };
+    data.weatherCache.modelDays = data.weatherCache.modelDays.map((d) =>
+      d.date === TODAY ? { ...d, precipitationMm: 1.2, precipitationProbMax: 80 } : d,
+    );
+    return data;
+  };
+  const app = await open('/dashboard', { height: 3400, data: drizzle(), ensemble: { 0: [10, 5], 2: [80, 8] } });
+  const text = await app.page.locator('ion-content').first().innerText();
+  assert.match(text, /Riega 16 minutos hoy/);
+  assert.match(text, /10% de prob\. de 4 mm o más/);
+  assert.ok((await app.stored('weatherCache')).ensemble?.rain[TODAY], 'guarda los escenarios de lluvia');
+  await app.close();
+
+  const without = await open('/dashboard', { height: 3400, data: drizzle(), ensemble: null });
+  assert.match(await without.page.locator('ion-content').first().innerText(), /Riego en pausa por lluvia\s+80% de probabilidad/);
+  await without.close();
 });
 
 test('panel: registrar un riego repone el déficit y se puede deshacer', async () => {
@@ -149,6 +171,34 @@ test('ajustes: la calculadora del balde propone la tasa y una latitud vacía no 
   await page.getByRole('button', { name: 'Guardar cambios' }).click();
   await app.settle();
   assert.equal((await app.stored('settings')).latitude, data.settings.latitude);
+  await app.close();
+});
+
+test('ajustes: umbral automático con el suelo de SoilGrids y pasto a la sombra', async () => {
+  const app = await open('/settings', { height: 5200 });
+  const { page } = app;
+  await page.locator('app-irrigation-section ion-toggle[aria-label="Calcular el umbral según el suelo"]').click();
+  await app.settle();
+  await page.getByText('Detectar el suelo de mi zona').click();
+  await app.settle();
+  const section = await page.locator('app-irrigation-section').innerText();
+  assert.match(section, /Según SoilGrids: 57 % de arena y 18 % de arcilla en los primeros 30 cm → franco arenoso, con 15 % de agua útil\./);
+  assert.match(section, /Agua útil: 15 % × 15 cm de raíces = 22,5 mm\. Se riega al gastar el 40 % \(9 mm\)/);
+  await page.getByRole('radio', { name: 'Sombra', exact: true }).click();
+  await page.getByRole('button', { name: 'Guardar cambios' }).click();
+  await app.settle();
+  const settings = await app.stored('settings');
+  assert.equal(settings.thresholdAuto, true);
+  assert.equal(settings.exposure, 'shade');
+  assert.deepEqual(settings.soil, { texture: 'sandyLoam', awcPct: 15, source: 'soilgrids', sandPct: 56.5, clayPct: 17.9 });
+  assert.equal(settings.thresholdMm, 8); // el umbral manual queda para cuando se apague el automático
+
+  // En el panel, el umbral de hoy: 4,6 mm de ET0 × 0,8 × 0,65 (sombra) = 2,4 mm de consumo → p = 0,50 → 11,3 mm.
+  await page.goto(`${origin}/#/dashboard`);
+  await app.settle();
+  const panel = await page.locator('ion-content').first().innerText();
+  assert.match(panel, /Riego · 11,3 mm/);
+  assert.match(panel, /Consumo del pasto\s+2,4 mm\s+ETc · Kc 0,8 · sombra ×0,65/);
   await app.close();
 });
 

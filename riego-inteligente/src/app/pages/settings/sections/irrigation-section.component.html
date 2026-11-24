@@ -4,21 +4,110 @@
     <div class="li-icon"><ion-icon name="water-outline" /></div>
     <div class="li-text">
       <span class="md-body-large">Umbral de riego</span>
-      <span class="md-body-medium md-variant">Se avisa cuando el déficit llega a {{ form.threshold() }} mm</span>
+      <span class="md-body-medium md-variant">{{ thresholdText() }}</span>
     </div>
-    <span class="md-title-medium value">{{ form.threshold() }} mm</span>
+    <span class="md-title-medium value">{{ decimal(form.effectiveThreshold()) }} mm</span>
   </div>
-  <ion-range
-    class="m3-slider"
-    [min]="min"
-    [max]="max"
-    [step]="0.5"
-    [ticks]="true"
-    [snaps]="true"
-    [value]="form.threshold()"
-    (ionInput)="form.threshold.set(number($event))"
-    aria-label="Umbral de riego"
-  />
+  <div class="row">
+    <div class="li-text">
+      <span class="md-body-large">Calcularlo según el suelo</span>
+      <span class="md-body-medium md-variant">Cuánta agua guarda tu suelo donde están las raíces (método FAO-56)</span>
+    </div>
+    <ion-toggle
+      [checked]="form.thresholdAuto()"
+      (ionChange)="form.thresholdAuto.set(checked($event))"
+      aria-label="Calcular el umbral según el suelo"
+    />
+  </div>
+
+  @if (form.thresholdAuto()) {
+    <p class="intro md-body-medium md-variant">Tipo de suelo</p>
+    <div class="chips plain" role="radiogroup" aria-label="Tipo de suelo">
+      @for (t of textures; track t.id) {
+        <button
+          type="button"
+          class="chip"
+          role="radio"
+          [class.on]="soilTexture() === t.id"
+          [attr.aria-checked]="soilTexture() === t.id"
+          (click)="setTexture(t.id)"
+        >
+          @if (soilTexture() === t.id) {
+            <ion-icon name="checkmark-outline" />
+          }
+          {{ t.label }}
+        </button>
+      }
+    </div>
+    <p class="intro md-body-medium">{{ soilNote() }}</p>
+    <div class="chips">
+      <button type="button" class="chip" (click)="detectSoil()" [disabled]="detecting()">
+        <ion-icon name="earth-outline" />{{ detecting() ? 'Consultando el mapa de suelos…' : 'Detectar el suelo de mi zona (SoilGrids)' }}
+      </button>
+    </div>
+    <p class="intro md-body-medium md-variant">Pasto</p>
+    <div class="chips plain" role="radiogroup" aria-label="Etapa del pasto">
+      @for (s of stages; track s.id) {
+        <button
+          type="button"
+          class="chip"
+          role="radio"
+          [class.on]="form.lawnStage() === s.id"
+          [attr.aria-checked]="form.lawnStage() === s.id"
+          (click)="form.lawnStage.set(s.id)"
+        >
+          @if (form.lawnStage() === s.id) {
+            <ion-icon name="checkmark-outline" />
+          }
+          {{ s.label }}
+        </button>
+      }
+    </div>
+    <p class="intro md-body-medium" data-test="auto-threshold">{{ autoDetail() }}</p>
+  } @else {
+    <ion-range
+      class="m3-slider"
+      [min]="min"
+      [max]="max"
+      [step]="0.5"
+      [ticks]="true"
+      [snaps]="true"
+      [value]="form.threshold()"
+      (ionInput)="form.threshold.set(number($event))"
+      aria-label="Umbral de riego"
+    />
+  }
+
+  <div class="divider"></div>
+  <div class="row">
+    <div class="li-icon"><ion-icon name="sunny-outline" /></div>
+    <div class="li-text">
+      <span class="md-body-large">Sol sobre el pasto</span>
+      <span class="md-body-medium md-variant">{{ exposureText() }}</span>
+    </div>
+  </div>
+  <div class="chips plain" role="radiogroup" aria-label="Sol sobre el pasto">
+    @for (e of exposures; track e.id) {
+      <button
+        type="button"
+        class="chip"
+        role="radio"
+        [class.on]="form.exposure() === e.id"
+        [attr.aria-checked]="form.exposure() === e.id"
+        (click)="form.exposure.set(e.id)"
+      >
+        @if (form.exposure() === e.id) {
+          <ion-icon name="checkmark-outline" />
+        }
+        {{ e.label }}
+      </button>
+    }
+  </div>
+  <p class="intro md-body-small md-variant">
+    Si una parte del pasto está al sol y otra a la sombra, deja «Pleno sol»: la app riega todo por igual y así no le falta agua a la parte
+    más expuesta.
+  </p>
+
   <div class="divider"></div>
   <div class="field">
     <ion-input

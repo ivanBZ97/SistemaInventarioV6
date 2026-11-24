@@ -2,8 +2,19 @@
 export type ISODate = string;
 
 export interface Settings {
-  /** Umbral de disparo en mm de déficit (6–12). */
+  /** Umbral de disparo en mm de déficit (6–12) cuando se fija a mano (ver `thresholdAuto`). */
   thresholdMm: number;
+  /**
+   * true: el umbral se calcula con el agua útil del suelo, la profundidad de las raíces y el consumo del día (FAO-56);
+   * `thresholdMm` queda como valor manual para cuando se desactive.
+   */
+  thresholdAuto?: boolean;
+  /** Suelo del jardín (textura y agua útil), elegido a mano o detectado con SoilGrids. */
+  soil?: SoilInfo;
+  /** Etapa del pasto: define la profundidad de las raíces que aprovechan el agua del suelo. */
+  lawnStage?: LawnStage;
+  /** Horas de sol directo sobre el pasto: a la sombra consume menos agua (sin dato: pleno sol). */
+  exposure?: Exposure;
   /** Tasa de precipitación del aspersor en mm/min. */
   sprinklerRateMmMin: number;
   /** Superficie del pasto en m² (opcional): para expresar los riegos en litros. */
@@ -46,6 +57,26 @@ export interface DmcAuth {
   user: string;
   /** Token personal que envía la DMC al confirmar la cuenta. Solo se guarda en el teléfono. */
   token: string;
+}
+
+/** Sol directo sobre el pasto en verano: pleno sol (≥ 6 h), media sombra (3–6 h) o sombra (< 3 h). */
+export type Exposure = 'sun' | 'partial' | 'shade';
+
+/** Textura del suelo, agrupada como en la tabla 19 de FAO-56. */
+export type SoilTexture = 'sand' | 'sandyLoam' | 'loam' | 'clay';
+
+/** Pasto nuevo (raíces cortas, ~10 cm) o establecido (~15 cm). */
+export type LawnStage = 'young' | 'established';
+
+export interface SoilInfo {
+  texture: SoilTexture;
+  /** Agua útil del suelo: % del volumen entre capacidad de campo y punto de marchitez. */
+  awcPct: number;
+  /** Elegido a mano o detectado con el mapa de suelos SoilGrids (ISRIC) para la zona. */
+  source: 'manual' | 'soilgrids';
+  /** Composición de los primeros 30 cm según SoilGrids (%), para mostrarla. */
+  sandPct?: number;
+  clayPct?: number;
 }
 
 /** Centro de datos de la cuenta de Smart Life (Chile: América oeste). */
@@ -138,6 +169,11 @@ export interface DailyWeather {
   live?: LiveRain;
   /** Lluvia pronosticada por hora local (24 valores, mediana de los modelos): permite separar lo que falta del día. */
   hourlyRainMm?: number[];
+  /**
+   * Lluvia del día (mm) en cada escenario de los pronósticos por ensambles, de menor a mayor: da la probabilidad de
+   * que llueva lo suficiente (ver `rainChancePct`). Solo de hoy en adelante y si se pudo consultar.
+   */
+  rainMembers?: number[];
 }
 
 export interface DayRecord {
@@ -175,9 +211,13 @@ export interface Evaluation {
   rainingNow: boolean;
   /** Motivo de la pausa: ya llovió lo suficiente, está lloviendo, lo dice el pronóstico de hoy o mañana llueve lo suficiente. */
   rainBlockReason: 'measured' | 'raining' | 'forecast' | 'tomorrow' | null;
+  /** Probabilidad (%) de 4 mm o más hoy (o en lo que queda del día) según los ensambles; null sin ensambles. */
+  rainUsefulProbPct: number | null;
   /** Pronóstico de mañana (para explicar "espera la lluvia de mañana"). */
   rainTomorrowMm: number;
   rainTomorrowProbPct: number;
+  /** Probabilidad (%) de que la lluvia de mañana alcance para reponer el déficit, según los ensambles; null sin ellos. */
+  rainTomorrowCoverProbPct: number | null;
   /** Modo Resiembra activo ese día y dónde se sembró (null si no está activo). */
   overseed: OverseedArea | null;
   /** Umbral de riego usado ese día (más bajo mientras germina una siembra de todo el jardín). */
@@ -185,6 +225,8 @@ export interface Evaluation {
   /** Lluvia efectiva prevista hoy (80 % si > 2 mm); se descuenta del balance mañana. */
   effectiveRainTodayMm: number;
   etcTodayMm: number;
+  /** Factor de exposición aplicado al consumo (1 = pleno sol; menos a la sombra). */
+  exposureFactor: number;
   /** Déficit esperado mañana: hoy + ETc de hoy − lluvia efectiva de hoy. */
   projectedDeficitMm: number;
   windMaxKmh: number;

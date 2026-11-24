@@ -5,6 +5,7 @@ import { LIVE_FRESH_MS } from '../../core/dmc';
 import { capitalize, clock, fmt, pad2 } from '../../core/format';
 import type { Snapshot } from '../../core/irrigation-engine.service';
 import { type ForecastDay, type MonthSummary, humidityPct, litersFor } from '../../core/irrigation-core';
+import { baseThreshold } from '../../core/soil-water';
 import type { ChartDay, Evaluation, OverseedArea } from '../../core/models';
 
 /** Ventana en que se recomienda regar (nunca de noche). */
@@ -20,9 +21,17 @@ export function deficitOf(snap: Snapshot | null): number {
   return snap?.evaluation?.deficitMm ?? snap?.state.deficitMm ?? 0;
 }
 
-/** Umbral de hoy: el de Ajustes, o el de siembra (2 mm) si hay Resiembra de todo el jardín. */
+/** Umbral de hoy: el de Ajustes (fijo o automático), o el de siembra (2 mm) si hay Resiembra de todo el jardín. */
 export function thresholdOf(snap: Snapshot | null): number {
-  return snap?.evaluation?.thresholdMm ?? snap?.settings.thresholdMm ?? DEFAULT_THRESHOLD_MM;
+  return snap?.evaluation?.thresholdMm ?? (snap ? baseThreshold(snap.settings) : DEFAULT_THRESHOLD_MM);
+}
+
+/** "62 % de probabilidad de 4 mm o más" (ensambles) o, sin ellos, "50% de probabilidad" (de que llueva algo). */
+function rainChanceText(ev: Evaluation): string {
+  const useful = ev.rainUsefulProbPct;
+  return useful !== null && useful !== undefined
+    ? `${useful} % de probabilidad de 4 mm o más`
+    : `${Math.round(ev.rainProbPct)}% de probabilidad`;
 }
 
 /** La evaluación con el pronóstico de lluvia de lo que queda de hoy (si la estación ya midió parte del día). */
@@ -106,13 +115,18 @@ export function recommendation(snap: Snapshot | null): Recommendation {
   const fell = ev.rainMeasuredMm ?? 0;
   if (ev.status === 'paused_rain') {
     switch (ev.rainBlockReason) {
-      case 'tomorrow':
+      case 'tomorrow': {
+        const cover = ev.rainTomorrowCoverProbPct;
         return {
           cls: 'neutral',
           icon: 'umbrella-outline',
           title: 'Espera la lluvia de mañana',
-          detail: `Mañana se esperan ${fmt(ev.rainTomorrowMm)} mm (${Math.round(ev.rainTomorrowProbPct)} %): reponen el déficit de ${mm} mm sin regar hoy. Si no llueve, se riega mañana.`,
+          detail:
+            cover !== null && cover !== undefined
+              ? `Mañana se esperan ${fmt(ev.rainTomorrowMm)} mm, con ${cover} % de probabilidad de que basten para reponer el déficit de ${mm} mm. Si no llueve, se riega mañana.`
+              : `Mañana se esperan ${fmt(ev.rainTomorrowMm)} mm (${Math.round(ev.rainTomorrowProbPct)} %): reponen el déficit de ${mm} mm sin regar hoy. Si no llueve, se riega mañana.`,
         };
+      }
       case 'raining':
         return {
           cls: 'neutral',
@@ -134,8 +148,8 @@ export function recommendation(snap: Snapshot | null): Recommendation {
           title: 'Riego en pausa por lluvia',
           detail:
             ev.rainForecastLeftMm !== null
-              ? `${Math.round(ev.rainProbPct)}% de probabilidad · ${fmt(ev.rainForecastLeftMm)} mm previstos para lo que queda de hoy.`
-              : `${Math.round(ev.rainProbPct)}% de probabilidad · ${fmt(ev.rainForecastMm)} mm previstos hoy.`,
+              ? `${rainChanceText(ev)} · ${fmt(ev.rainForecastLeftMm)} mm previstos para lo que queda de hoy.`
+              : `${rainChanceText(ev)} · ${fmt(ev.rainForecastMm)} mm previstos hoy.`,
         };
     }
   }
@@ -235,7 +249,7 @@ export function liveRainView(snap: Snapshot | null, now: number): LiveRainView |
       ? null
       : ev.rainForecastLeftMm !== null
         ? `Pronóstico para el resto del día: ${fmt(ev.rainForecastLeftMm)} mm`
-        : `Pronóstico para hoy: ${fmt(ev.rainForecastMm)} mm (${Math.round(ev.rainProbPct)} %)`,
+        : `Pronóstico para hoy: ${fmt(ev.rainForecastMm)} mm (${ev.rainUsefulProbPct !== null && ev.rainUsefulProbPct !== undefined ? `${ev.rainUsefulProbPct} % de 4 mm o más` : `${Math.round(ev.rainProbPct)} %`})`,
     bars: rain.hourly.map((mm, h) => ({ h, mm, pct: mm > 0 ? Math.max(8, (mm / max) * 100) : 0, future: h > hourNow })),
   };
 }
@@ -292,7 +306,7 @@ export function forecastStrip(snap: Snapshot | null): StripDay[] {
     label: i === 0 ? 'Hoy' : capitalize(weekdayEs(d.date).slice(0, 3)),
     dayNum: Number(d.date.slice(8)),
     fill: Math.min(100, (d.deficitMm / threshold) * 100),
-    rainy: d.rainMm >= 1 || d.rainProbPct >= 50,
+    rainy: d.rainMm >= 1 || (d.usefulRainPct ?? d.rainProbPct) >= 50,
   }));
 }
 
@@ -307,7 +321,11 @@ export function stripDetail(day: StripDay | undefined, thresholdMm: number): str
         : day.deficitMm >= thresholdMm
           ? 'Pospuesto'
           : 'Sin riego';
-  return `${capitalize(longDateEs(day.date))} · ${what} · déficit ${fmt(day.deficitMm)} mm · lluvia ${fmt(day.rainMm)} mm (${Math.round(day.rainProbPct)}%)`;
+  const chance =
+    day.usefulRainPct !== null && day.usefulRainPct !== undefined
+      ? `${day.usefulRainPct}% de 4 mm o más`
+      : `${Math.round(day.rainProbPct)}%`;
+  return `${capitalize(longDateEs(day.date))} · ${what} · déficit ${fmt(day.deficitMm)} mm · lluvia ${fmt(day.rainMm)} mm (${chance})`;
 }
 
 // ───────────── Mosaicos ─────────────
@@ -336,7 +354,10 @@ export function todayTiles(ev: Evaluation | null | undefined): Tile[] {
           icon: 'rainy-outline',
           label: 'Lluvia prevista',
           value: `${fmt(ev.rainForecastMm)} mm`,
-          note: `${Math.round(ev.rainProbPct)}% de prob.`,
+          note:
+            ev.rainUsefulProbPct !== null && ev.rainUsefulProbPct !== undefined
+              ? `${ev.rainUsefulProbPct}% de prob. de 4 mm o más`
+              : `${Math.round(ev.rainProbPct)}% de prob.`,
         },
     {
       icon: 'flag-outline',
@@ -345,7 +366,12 @@ export function todayTiles(ev: Evaluation | null | undefined): Tile[] {
       note: ev.windWarning ? 'Fuerte: riega temprano' : 'Normal',
       warn: ev.windWarning,
     },
-    { icon: 'leaf-outline', label: 'Consumo del pasto', value: `${fmt(ev.etcTodayMm)} mm`, note: `ETc · Kc ${fmt(ev.kc, 2)}` },
+    {
+      icon: 'leaf-outline',
+      label: 'Consumo del pasto',
+      value: `${fmt(ev.etcTodayMm)} mm`,
+      note: `ETc · Kc ${fmt(ev.kc, 2)}` + (ev.exposureFactor && ev.exposureFactor !== 1 ? ` · sombra ×${fmt(ev.exposureFactor, 2)}` : ''),
+    },
   ];
 }
 

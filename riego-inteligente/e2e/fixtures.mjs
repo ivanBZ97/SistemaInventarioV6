@@ -98,16 +98,71 @@ export function seed() {
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' };
 
 /**
- * Ninguna prueba sale a internet: la nube de Tuya y GitHub se simulan, y cualquier otra consulta se corta (la app
- * debe funcionar con lo que tiene guardado).
+ * Escenarios de lluvia de los ensambles por día (0 = hoy): qué % de los 100 escenarios llueve y cuántos mm. Por
+ * defecto, casi nada hoy y una lluvia probable pasado mañana (como el pronóstico sembrado).
  */
-export async function mockNetwork(page) {
+export const ENSEMBLE = { 0: [5, 6], 2: [80, 8] };
+
+/** Respuesta del servicio de ensambles de Open-Meteo: un control y 99 miembros por día. */
+function ensembleBody(spec) {
+  const time = [0, 1, 2, 3, 4, 5, 6].map((n) => day(n));
+  const daily = { time };
+  for (let i = 0; i < 100; i++) {
+    const key = i
+      ? `precipitation_sum_member${String(i).padStart(2, '0')}_ecmwf_ifs025_ensemble`
+      : 'precipitation_sum_ecmwf_ifs025_ensemble';
+    daily[key] = time.map((_, n) => {
+      const [wet, mm] = spec[n] ?? [0, 0];
+      return i < wet ? mm : 0;
+    });
+  }
+  return { daily };
+}
+
+/** Respuesta de SoilGrids: suelo franco arenoso (como cerca de Buin), o una celda urbana sin datos. */
+function soilGridsBody(urban) {
+  const values = {
+    clay: [176, 178, 181],
+    sand: [567, 563, 565],
+    silt: [257, 259, 255],
+    wv0033: [297, 300, 305],
+    wv1500: [132, 132, 137],
+  };
+  const depths = [
+    [0, 5],
+    [5, 15],
+    [15, 30],
+  ];
+  return {
+    properties: {
+      layers: Object.entries(values).map(([name, means]) => ({
+        name,
+        unit_measure: { d_factor: 10 },
+        depths: depths.map(([top, bottom], i) => ({
+          range: { top_depth: top, bottom_depth: bottom, unit_depth: 'cm' },
+          values: { mean: urban ? null : means[i] },
+        })),
+      })),
+    },
+  };
+}
+
+/**
+ * Ninguna prueba sale a internet: la nube de Tuya, GitHub, los ensambles de Open-Meteo y SoilGrids se simulan, y
+ * cualquier otra consulta se corta (la app debe funcionar con lo que tiene guardado). `ensemble: null` simula que
+ * el servicio de ensambles no responde.
+ */
+export async function mockNetwork(page, { ensemble = ENSEMBLE } = {}) {
   const json = (route, body) =>
     route.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  let soilQueries = 0;
   await page.route(/^https?:\/\/(?!localhost)/, (route) => {
     const request = route.request();
     const url = request.url();
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
+    if (url.includes('ensemble-api.open-meteo.com')) return ensemble ? json(route, ensembleBody(ensemble)) : route.abort();
+    // El punto del jardín es urbano (sin datos): la app prueba un vecino.
+    if (url.includes('rest.isric.org')) return json(route, soilGridsBody(++soilQueries === 1));
     if (url.includes('tuyaus.com')) {
       if (url.includes('/token')) return json(route, { success: true, result: { access_token: 'TOKEN', expire_time: 7200 } });
       if (url.includes('/shadow/properties')) {

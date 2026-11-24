@@ -58,7 +58,8 @@ export class SensorSectionComponent {
         ? `Húmedo ${pct(wet)} · seco ${pct(dry)}: están muy juntos; repite con el suelo bien regado y cuando toque regar.`
         : `Húmedo: ${pct(wet)} · toca regar: ${pct(dry)}. Marca el «húmedo» a la mañana siguiente de un riego profundo y el «seco» el día que la app diga que toca regar.`;
     }
-    if (!cal.provisional) return `Húmedo (déficit 0): ${pct(cal.wet)} · toca regar (${this.form.threshold()} mm): ${pct(cal.dry)}.`;
+    if (!cal.provisional)
+      return `Húmedo (déficit 0): ${pct(cal.wet)} · toca regar (${decimal(this.form.effectiveThreshold())} mm): ${pct(cal.dry)}.`;
     const [missing, when] =
       wet === undefined
         ? ['húmedo', 'a la mañana siguiente de un riego profundo']
@@ -89,7 +90,7 @@ export class SensorSectionComponent {
     }
     this.busy.set(true);
     try {
-      return await this.soil.read({ ...this.form.saved, thresholdMm: this.form.threshold(), soilSensor: sensor }, true);
+      return await this.soil.read({ ...this.form.saved, ...this.form.thresholdSettings(), soilSensor: sensor }, true);
     } catch (e) {
       this.report.set({ lines: [`No se pudo leer el sensor: ${tuyaErrorText(e)}.`], error: true });
       return null;

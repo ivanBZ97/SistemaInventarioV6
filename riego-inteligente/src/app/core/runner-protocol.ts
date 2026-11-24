@@ -27,6 +27,8 @@ export const RUNNER_KV = {
   sensorReading: 'sensorReading',
   sensorHistory: 'sensorHistory',
   tuyaToken: 'tuyaToken',
+  /** Escenarios de lluvia de los ensambles (se piden cada 3 h). */
+  ensemble: 'ensemble',
 } as const;
 
 /** Lo que la app le entrega al worker para evaluar con la app cerrada. */

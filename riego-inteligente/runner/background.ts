@@ -4,6 +4,7 @@
 import {
   ACTION_TYPE_ID,
   applyRainOverrides,
+  exposureFactor,
   morningTimeOf,
   planNotifications,
   reconcileObservedEt0,
@@ -11,6 +12,8 @@ import {
   toISODate,
 } from '../src/app/core/irrigation-core';
 import { fetchForecast } from '../src/app/core/open-meteo';
+import { ENSEMBLE_MAX_AGE_MS, ENSEMBLE_MAX_STALE_MS, type EnsembleRain, fetchEnsemble, withEnsemble } from '../src/app/core/rain-chance';
+import { baseThreshold } from '../src/app/core/soil-water';
 import { applyObservedRain, mergeObservedRain } from '../src/app/core/agromet';
 import { type DmcStore, backgroundStationMaxAgeMs, loadStationData, storeChanged, withLiveRain, withStationEt0 } from '../src/app/core/dmc';
 import { type TuyaToken, readTuyaSoil } from '../src/app/core/tuya';
@@ -90,6 +93,33 @@ async function stationData(cfg: DmcConfig, settings: Settings, today: ISODate, m
   return data;
 }
 
+// ───────────── Escenarios de lluvia (ensambles) ─────────────
+
+interface CachedEnsemble {
+  fetchedAt: number;
+  lat: number;
+  lon: number;
+  rain: EnsembleRain;
+}
+
+/**
+ * Escenarios de lluvia para la probabilidad de lluvia útil: se piden cada 3 h, como en la app (el worker corre cada
+ * ~15 min). Si fallan, sirven los guardados de hasta un día; si no hay, la pausa usa la regla de los modelos.
+ */
+async function ensembleRain(settings: Settings, now: number): Promise<EnsembleRain | null> {
+  const prev = kvGet<CachedEnsemble>(RUNNER_KV.ensemble);
+  const cached = prev && prev.lat === settings.latitude && prev.lon === settings.longitude ? prev : null;
+  const age = cached ? now - cached.fetchedAt : Infinity;
+  if (cached && age < ENSEMBLE_MAX_AGE_MS) return cached.rain;
+  try {
+    const rain = await fetchEnsemble(settings.latitude, settings.longitude);
+    kvSet(RUNNER_KV.ensemble, { fetchedAt: now, lat: settings.latitude, lon: settings.longitude, rain } satisfies CachedEnsemble);
+    return rain;
+  } catch {
+    return cached && age < ENSEMBLE_MAX_STALE_MS ? cached.rain : null;
+  }
+}
+
 // ───────────── Sensor de suelo ─────────────
 
 const SENSOR_EVERY_MS = 60 * 60_000;
@@ -126,7 +156,7 @@ async function withSensor(state: WaterState, settings: Settings, today: ISODate,
     kvSet(RUNNER_KV.sensorReading, cached);
     saveSensorSample({ t: cached.updatedAt, soil: cached.soilPct, tempC: r.status.tempC, battery: r.status.battery }, now);
   }
-  return applySensorReading(state, cfg, { soilPct: cached.soilPct, at: cached.updatedAt }, settings.thresholdMm, today, now);
+  return applySensorReading(state, cfg, { soilPct: cached.soilPct, at: cached.updatedAt }, baseThreshold(settings), today, now);
 }
 
 // ───────────── Evaluación periódica ─────────────
@@ -143,7 +173,10 @@ async function refreshIrrigation(): Promise<void> {
     return;
   }
   const { settings } = snap;
-  const forecast = await fetchForecast(settings.latitude, settings.longitude);
+  const [forecast, ensemble] = await Promise.all([
+    fetchForecast(settings.latitude, settings.longitude),
+    ensembleRain(settings, Date.now()),
+  ]);
   const today = toISODate(new Date());
 
   // Lluvia medida en días pasados: estación DMC y, si no hay, INIA Agromet.
@@ -161,10 +194,12 @@ async function refreshIrrigation(): Promise<void> {
   let weather = applyRainOverrides(measured, snap.rainOverrides, today);
   // ET0 medida y, para hoy, la lluvia que ya cayó (pausa o descuenta el riego del aviso de la mañana).
   if (dmc) weather = withLiveRain(withStationEt0(weather, dmc.et0, dmc.correction, today), dmc.live, today);
+  // Probabilidad de lluvia útil de hoy en adelante.
+  weather = withEnsemble(weather, ensemble, today);
 
   // Días ya contados con lluvia/ET0 del modelo → se corrigen en memoria (la app lo guarda al abrirse).
   const rain = reconcileObservedRain(snap.state, snap.history ?? [], Object.fromEntries(observed), snap.rainOverrides);
-  const reconciled = reconcileObservedEt0(rain.state, rain.history, Object.fromEntries(dmc?.et0 ?? [])).state;
+  const reconciled = reconcileObservedEt0(rain.state, rain.history, Object.fromEntries(dmc?.et0 ?? []), exposureFactor(settings)).state;
   const state = await withSensor(reconciled, settings, today, Date.now()).catch(() => reconciled);
 
   const { notifications, morningFor } = planNotifications({ state, settings, weather, now: new Date() });

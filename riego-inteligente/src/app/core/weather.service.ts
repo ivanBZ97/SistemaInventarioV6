@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { StorageService } from './storage.service';
 import { STORAGE } from './storage-keys';
 import { fetchForecastWithMeta } from './open-meteo';
+import { ENSEMBLE_MAX_AGE_MS, ENSEMBLE_MAX_STALE_MS, type EnsembleRain, fetchEnsemble, withEnsemble } from './rain-chance';
 import { applyObservedRain, mergeObservedRain } from './agromet';
 import {
   type DmcStore,
@@ -33,9 +34,15 @@ interface IniaRain {
   observed: Record<ISODate, number>;
 }
 
+/** Escenarios de lluvia de los ensambles (probabilidad de lluvia útil), con la hora en que se pidieron. */
+interface EnsembleCache {
+  fetchedAt: string;
+  rain: EnsembleRain;
+}
+
 /**
- * Lo que se guarda entre sesiones: el pronóstico de los modelos y la lluvia de INIA para una ubicación. Lo medido
- * por la estación DMC tiene su propio almacén y se vuelve a combinar en cada consulta.
+ * Lo que se guarda entre sesiones: el pronóstico de los modelos, sus escenarios por ensambles y la lluvia de INIA
+ * para una ubicación. Lo medido por la estación DMC tiene su propio almacén y se vuelve a combinar en cada consulta.
  */
 interface WeatherCache {
   fetchedAt: string;
@@ -44,6 +51,7 @@ interface WeatherCache {
   modelDays?: DailyWeather[];
   elevationM?: number | null;
   inia?: IniaRain;
+  ensemble?: EnsembleCache;
 }
 
 export interface WeatherResult {
@@ -66,6 +74,8 @@ export interface WeatherResult {
   station: StationStatus | null;
   /** Estación de respaldo en uso porque la elegida no publica. */
   backup: StationSource | null;
+  /** Hay escenarios de los ensambles: la pausa por lluvia usa la probabilidad de lluvia útil. */
+  ensemble: boolean;
 }
 
 /** Resultado cuando no hay clima disponible (sin red y sin nada guardado). */
@@ -81,6 +91,7 @@ export const NO_WEATHER: WeatherResult = {
   liveRain: null,
   station: null,
   backup: null,
+  ensemble: false,
 };
 
 export interface ForecastOptions {
@@ -116,7 +127,11 @@ export class WeatherService {
     const cached: ModelForecast | null =
       sameSpot && cache?.modelDays ? { days: cache.modelDays, elevationM: cache.elevationM ?? null, fetchedAt: cache.fetchedAt } : null;
 
-    const { model, stale, fresh } = await this.modelForecast(settings, cached, force);
+    // El pronóstico y sus escenarios por ensambles se piden a la vez (cada uno con su propio respaldo guardado).
+    const [{ model, stale, fresh }, ensemble] = await Promise.all([
+      this.modelForecast(settings, cached, force),
+      this.ensembleForecast(settings, sameSpot ? (cache?.ensemble ?? null) : null, force, offline),
+    ]);
     // La lluvia de INIA se pide junto con el pronóstico: con un pronóstico nuevo, se vuelve a pedir.
     let inia = fresh ? undefined : cache?.inia;
 
@@ -152,8 +167,8 @@ export class WeatherService {
       }
     }
 
-    // Se guarda solo lo que cambió: un pronóstico nuevo o la lluvia de INIA recién pedida.
-    if (fresh || inia !== cache?.inia) {
+    // Se guarda solo lo que cambió: un pronóstico nuevo, sus escenarios o la lluvia de INIA recién pedida.
+    if (fresh || ensemble.fresh || inia !== cache?.inia) {
       await this.storage.set<WeatherCache>(STORAGE.weatherCache, {
         fetchedAt: model.fetchedAt,
         lat: settings.latitude,
@@ -161,6 +176,7 @@ export class WeatherService {
         modelDays: model.days,
         elevationM: model.elevationM,
         inia,
+        ensemble: ensemble.cache ?? undefined,
       });
     }
 
@@ -170,8 +186,9 @@ export class WeatherService {
     const correction = station?.correction ?? null;
     const liveRain = station?.live ?? null;
     const et0Helper = station?.et0FilledFrom?.name;
+    const rain = ensemble.cache?.rain ?? null;
     return {
-      days: withLiveRain(withStationEt0(measured.days, et0, correction, today), liveRain, today),
+      days: withEnsemble(withLiveRain(withStationEt0(measured.days, et0, correction, today), liveRain, today), rain, today),
       stale,
       elevationM: model.elevationM,
       rainSource: measured.source,
@@ -182,6 +199,7 @@ export class WeatherService {
       liveRain,
       station: station?.status ?? null,
       backup: station?.backup ?? null,
+      ensemble: !!rain && Object.keys(rain).some((date) => date >= today),
     };
   }
 
@@ -220,6 +238,26 @@ export class WeatherService {
     } catch (e) {
       if (!cached) throw e;
       return { model: cached, stale: true, fresh: false };
+    }
+  }
+
+  /**
+   * Escenarios de lluvia de los ensambles: los guardados si son recientes (3 h, como el pronóstico); si no, se piden
+   * de nuevo. Sin red sirven los guardados de hasta un día; si no hay, la pausa por lluvia usa la regla de los modelos.
+   */
+  private async ensembleForecast(
+    settings: Settings,
+    cached: EnsembleCache | null,
+    force: boolean,
+    offline: boolean,
+  ): Promise<{ cache: EnsembleCache | null; fresh: boolean }> {
+    const age = cached ? Date.now() - Date.parse(cached.fetchedAt) : Infinity;
+    if (offline || (!force && age < ENSEMBLE_MAX_AGE_MS)) return { cache: age < ENSEMBLE_MAX_STALE_MS ? cached : null, fresh: false };
+    try {
+      const rain = await fetchEnsemble(settings.latitude, settings.longitude);
+      return { cache: { fetchedAt: new Date().toISOString(), rain }, fresh: true };
+    } catch {
+      return { cache: age < ENSEMBLE_MAX_STALE_MS ? cached : null, fresh: false };
     }
   }
 

@@ -9,7 +9,9 @@ No tiene servidor: todos los datos y claves quedan en el teléfono.
 
 ## Qué hace
 
-- **Balance hídrico** con ET0 FAO-56 × Kc estacional, lluvia efectiva y riegos registrados.
+- **Balance hídrico** con ET0 FAO-56 × Kc estacional (× factor de sombra), lluvia efectiva y riegos registrados.
+- **Pausa por lluvia con ~200 escenarios** (ensambles de Open-Meteo): solo si es probable que lluevan 4 mm o más.
+- **Umbral automático** según el agua útil del suelo (elegido o detectado con SoilGrids) y las raíces del pasto.
 - **Aviso de la mañana** (06:30–08:30, nunca de noche) con los minutos de riego, también con la app cerrada.
 - **Lluvia medida casi en tiempo real** por la estación más cercana, con estación de respaldo si deja de publicar.
 - **Sensor de suelo**: su lectura calibrada puede reemplazar al cálculo; se guarda un historial de un año.
@@ -30,6 +32,8 @@ riego-inteligente/
 │   │   ├── open-meteo.ts · agromet.ts   # clientes de pronóstico e INIA
 │   │   ├── dmc.ts + dmc/                # estaciones de la DMC (api, estaciones, lluvia, ET0, almacén, diagnóstico)
 │   │   ├── tuya.ts · sha256.ts          # nube de Tuya (firma HMAC propia)
+│   │   ├── rain-chance.ts               # probabilidad de lluvia útil con los ensambles de Open-Meteo
+│   │   ├── soil-water.ts                # umbral automático (FAO-56) y suelo de la zona (SoilGrids)
 │   │   ├── soil-sensor.ts               # calibración del sensor y cuándo reemplaza al balance
 │   │   ├── sensor-history.ts            # historial de mediciones
 │   │   ├── runner-protocol.ts           # contrato app ↔ worker (eventos, claves, tipos)
@@ -61,11 +65,11 @@ Principios:
 | Regla                            | Implementación                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Kc                               | Primavera (sep–nov) 0.80 · Verano (dic–feb) 0.85 · Otoño (mar–may) 0.70 · Invierno (jun–ago) 0.55                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ETc                              | `ET0 × Kc`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ETc                              | `ET0 × Kc × factor de exposición` (Ajustes → Sol sobre el pasto: pleno sol 1 · media sombra 0,8 · sombra 0,65, factor de microclima de WUCOLS)                                                                                                                                                                                                                                                                                                                                                          |
 | Balance                          | `Déficit_hoy = max(0, Déficit_ayer + ETc_ayer − Lluvia_efectiva_ayer − Riego_ayer)`; lluvia efectiva = 80 % si > 2 mm, si no 0                                                                                                                                                                                                                                                                                                                                                                          |
-| Umbral / minutos                 | `déficit ≥ 8 mm` (configurable 6–12) → `round(déficit / tasa)` min (tasa por defecto 0.6 mm/min)                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Bloqueo lluvia                   | prob. máx ≥ 50 % **o** ≥ 4 mm pronosticados ⇒ "Riego pausado por pronóstico de lluvia"; con estación, ≥ 4 mm ya medidos hoy ⇒ "Riego pausado por lluvia", y ≥ 0,5 mm en la última hora ⇒ "Riego pausado: está lloviendo"                                                                                                                                                                                                                                                                                |
-| Espera la lluvia de mañana       | si mañana la lluvia es muy probable (≥ 70 %) y abundante (mediana ≥ 5 mm), y tras sumar el consumo de hoy deja el déficit bajo la mitad del umbral, hoy no se riega ("🌧️ Hoy no riegues: mañana llueve"); solo si el déficit no pasa 3 mm sobre el umbral entretanto, y nunca con siembra de todo el jardín                                                                                                                                                                                             |
+| Umbral / minutos                 | `déficit ≥ umbral` → `round(déficit / tasa)` min (tasa por defecto 0.6 mm/min). Umbral fijo (8 mm por defecto, 6–12) o **automático** (FAO-56): `p × agua útil × raíces`, con el agua útil de la textura del suelo (tabla 19; o la de SoilGrids, acotada a ese rango), raíces de 10 cm (pasto nuevo) o 15 cm (establecido) y `p = 0,40 + 0,04 × (5 − ETc)` (tabla 22 y su corrección por consumo); entre 3 y 14 mm                                                                                      |
+| Bloqueo lluvia                   | con ensambles, si **≥ 50 % de los escenarios da ≥ 4 mm** ⇒ "Riego pausado por pronóstico de lluvia" (sin ensambles: prob. máx ≥ 50 % **o** ≥ 4 mm pronosticados); hoy, con estación, los escenarios se reducen a lo que falta del día según el reparto horario del pronóstico. Con estación, ≥ 4 mm ya medidos hoy ⇒ "Riego pausado por lluvia", y ≥ 0,5 mm en la última hora ⇒ "Riego pausado: está lloviendo"                                                                                         |
+| Espera la lluvia de mañana       | si mañana es muy probable que llueva lo necesario para dejar el déficit (con el consumo de hoy) bajo la mitad del umbral, al menos 5 mm de lluvia: con ensambles, ≥ 70 % de los escenarios lo traen; sin ellos, prob. ≥ 70 % y la mediana alcanza. Entonces hoy no se riega ("🌧️ Hoy no riegues: mañana llueve"); solo si el déficit no pasa 3 mm sobre el umbral entretanto, y nunca con siembra de todo el jardín                                                                                     |
 | Pronóstico con el pasto muy seco | si el déficit ya supera en más de 3 mm el umbral, un pronóstico de lluvia ya no pausa el riego (la lluvia medida o que está cayendo sí); así esperar una lluvia que no llega nunca seca el pasto de más                                                                                                                                                                                                                                                                                                 |
 | Registrar riego                  | se indican los minutos regados (por defecto, los recomendados): repone minutos × tasa; si fue menos, queda déficit. Se puede deshacer                                                                                                                                                                                                                                                                                                                                                                   |
 | Avisos sin sonido                | opción en Ajustes: el aviso de "Hoy no hace falta regar" llega por un canal silencioso                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -157,6 +161,18 @@ automáticamente" la recalcula al volver a la app si te moviste más de 10 km (s
 - **Open-Meteo multi-modelo:** pide ECMWF IFS, GFS e ICON en la misma consulta; promedia ET0, temperatura y
   viento, y usa la mediana para la lluvia (los modelos sin dato no cuentan). Si ningún modelo entrega probabilidad de lluvia, se
   estima como el % de modelos que pronostican ≥ 1 mm.
+- **Probabilidad de lluvia útil (ensambles de Open-Meteo, sin clave):** la "probabilidad de lluvia" de los modelos
+  es la de que caiga algo (> 0,1 mm) en alguna hora, y pausaba el riego por lloviznas que no reponían nada. La app
+  pide además `ensemble-api.open-meteo.com` con `precipitation_sum` de cuatro sistemas (ECMWF IFS ENS, Google
+  WeatherNext 2, ECMWF AIFS ENS y NOAA GEFS: ~200 escenarios, 10 días, ~3 KB comprimido) y cuenta qué parte de
+  ellos trae 4 mm o más (o lo necesario para "esperar la lluvia de mañana"). Se pide cada 3 h junto con el
+  pronóstico (app: `weatherCache.ensemble`; worker: CapacitorKV `ensemble`); sin red sirven los guardados de hasta
+  un día y, si no hay, se usa la regla de los modelos.
+- **Suelo de la zona (SoilGrids de ISRIC, sin clave):** con el umbral automático, "Detectar el suelo de mi zona"
+  consulta `rest.isric.org/soilgrids/v2.0/properties/query` (arena, arcilla, limo y retención de agua a 33 y 1500
+  kPa en 0–30 cm). Las zonas urbanas no tienen datos: entonces prueba cuatro puntos vecinos a ~2 km. La textura
+  sale del triángulo USDA (agrupado como la tabla de FAO-56) y el agua útil de SoilGrids se acota al rango de esa
+  textura. También se puede elegir el suelo a mano.
 - **Lluvia observada sin clave (Dirección Meteorológica de Chile):** Ajustes → "Usar la estación más cercana"
   elige la estación automática (EMA) de la DMC más próxima (en Buin: El Milagro, código 330160) y lee el recurso
   JSON `…/datosRecientesEma/<código>` (últimas ~12 h, una lectura por minuto).
@@ -244,4 +260,6 @@ todo) en un gráfico en escalones con los niveles de calibración y los riegos, 
   incluirlo en la copia de seguridad de la cuenta de Google del teléfono (`allowBackup`).
 - Las claves viajan únicamente al servicio al que pertenecen, por HTTPS. Los diagnósticos que se pueden copiar
   ocultan usuario y token (`redact`).
+- A los ensambles de Open-Meteo y a SoilGrids se les envía la ubicación redondeada a dos decimales (~1 km): sus
+  celdas son de 25 km y 250 m, así que la posición exacta del jardín no hace falta.
 - El APK es de depuración y se instala fuera de Play Store: está pensado para uso personal.

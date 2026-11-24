@@ -67,7 +67,7 @@
       </div>
       <div class="scale md-body-small md-variant">
         <span>Crítico</span>
-        <span class="scale-thr" [style.left.%]="thresholdPct()">Riego · {{ fmt(threshold()) }} mm</span>
+        <span class="scale-thr" [style.left.%]="thresholdLabelPct()">Riego · {{ fmt(threshold()) }} mm</span>
         <span>Pleno</span>
       </div>
       @if (s.state.source !== 'model' || s.rainSource || s.et0Source || s.sensor || s.sensorError) {

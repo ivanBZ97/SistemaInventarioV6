@@ -14,6 +14,7 @@ import {
   tuyaToken,
 } from './tuya';
 import { deficitFromSensor } from './soil-sensor';
+import { baseThreshold } from './soil-water';
 import { type SensorSample, mergeSamples, samplesFromLogs } from './sensor-history';
 import type { Settings, SoilReading, SoilSensorConfig } from './models';
 
@@ -79,7 +80,7 @@ export class TuyaSoilSensorProvider implements SoilSensorProvider {
       battery: status.battery,
       // La calibración y el umbral pueden cambiar sin volver a consultar el sensor.
       // Un sensor que solo sirve de termómetro no entrega déficit: su humedad no es confiable.
-      deficitMm: cfg.tempOnly ? null : deficitFromSensor(status.soilPct, cfg, settings.thresholdMm),
+      deficitMm: cfg.tempOnly ? null : deficitFromSensor(status.soilPct, cfg, baseThreshold(settings)),
     };
   }
 

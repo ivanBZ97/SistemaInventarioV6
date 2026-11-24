@@ -5,7 +5,18 @@ import { BackgroundService } from '../../core/background.service';
 import { DEFAULT_SETTINGS, MORNING, THRESHOLD_MAX_MM, THRESHOLD_MIN_MM, clamp } from '../../core/irrigation-core';
 import { pad2 } from '../../core/format';
 import { calibrationPoints } from '../../core/soil-sensor';
-import type { AgrometConfig, DmcAuth, DmcConfig, Settings, SoilSensorConfig, TuyaRegion } from '../../core/models';
+import { DEFAULT_STAGE, type ThresholdSettings, baseThreshold } from '../../core/soil-water';
+import type {
+  AgrometConfig,
+  DmcAuth,
+  DmcConfig,
+  Exposure,
+  LawnStage,
+  Settings,
+  SoilInfo,
+  SoilSensorConfig,
+  TuyaRegion,
+} from '../../core/models';
 import { SnackbarService } from '../../ui/snackbar.service';
 
 const DEFAULT_MORNING_TIME = `${pad2(MORNING.hour)}:${pad2(MORNING.minute)}`;
@@ -23,7 +34,23 @@ export class SettingsForm {
   private snackbar = inject(SnackbarService);
 
   // ───────────── Riego ─────────────
+  /** Umbral manual (se usa mientras el automático esté apagado). */
   readonly threshold = signal(DEFAULT_SETTINGS.thresholdMm);
+  /** Umbral automático: según el suelo, las raíces y el consumo del día. */
+  readonly thresholdAuto = signal(false);
+  readonly soil = signal<SoilInfo | undefined>(undefined);
+  readonly lawnStage = signal<LawnStage>(DEFAULT_STAGE);
+  /** Sol directo sobre el pasto (a la sombra consume menos). */
+  readonly exposure = signal<Exposure>('sun');
+  /** Ajustes del umbral tal como están en pantalla. */
+  readonly thresholdSettings = computed<ThresholdSettings>(() => ({
+    thresholdMm: this.threshold(),
+    thresholdAuto: this.thresholdAuto(),
+    soil: this.soil(),
+    lawnStage: this.lawnStage(),
+  }));
+  /** Umbral que rige con lo que está en pantalla (el automático, sin la corrección por el consumo de cada día). */
+  readonly effectiveThreshold = computed(() => baseThreshold(this.thresholdSettings()));
   /** Tasa del aspersor (mm/min); NaN mientras el campo está vacío. */
   readonly rate = signal(DEFAULT_SETTINGS.sprinklerRateMmMin);
   readonly area = signal<number | null>(null);
@@ -94,6 +121,10 @@ export class SettingsForm {
   async load(): Promise<void> {
     const { settings: s, elevationM } = await this.engine.ready();
     this.threshold.set(s.thresholdMm);
+    this.thresholdAuto.set(!!s.thresholdAuto);
+    this.soil.set(s.soil);
+    this.lawnStage.set(s.lawnStage ?? DEFAULT_STAGE);
+    this.exposure.set(s.exposure ?? 'sun');
     this.rate.set(s.sprinklerRateMmMin);
     this.area.set(s.lawnAreaM2 ?? null);
     this.lat.set(s.latitude);
@@ -139,6 +170,11 @@ export class SettingsForm {
     const agromet = this.agromet();
     await this.apply({
       thresholdMm: clamp(this.threshold(), THRESHOLD_MIN_MM, THRESHOLD_MAX_MM),
+      // Lo nuevo solo se guarda si se usa: los ajustes de quien no lo toca quedan como antes.
+      thresholdAuto: this.thresholdAuto() || undefined,
+      soil: this.soil(),
+      lawnStage: this.lawnStage() === DEFAULT_STAGE ? undefined : this.lawnStage(),
+      exposure: this.exposure() === 'sun' ? undefined : this.exposure(),
       sprinklerRateMmMin: rate,
       lawnAreaM2: area !== null && area > 0 ? clamp(area, 1, 100_000) : undefined,
       latitude: clamp(this.lat(), -90, 90),

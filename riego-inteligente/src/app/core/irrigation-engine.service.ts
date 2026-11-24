@@ -5,6 +5,7 @@ import { NO_WEATHER, STATION_LIVE_MAX_AGE_MS, WeatherService, type WeatherResult
 import type { StationSource } from './dmc';
 import { tuyaErrorText } from './tuya';
 import { applySensorReading } from './soil-sensor';
+import { baseThreshold } from './soil-water';
 import { LocationService } from './location.service';
 import { SOIL_SENSOR_PROVIDER } from './soil-sensor.provider';
 import { addDays, toISODate } from './dates';
@@ -18,6 +19,7 @@ import {
   buildChart,
   correctPastRain,
   evaluate,
+  exposureFactor,
   forecastNextIrrigation,
   monthSummary,
   overseedDaysLeft,
@@ -72,6 +74,8 @@ export interface Snapshot {
   station: StationStatus | null;
   /** Estación de respaldo en uso porque la elegida lleva más de 3 h sin publicar. */
   backup: StationSource | null;
+  /** La pausa por lluvia usa la probabilidad de lluvia útil de los ensambles (si no, la regla de los modelos). */
+  ensemble: boolean;
   /** Última lectura del sensor de suelo (si hay uno configurado) y, si falló, por qué. */
   sensor: SoilReading | null;
   sensorError: string | null;
@@ -317,17 +321,19 @@ export class IrrigationEngineService {
     }
     // La lluvia medida por el usuario manda sobre el modelo y la estación.
     const days = applyRainOverrides(weather.days, rainOverrides, today);
+    // El pasto a la sombra consume menos (factor de exposición de Ajustes).
+    const factor = exposureFactor(settings);
 
     // 1) Días ya contabilizados con lluvia o ET0 del modelo: se corrigen con lo medido por la estación.
     const rain = reconcileObservedRain(stored, storedHistory, weather.observedRain, rainOverrides);
-    const et0 = reconcileObservedEt0(rain.state, rain.history, weather.observedEt0);
+    const et0 = reconcileObservedEt0(rain.state, rain.history, weather.observedEt0, factor);
     let state = et0.state;
     let history = et0.history;
     let historyChanged = rain.changed || et0.changed;
 
     // 2) Avanzar el balance hasta hoy; los días que se cierran pasan al historial.
     if (days.length && state.asOf < today) {
-      const rolled = rollForward(state, days, today);
+      const rolled = rollForward(state, days, today, factor);
       state = rolled.state;
       const merged = new Map(history.map((h) => [h.date, h]));
       rolled.days.forEach((d) => merged.set(d.date, d));
@@ -346,7 +352,7 @@ export class IrrigationEngineService {
         state,
         settings.soilSensor,
         sensor && { soilPct: sensor.soilPct, at: sensor.at },
-        settings.thresholdMm,
+        baseThreshold(settings),
         today,
         Date.now(),
       );
@@ -362,7 +368,7 @@ export class IrrigationEngineService {
       evaluation: days.length ? evaluate(state, days, settings, today) : null,
       rainOverrides,
       next: days.length ? forecastNextIrrigation(state, days, settings, today) : null,
-      chart: buildChart(today, history, days, irrigations),
+      chart: buildChart(today, history, days, irrigations, factor),
       irrigations,
       month: monthSummary(today, history, irrigations, settings.lawnAreaM2),
       overseedDaysLeft: overseedDaysLeft(state, today),
@@ -374,6 +380,7 @@ export class IrrigationEngineService {
       liveRain: weather.liveRain,
       station: weather.station,
       backup: weather.backup,
+      ensemble: weather.ensemble,
       sensor,
       sensorError,
       error,
